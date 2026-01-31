@@ -1,0 +1,27 @@
+rate_limit:
+  global_ip:
+    rate: 100
+    window: 1s
+  user:
+    rate: 1000
+    window: 1h
+  login:
+    rate: 5
+    window: 15m
+  endpoints:
+    "/api/v1/auth/refresh":
+      rate: 10
+      window: 1m
+    "/api/v1/auth/logout":
+      rate: 20
+      window: 1m
+
+license:
+  path: "C:\\ProgramData\\TechnoSupport\\VMS\\license\\license.lic"
+  public_key_path: "C:\\ProgramData\\TechnoSupport\\VMS\\license\\license_pub.pem"
+  check_interval: "1h"
+
+audit:
+  spool_dir: "C:\\ProgramData\\TechnoSupport\\VMS\\audit_spool"
+  retention_years: 7
+  max_spool_size_mb: 1024

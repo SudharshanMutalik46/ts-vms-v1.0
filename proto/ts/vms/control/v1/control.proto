@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package ts.vms.control.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/control/v1;controlv1";
+
+service ControlService {
+  // Service Health Check
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+
+  // Camera Onboarding Orchestration
+  // Called by Admin/UI to start an ONVIF scan or add a camera
+  rpc StartDiscovery(StartDiscoveryRequest) returns (StartDiscoveryResponse);
+  rpc AddCamera(AddCameraRequest) returns (AddCameraResponse);
+
+  // Session Management
+  // Called by Media Plane or UI to validate session
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+}
+
+message GetHealthRequest {}
+message GetHealthResponse {
+  string status = 1; // "SERVING", "NOT_SERVING"
+  string version = 2;
+}
+
+message StartDiscoveryRequest {
+  string subnet = 1; // CIDR (e.g., 192.168.1.0/24)
+}
+
+message StartDiscoveryResponse {
+  string scan_id = 1; // ID to subscribe to WS events
+}
+
+message AddCameraRequest {
+  string name = 1;
+  string ip_address = 2;
+  string username = 3;
+  string password = 4;
+  int32 port = 5;
+}
+
+message AddCameraResponse {
+  string camera_id = 1;
+  ts.vms.common.v1.Error error = 2;
+}
+
+message ValidateSessionRequest {
+  string token = 1;
+}
+
+message ValidateSessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  repeated string scopes = 3;
+}

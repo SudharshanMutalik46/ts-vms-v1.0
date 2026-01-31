@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package ts.vms.recording.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/recording/v1;recordingv1";
+
+service RecordingService {
+  // Config
+  rpc StartRecording(StartRecordingRequest) returns (StartRecordingResponse);
+  rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
+
+  // Export
+  rpc CreateExportJob(CreateExportJobRequest) returns (CreateExportJobResponse);
+  rpc GetExportJobStatus(GetExportJobStatusRequest) returns (GetExportJobStatusResponse);
+}
+
+message StartRecordingRequest {
+  string camera_id = 1;
+  string retention_policy_id = 2; // Optional override
+}
+
+message StartRecordingResponse {
+  bool success = 1;
+}
+
+message StopRecordingRequest {
+  string camera_id = 1;
+}
+
+message StopRecordingResponse {
+  bool success = 1;
+}
+
+message CreateExportJobRequest {
+  string camera_id = 1;
+  ts.vms.common.v1.TimeRange range = 2;
+  string format = 3; // "mp4", "mkv"
+}
+
+message CreateExportJobResponse {
+  string job_id = 1;
+}
+
+message GetExportJobStatusRequest {
+  string job_id = 1;
+}
+
+message GetExportJobStatusResponse {
+  string status = 1; // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  string download_url = 2; // Populated when COMPLETED
+  int32 progress_percent = 3;
+}

@@ -1,0 +1,45 @@
+# Binaries
+*.exe
+migrator.exe
+server.exe
+vms-media.exe
+vms-recorder.exe
+vms-ai.exe
+web-server.exe
+node.exe
+python.exe
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs & Spools
+*.log
+audit_spool/
+logs/
+
+# Secrets & Config
+.env
+config/secrets.yaml
+
+# Dependencies
+vendor/
+node_modules/
+__pycache__/
+venv/
+.venv/
+.python-version
+
+# IDE & AI Helpers
+.gemini/
+brain/
+.vscode/
+.idea/
+
+# Testing
+*.test
+coverage.out
+
+# Database
+*.db
+*.sqlite

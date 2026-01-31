@@ -1,0 +1,259 @@
+openapi: 3.1.0
+info:
+  title: Techno Support VMS API
+  version: 1.0.0
+  description: |
+    REST configuration and control API for Techno Support Video Management System.
+    Base URL: /api/v1
+    
+    Authentication: Bearer Token (JWT)
+
+paths:
+  # ============================
+  # CAMERAS
+  # ============================
+  /cameras:
+    get:
+      summary: List cameras
+      tags: [Cameras]
+      parameters:
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of cameras
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cameras:
+                    type: array
+                    items: { $ref: '#/components/schemas/Camera' }
+                  next_page_token: { type: string }
+    post:
+      summary: Create camera
+      tags: [Cameras]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCameraRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Camera' }
+
+  /cameras/{id}:
+    get:
+      summary: Get camera details
+      tags: [Cameras]
+    put:
+      summary: Update camera
+      tags: [Cameras]
+    delete:
+      summary: Delete camera
+      tags: [Cameras]
+
+  /cameras/validate:
+    post:
+      summary: Test connection to camera
+      tags: [Cameras]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip, username, password]
+              properties:
+                ip: { type: string }
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Connection successful
+          content:
+            application/json:
+              schema: { type: object, properties: { success: { type: boolean } } }
+
+  /discovery:
+    get:
+      summary: Discover ONVIF devices on subnet
+      tags: [Cameras]
+      parameters:
+        - name: subnet
+          in: query
+          required: true
+          schema: { type: string }
+
+  # ============================
+  # NVRs
+  # ============================
+  /nvrs:
+    post:
+      summary: Connect new NVR
+      tags: [NVRs]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateNvrRequest' }
+
+  /nvrs/{id}/channels:
+    get:
+      summary: Enumerate NVR channels
+      tags: [NVRs]
+
+  /nvrs/{id}/sync:
+    post:
+      summary: Sync cameras from NVR channels
+      tags: [NVRs]
+
+  # ============================
+  # STREAMING
+  # ============================
+  /stream/{id}/sdp:
+    post:
+      summary: WebRTC Signaling (Whip/Whep style negotiation)
+      tags: [Streaming]
+      requestBody:
+        content:
+          application/sdp:
+            schema: { type: string }
+      responses:
+        '201':
+          content:
+            application/sdp:
+              schema: { type: string }
+
+  /stream/{id}/hls/playlist.m3u8:
+    get:
+      summary: Get HLS Playlist
+      tags: [Streaming]
+      responses:
+        '200':
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  # ============================
+  # RECORDING
+  # ============================
+  /recordings:
+    get:
+      summary: Search recordings
+      tags: [Recording]
+      parameters:
+        - name: camera_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: start
+          in: query
+          schema: { type: string, format: date-time }
+        - name: end
+          in: query
+          schema: { type: string, format: date-time }
+
+  /exports:
+    post:
+      summary: Create export job
+      tags: [Recording]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                camera_id: { type: string }
+                start: { type: string, format: date-time }
+                end: { type: string, format: date-time }
+                format: { type: string, enum: [mp4, mkv] }
+
+  # ============================
+  # EVENTS
+  # ============================
+  /events:
+    get:
+      summary: Query events history
+      tags: [Events]
+      parameters:
+        - name: start
+          in: query
+          schema: { type: string, format: date-time }
+        - name: type
+          in: query
+          schema: { type: string }
+
+  /events/stats:
+    get:
+      summary: Get event statistics
+      tags: [Events]
+      
+  /events/stream:
+    get:
+      summary: WebSocket for real-time events
+      tags: [Events]
+      description: Connect via WS to receive JSON event stream.
+
+  # ============================
+  # AI CONFIG
+  # ============================
+  /cameras/{id}/ai:
+    patch:
+      summary: Update AI configuration
+      tags: [AI]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                active_models: { type: array, items: { type: string } }
+
+  /ai/models:
+    get:
+      summary: List available AI models
+      tags: [AI]
+
+components:
+  schemas:
+    Camera:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        ip: { type: string }
+        status: { type: string, enum: [ONLINE, OFFLINE] }
+    
+    CreateCameraRequest:
+      type: object
+      required: [name, ip, username, password]
+      properties:
+        name: { type: string }
+        ip: { type: string }
+        username: { type: string }
+        password: { type: string }
+        
+    CreateNvrRequest:
+       type: object
+       required: [ip, vendor]
+       properties:
+         ip: { type: string }
+         username: { type: string }
+         password: { type: string }
+         vendor: { type: string }
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []

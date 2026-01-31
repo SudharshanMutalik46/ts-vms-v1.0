@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package ts.vms.events.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/events/v1;eventsv1";
+
+// For Internal Ingestion (AI -> NATS -> Control)
+// This message structure corresponds to the JSON payload on NATS.
+message Event {
+  string id = 1;
+  string camera_id = 2;
+  string type = 3; // "person_detected", "line_crossed", "device_offline"
+  int64 timestamp = 4; // Unix millis
+  map<string, string> metadata = 5; // Flexible key-value pairs
+  Region region = 6; // Optional bounding box
+}
+
+message Region {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+}

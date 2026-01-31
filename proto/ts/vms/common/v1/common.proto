@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package ts.vms.common.v1;
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/common/v1;commonv1";
+
+// Standard Error Model for gRPC
+message Error {
+  int32 code = 1;      // HTTP-like status code (e.g., 400, 404, 500)
+  string message = 2;  // Developer-facing error message
+  string request_id = 3; // Trace ID for debugging
+}
+
+// Pagination Request
+message PaginationRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// Pagination Response
+message PaginationResponse {
+  string next_page_token = 1;
+  int32 total_items = 2; // Optional: Total count if expensive to calculate
+}
+
+// Time Range
+message TimeRange {
+  string start_time = 1; // ISO 8601 RFC 3339
+  string end_time = 2;   // ISO 8601 RFC 3339
+}
+
+// Geo Location (for cameras/sites)
+message GeoLocation {
+  double latitude = 1;
+  double longitude = 2;
+}

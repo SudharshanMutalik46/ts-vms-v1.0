@@ -1,0 +1,11 @@
+# Global Owners
+*       @technosupport/vms-core
+
+# Subsystems
+/proto/         @technosupport/vms-architects
+/docs/          @technosupport/vms-architects
+
+# Services
+/services/media/    @technosupport/vms-media
+/services/recorder/ @technosupport/vms-rust
+/services/control/  @technosupport/vms-go

@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package ts.vms.media.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/media/v1;mediav1";
+
+service MediaService {
+  // Pipeline Management
+  rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
+  rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
+  
+  // Snapshot
+  rpc CaptureSnapshot(CaptureSnapshotRequest) returns (CaptureSnapshotResponse);
+
+  // Stats
+  rpc GetPipelineStats(GetPipelineStatsRequest) returns (GetPipelineStatsResponse);
+}
+
+message StartStreamRequest {
+  string camera_id = 1;
+  string rtsp_url = 2; // Main stream
+  string transport = 3; // "tcp", "udp"
+}
+
+message StartStreamResponse {
+  string pipeline_id = 1;
+  bool already_running = 2;
+  ts.vms.common.v1.Error error = 3;
+}
+
+message StopStreamRequest {
+  string camera_id = 1;
+}
+
+message StopStreamResponse {
+  bool success = 1;
+}
+
+message CaptureSnapshotRequest {
+  string camera_id = 1;
+}
+
+message CaptureSnapshotResponse {
+  bytes image_data = 1; // JPEG binary
+  string mime_type = 2; // "image/jpeg"
+  int64 timestamp = 3;
+}
+
+message GetPipelineStatsRequest {
+  string camera_id = 1;
+}
+
+message GetPipelineStatsResponse {
+  bool running = 1;
+  int32 fps = 2;
+  int64 bitrate_kbps = 3;
+  int64 uptime_seconds = 4;
+}
