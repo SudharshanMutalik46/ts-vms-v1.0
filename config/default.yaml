@@ -25,3 +25,17 @@ audit:
   spool_dir: "C:\\ProgramData\\TechnoSupport\\VMS\\audit_spool"
   retention_years: 7
   max_spool_size_mb: 1024
+
+events:
+  nvr:
+    enabled: false
+    poll_interval_ms: 5000
+    max_inflight_nvrs: 50
+    max_events_per_poll: 200
+    time_budget_ms: 3000
+    backoff_ms: 5000
+    publish_retry_max: 3
+    dedup_ttl_seconds: 300
+    dedup_max_keys: 50000
+    nats_subject: "events.nvr"
+    snapshot_mode: "vendor_ref"

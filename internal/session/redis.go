@@ -41,7 +41,7 @@ func (m *Manager) CreateSession(ctx context.Context, userID, tenantID, sessionID
 	pipe.Expire(ctx, userKey, SessionTTL)
 
 	// 2. Store session details
-	pipe.HSet(ctx, sessionKey, "tenant_id", tenantID, "user_id", userID, "created_at", now)
+	pipe.HMSet(ctx, sessionKey, "tenant_id", tenantID, "user_id", userID, "created_at", now)
 	pipe.Expire(ctx, sessionKey, SessionTTL)
 
 	// 3. Enforce Bounding (Keep only recent MaxSessionsPerUser)

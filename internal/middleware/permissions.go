@@ -96,103 +96,83 @@ func NewPermissionMiddleware(pm PermissionProvider, cam CameraResolver) *Permiss
 	}
 }
 
+// CheckPermission verifies if the user in context has the required permission for the scope
+func (m *PermissionMiddleware) CheckPermission(ctx context.Context, permSlug, scopeType, scopeID string) (bool, error) {
+	ac, ok := GetAuthContext(ctx)
+	if !ok {
+		return false, nil
+	}
+
+	// 1. Fetch Permissions (Cached)
+	cacheKey := fmt.Sprintf("%s:%s", ac.TenantID, ac.UserID)
+	grants, found := m.cache.get(cacheKey)
+	if !found {
+		var err error
+		grants, err = m.permsRepo.GetPermissionsForUser(ctx, ac.TenantID, ac.UserID)
+		if err != nil {
+			return false, err
+		}
+		m.cache.set(cacheKey, grants, 60*time.Second)
+	}
+
+	// 2. Check Permission Exists
+	grant, exists := grants[permSlug]
+	if !exists {
+		return false, nil
+	}
+
+	// 3. Hierarchical Check
+	if scopeType == "tenant" {
+		return grant.TenantWide, nil
+	} else if scopeType == "site" {
+		if grant.TenantWide {
+			return true, nil
+		}
+		_, ok := grant.SiteIDs[scopeID]
+		return ok, nil
+	} else if scopeType == "camera" {
+		// Note: For camera scope, we usually need resolution first.
+		// If scopeID is passed here, we assume it's CAMERA ID? Or SITE ID?
+		// Standard: CheckPermission is usually called AFTER resolution.
+		// If scopeType is "camera", scopeID is "cameraID".
+		// We resolve here.
+		siteID, err := m.cameraResolver.ResolveSiteID(ctx, scopeID)
+		if err != nil {
+			return false, nil // Camera not found or error leads to deny
+		}
+		if grant.TenantWide {
+			return true, nil
+		}
+		_, ok := grant.SiteIDs[siteID]
+		return ok, nil
+	}
+	return false, nil
+}
+
 // RequirePermission returns a middleware that enforces the permission
 // scopeType: "tenant", "site", "camera"
 func (m *PermissionMiddleware) RequirePermission(permSlug string, scopeType string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ac, ok := GetAuthContext(r.Context())
-			if !ok {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-
-			// 1. Fetch Permissions (Cached)
-			cacheKey := fmt.Sprintf("%s:%s", ac.TenantID, ac.UserID)
-			grants, found := m.cache.get(cacheKey)
-			if !found {
-				var err error
-				grants, err = m.permsRepo.GetPermissionsForUser(r.Context(), ac.TenantID, ac.UserID)
-				if err != nil {
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-				m.cache.set(cacheKey, grants, 60*time.Second)
-			}
-
-			// 2. Check Permission Exists
-			grant, exists := grants[permSlug]
-			if !exists {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-
-			// 3. Hierarchical Check
-			if scopeType == "tenant" {
-				// Base existence is enough (implies at least one site or tenant-wide)
-				// Wait, if users only have Site A access, can they list "Tenant Users"?
-				// Ideally "tenant" scope implies TenantWide=true requirement?
-				// The prompt says "Tenant boundary: user can only access resources in tenant_id".
-				// But "RequirePermission('users.list', 'tenant')" usually means "I need tenant-wide access".
-				// Let's enforce: If scope is tenant, you generally need TenantWide access
-				// UNLESS the action is inherently purely tenant-scoped but safe?
-				// Usually "Tenant Admin" has TenantWide=true. "Site Admin" has SiteIDs={...}.
-				// If I ask for "tenant" scope, I usually mean "Access to Tenant Resource".
-				// If I am a Site Admin, can I list Tenant Users? Probably No.
-				if !grant.TenantWide {
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-			} else if scopeType == "site" {
-				// Need Target Site ID from Request
-				// We assume it's in a header or query or context?
-				// Middleware usually doesn't parse body.
-				// Assuming standard "X-Site-ID" header or query param "site_id"?
-				// Prompt says: "Do NOT rely on client-provided tenant/site IDs" (for boundary).
-				// Wait. The client MUST provide which site they want to access.
-				// The SERVER verifies if they have access to THAT site.
-				// Let's assume URL param extraction happen before? No, middleware wraps.
-				// Let's try to extract `site_id` from Query or Header for now.
-				targetSiteID := r.URL.Query().Get("site_id")
-				if targetSiteID == "" {
-					// Fallback context?
-					// If no site specified, maybe listing sites? That would be 'tenant' scope usually?
-					// If endpoint is `/sites/{site_id}/...`, we need valid router to extract params.
-					// Since we are standard `http.Handler`, we don't have Chi/Mux parsing context easily without deps.
-					// Let's assume helper `GetResourceID(r)`?
-					// For strictness, if we can't determine target site, we DENY.
+			var scopeID string
+			if scopeType == "site" {
+				scopeID = r.URL.Query().Get("site_id")
+				if scopeID == "" {
 					http.Error(w, "Forbidden (Target Site Missing)", http.StatusForbidden)
 					return
 				}
-
-				if !grant.TenantWide {
-					if _, ok := grant.SiteIDs[targetSiteID]; !ok {
-						http.Error(w, "Forbidden", http.StatusForbidden)
-						return
-					}
-				}
 			} else if scopeType == "camera" {
-				// Need Target Camera ID
-				cameraID := r.URL.Query().Get("camera_id")
-				if cameraID == "" {
+				scopeID = r.URL.Query().Get("camera_id")
+				if scopeID == "" {
 					http.Error(w, "Forbidden (Target Camera Missing)", http.StatusForbidden)
 					return
 				}
+			}
 
-				// Resolve Camera -> Site
-				siteID, err := m.cameraResolver.ResolveSiteID(r.Context(), cameraID)
-				if err != nil {
-					// If camera doesn't exist or resolver fails
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-
-				if !grant.TenantWide {
-					if _, ok := grant.SiteIDs[siteID]; !ok {
-						http.Error(w, "Forbidden", http.StatusForbidden)
-						return
-					}
-				}
+			allowed, err := m.CheckPermission(r.Context(), permSlug, scopeType, scopeID)
+			if err != nil || !allowed {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
 			}
 
 			next.ServeHTTP(w, r)

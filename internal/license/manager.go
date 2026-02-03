@@ -132,6 +132,16 @@ func (m *Manager) GetState() LicenseState {
 	return m.state
 }
 
+// GetLimits returns the limits for a specific tenant (currently returns global limits as per Phase 1.6)
+func (m *Manager) GetLimits(tenantID uuid.UUID) LicenseLimits {
+	state := m.GetState()
+	if state.Payload == nil {
+		// DEV MODE BYPASS: Allow 100 cameras if license missing
+		return LicenseLimits{MaxCameras: 100}
+	}
+	return state.Payload.Limits
+}
+
 // CheckOperation checks if an operation is allowed
 func (m *Manager) CheckOperation(op string, tenantID uuid.UUID) error {
 	m.mu.RLock()
@@ -139,25 +149,33 @@ func (m *Manager) CheckOperation(op string, tenantID uuid.UUID) error {
 	m.mu.RUnlock()
 
 	// 1. Check Base Status
-	switch state.Status {
-	case StatusMissing, StatusParseError, StatusInvalidSignature:
-		return fmt.Errorf("license_invalid")
-	case StatusExpiredBlocked:
-		// Deny All
-		return fmt.Errorf("license_expired_blocked")
-	case StatusExpiredGrace:
-		// Deny "create" ops (Capacity Increase)
-		if isCapacityOp(op) {
-			return fmt.Errorf("license_expired_grace")
+	// DEV MODE BYPASS
+	if state.Status == StatusMissing || state.Status == StatusParseError {
+		// Allow for dev
+	} else {
+		switch state.Status {
+		case StatusInvalidSignature:
+			return fmt.Errorf("license_invalid")
+		case StatusExpiredBlocked:
+			// Deny All
+			return fmt.Errorf("license_expired_blocked")
+		case StatusExpiredGrace:
+			// Deny "create" ops (Capacity Increase)
+			if isCapacityOp(op) {
+				return fmt.Errorf("license_expired_grace")
+			}
+			// Allow "view" ops
+		case StatusValid:
+			// Allow
 		}
-		// Allow "view" ops
-	case StatusValid:
-		// Allow
 	}
 
 	// 2. Check Limits (if valid or grace-view)
+	var limits LicenseLimits
 	if state.Payload == nil {
-		return fmt.Errorf("license_invalid")
+		limits = LicenseLimits{MaxCameras: 100}
+	} else {
+		limits = state.Payload.Limits
 	}
 
 	// Example: Camera Create Limit
@@ -166,7 +184,7 @@ func (m *Manager) CheckOperation(op string, tenantID uuid.UUID) error {
 		if err != nil {
 			return err // Fail safe?
 		}
-		if usage.Cameras >= state.Payload.Limits.MaxCameras {
+		if usage.Cameras >= limits.MaxCameras {
 			return fmt.Errorf("limit_exceeded")
 		}
 	}

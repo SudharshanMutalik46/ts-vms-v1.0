@@ -80,13 +80,22 @@ We have successfully completed the foundation and security layer of the VMS:
 - **Phase 1.8: Windows Service Integration**
   - Native SCM registration, service manager script, and Event Log integration for the entire stack.
 
+- **Phase 2: Device Integration & Network Adaptations**
+  - **ONVIF & Camera Core**: Secure credential management and bulk provisioning.
+  - **NVR Ecosystem**: Deep integration with Hikvision (ISAPI) and Dahua (JSON-RPC) event streams.
+  - **Windows Native**: Automated firewall orchestration and WMI-based network discovery.
+  - **Health Monitoring**: Continuous RTSP and NVR connectivity probing with Prometheus metrics.
+
 ---
 
 ## 🚀 Quick Start
 
-1. **Prerequisites**: Install Go, PostgreSQL, and Redis.
+1. **Prerequisites**: Install Go, PostgreSQL, Redis, and NATS.
 2. **Setup DB**: Run `.\migrator.exe -up`.
 3. **Build**: Run `go build -o server.exe ./cmd/server`.
-4. **Deploy**: Use `.\scripts\service-manager.ps1 -Action Install` as Administrator.
+4. **Firewall**: Run `.\scripts\firewall-manager.ps1 -Action Install` as Admin.
+5. **Deploy**: Use `.\scripts\service-manager.ps1 -Action Install` as Administrator.
 
-For detailed instructions, see the [Phase 1 to 1.8 Deployment SOP](docs/ops/Phase-1-to-1-8-SOP.md).
+For detailed instructions, see the following SOPs:
+- [Phase 1 to 1.8 Deployment SOP](docs/ops/Phase-1-to-1-8-SOP.md)
+- [Phase 2 Deployment & Verification SOP](docs/ops/Phase-2-SOP.md)

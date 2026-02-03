@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -81,16 +82,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// ... For this step, I will execute the change to AuthHandler assuming DBTX is available, then I will update users.go to use DBTX.
 	// Actually, I can't assign *sql.Tx to *sql.DB.
 	// So step 4a: Update users.go to use DBTX.
+	// 4. Retrieve User
+	// 4. Retrieve User
 	usersRepo := data.UserModel{DB: tx}
-	// Note: Auth Handler uses string TenantID, User Repo expects UUID.
 	tID, err := uuid.Parse(req.TenantID)
 	if err != nil {
+		fmt.Printf("Login Debug: Invalid Tenant UUID: %v\n", err)
 		h.genericError(w)
 		return
 	}
 
 	user, err := usersRepo.GetByEmail(r.Context(), tID, req.Email)
-	if err == data.ErrUserNotFound { // Should probably use ErrUserNotFound from users.go
+	if err == data.ErrUserNotFound {
 		// Dummy Verify for timing safety
 		auth.CheckPassword("dummy", "$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHQ$hashhashhashhashhashhashhashhashhash")
 		h.failWithLockout(w, r, req.TenantID, req.Email)

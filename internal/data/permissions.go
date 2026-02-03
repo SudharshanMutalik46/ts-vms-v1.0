@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"database/sql"
 )
 
 // PermissionGrant defines the scope of a permission
@@ -19,30 +18,23 @@ type PermissionModel struct {
 // It resolves roles -> permissions and aggregates scopes.
 func (m PermissionModel) GetPermissionsForUser(ctx context.Context, tenantID, userID string) (map[string]PermissionGrant, error) {
 	// Query joins: user_roles -> roles -> role_permissions -> permissions
-	// We need to fetch: permission slug, role scope (tenant-wide or specific sites)
-	// Note: In strict RBAC, user_roles usually has (user_id, role_id, tenant_id, site_id).
-	// If site_id is NULL, it's a tenant-wide role (if allowed for that role type).
-
-	// Assumption based on Prompt 1.3 "User Context Injection":
-	// "Roles are assigned via user_roles with scope: tenant scope OR site scope"
-
+	// Updated to match schema: user_roles(user_id, role_id, scope_type, scope_id)
 	query := `
 		SELECT 
-			p.slug,
-			ur.site_id
+			p.name,
+			ur.scope_type,
+			ur.scope_id
 		FROM user_roles ur
 		JOIN roles r ON ur.role_id = r.id
 		JOIN role_permissions rp ON r.id = rp.role_id
 		JOIN permissions p ON rp.permission_id = p.id
-		WHERE ur.user_id = $1 
-		  AND ur.tenant_id = $2
+		WHERE ur.user_id = $1
+		AND (
+			(ur.scope_type = 'tenant' AND ur.scope_id = $2)
+			OR 
+			(ur.scope_type = 'site') 
+		)
 	`
-
-	_ = m.DB.QueryRowContext(ctx, "SELECT set_tenant_context($1)", tenantID) // Ensure context?
-	// Actually, usually we set context on the Tx before calling this.
-	// But `GetPermissionsForUser` takes tenantID explicitly.
-	// Let's assume the caller handles `set_tenant_context` OR we filter by tenant_id in WHERE clause (which we do).
-	// Safe to just run the query since we filter `ur.tenant_id = $2`.
 
 	rows, err := m.DB.QueryContext(ctx, query, userID, tenantID)
 	if err != nil {
@@ -53,29 +45,28 @@ func (m PermissionModel) GetPermissionsForUser(ctx context.Context, tenantID, us
 	perms := make(map[string]PermissionGrant)
 
 	for rows.Next() {
-		var slug string
-		var siteID sql.NullString
+		var name string
+		var scopeType string
+		var scopeID string // UUID as string
 
-		if err := rows.Scan(&slug, &siteID); err != nil {
+		if err := rows.Scan(&name, &scopeType, &scopeID); err != nil {
 			return nil, err
 		}
 
-		grant, exists := perms[slug]
+		grant, exists := perms[name]
 		if !exists {
 			grant = PermissionGrant{
 				SiteIDs: make(map[string]struct{}),
 			}
 		}
 
-		if !siteID.Valid {
-			// NULL site_id means Tenant-Wide for this role assignment
+		if scopeType == "tenant" {
 			grant.TenantWide = true
-		} else {
-			// Specific Site
-			grant.SiteIDs[siteID.String] = struct{}{}
+		} else if scopeType == "site" {
+			grant.SiteIDs[scopeID] = struct{}{}
 		}
 
-		perms[slug] = grant
+		perms[name] = grant
 	}
 
 	if err = rows.Err(); err != nil {
