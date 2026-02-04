@@ -43,3 +43,7 @@ coverage.out
 # Database
 *.db
 *.sqlite
+*.rdb
+*.txt
+**/build/
+**/vcpkg_installed/

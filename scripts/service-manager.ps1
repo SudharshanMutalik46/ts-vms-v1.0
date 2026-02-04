@@ -61,10 +61,10 @@ $Services = @(
         Name    = "TS-VMS-SFU"
         Display = "Techno Support VMS SFU"
         Desc    = "Selective Forwarding Unit (Node.js)"
-        Bin     = "cmd.exe"
-        Args    = "/c `"$InstallRoot\node.exe`" `"$InstallRoot\sfu\main.js`" --config `"$ConfigPath`""
+        Bin     = "$InstallRoot\node.exe"
+        Args    = "`"$InstallRoot\sfu\dist\main.js`""
         Deps    = @("TS-VMS-Control", "TS-VMS-Media")
-        Type    = "Wrapper"
+        Type    = "Node-Native"
     },
     @{
         Name    = "TS-VMS-Recorder"
@@ -162,6 +162,22 @@ function Install-Services {
         # actions= restart/60000 (1m) / restart/60000 (1m) / ""/60000 (Fail)
         sc.exe failure $($svc.Name) reset= 86400 actions= restart/60000/restart/60000//60000 | Out-Null
     }
+
+    # 4. Firewall Rules (Phase 3.4)
+    Write-Host "Configuring Firewall Rules for WebRTC..." -ForegroundColor Cyan
+    $rules = @(
+        @{ Name = "TS-VMS-WebRTC-UDP"; Range = "40000-49999"; Proto = "UDP" },
+        @{ Name = "TS-VMS-PlainTransport-UDP"; Range = "50000-51000"; Proto = "UDP" },
+        @{ Name = "TS-VMS-SFU-API"; Range = "8085"; Proto = "TCP" }
+    )
+
+    foreach ($rule in $rules) {
+        $existing = Get-NetFirewallRule -Name $rule.Name -ErrorAction SilentlyContinue
+        if ($null -eq $existing) {
+            New-NetFirewallRule -DisplayName $rule.Name -Name $rule.Name -Direction Inbound -Action Allow -Protocol $rule.Proto -LocalPort $rule.Range -Description "Allow traffic for $($rule.Name)"
+        }
+    }
+
     Write-Host "Installation Complete." -ForegroundColor Green
 }
 

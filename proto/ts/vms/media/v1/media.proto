@@ -8,34 +8,78 @@ option go_package = "github.com/technosupport/ts-vms/gen/go/media/v1;mediav1";
 
 service MediaService {
   // Pipeline Management
-  rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
-  rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
+  rpc StartIngest(StartIngestRequest) returns (StartIngestResponse);
+  rpc StopIngest(StopIngestRequest) returns (StopIngestResponse);
+  
+  // Stats & Discovery
+  rpc GetIngestStatus(GetIngestStatusRequest) returns (GetIngestStatusResponse);
+  rpc ListIngests(ListIngestsRequest) returns (ListIngestsResponse);
   
   // Snapshot
   rpc CaptureSnapshot(CaptureSnapshotRequest) returns (CaptureSnapshotResponse);
 
-  // Stats
-  rpc GetPipelineStats(GetPipelineStatsRequest) returns (GetPipelineStatsResponse);
+  // Health
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // SFU Egress (Phase 3.4)
+  rpc StartSfuRtpEgress(StartSfuRtpEgressRequest) returns (StartSfuRtpEgressResponse);
+  rpc StopSfuRtpEgress(StopSfuRtpEgressRequest) returns (StopSfuRtpEgressResponse);
 }
 
-message StartStreamRequest {
+message StartIngestRequest {
   string camera_id = 1;
-  string rtsp_url = 2; // Main stream
-  string transport = 3; // "tcp", "udp"
+  string rtsp_url = 2;
+  string variant = 3;
+  bool prefer_tcp = 4;
+  int32 timeout_ms = 5;
 }
 
-message StartStreamResponse {
+message StartIngestResponse {
   string pipeline_id = 1;
   bool already_running = 2;
   ts.vms.common.v1.Error error = 3;
 }
 
-message StopStreamRequest {
+message StopIngestRequest {
   string camera_id = 1;
 }
 
-message StopStreamResponse {
+message StopIngestResponse {
   bool success = 1;
+}
+
+message GetIngestStatusRequest {
+  string camera_id = 1;
+}
+
+message GetIngestStatusResponse {
+  bool running = 1;
+  string state = 2; // STARTING, RUNNING, RECONNECTING, DEGRADED
+  int32 fps = 3;
+  int64 last_frame_age_ms = 4;
+  int32 reconnect_attempts = 5;
+  
+  // HLS Status (Phase 3.2+)
+  string session_id = 6;
+  string hls_state = 7; // OK, DEGRADED, STOPPED
+  int64 last_segment_seq = 8;
+  int64 last_write_time = 9; // Unix timestamp
+  string recent_error_code = 10;
+  int64 disk_free_bytes = 11;
+  string required_action = 12; // e.g., "Clean Disk"
+}
+
+message ListIngestsRequest {}
+
+message ListIngestsResponse {
+  repeated GetIngestStatusResponse ingests = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool ok = 1;
+  string status = 2;
 }
 
 message CaptureSnapshotRequest {
@@ -48,13 +92,24 @@ message CaptureSnapshotResponse {
   int64 timestamp = 3;
 }
 
-message GetPipelineStatsRequest {
+message StartSfuRtpEgressRequest {
+  string camera_id = 1;
+  string room_id = 2; // tenant_id:camera_id
+  uint32 ssrc = 3;
+  uint32 pt = 4; // Payload Type
+  string dst_ip = 5;
+  int32 dst_port = 6;
+}
+
+message StartSfuRtpEgressResponse {
+  bool already_running = 1;
+  ts.vms.common.v1.Error error = 2;
+}
+
+message StopSfuRtpEgressRequest {
   string camera_id = 1;
 }
 
-message GetPipelineStatsResponse {
-  bool running = 1;
-  int32 fps = 2;
-  int64 bitrate_kbps = 3;
-  int64 uptime_seconds = 4;
+message StopSfuRtpEgressResponse {
+  bool success = 1;
 }

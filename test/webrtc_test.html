@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>TS-VMS WebRTC Test</title>
+    <script src="mediasoup-client.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #121212;
+            color: #eee;
+            padding: 20px;
+        }
+
+        video {
+            background: #000;
+            width: 100%;
+            max-width: 800px;
+            border-radius: 8px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        input,
+        button {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #333;
+            color: #fff;
+        }
+
+        button {
+            background: #007bff;
+            cursor: pointer;
+            border: none;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebRTC Live View Test</h1>
+    <div class="controls">
+        <input type="text" id="cameraId" placeholder="Camera ID (UUID)" value="">
+        <input type="text" id="token" placeholder="JWT Token" value="">
+        <button onclick="startView()">Start View</button>
+        <button onclick="stopView()" style="background:#dc3545">Stop View</button>
+    </div>
+    <video id="remoteVideo" autoplay playsinline muted></video>
+    <div id="status">Ready.</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+        let device;
+        let transport;
+        let cameraID;
+        let tenantID;
+        let sessionID;
+
+        function getTenantIdFromToken(token) {
+            try {
+                // Simple Base64Url to Base64 conversion
+                var base64Url = token.split('.')[1];
+                var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                // Pad with '='
+                while (base64.length % 4) {
+                    base64 += '=';
+                }
+
+                // Decode and parse
+                var jsonPayload = window.atob(base64);
+                const payload = JSON.parse(jsonPayload);
+                return payload.tenant_id;
+            } catch (e) {
+                console.error('Token parsing error:', e);
+                // Fail-safe for development: return the known default tenant ID if parsing breaks
+                return '00000000-0000-0000-0000-000000000001';
+            }
+        }
+
+        function generateUUID() { // Simple UUID v4
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        async function startView() {
+            const id = document.getElementById('cameraId').value.trim();
+            let tokenInput = document.getElementById('token').value.trim();
+
+            // Cleanup prefixes if user pasted them
+            if (tokenInput.startsWith("Token: ")) tokenInput = tokenInput.replace("Token: ", "");
+            if (tokenInput.startsWith("Bearer ")) tokenInput = tokenInput.replace("Bearer ", "");
+
+            const token = tokenInput;
+            cameraID = id;
+
+            if (!id || !token) {
+                alert('Camera ID and Token required');
+                return;
+            }
+
+            if (token.split('.').length !== 3) {
+                alert('Invalid Token format (must be a JWT)');
+                return;
+            }
+
+            tenantID = getTenantIdFromToken(token);
+            // ...
+            sessionID = generateUUID();
+            console.log('Session ID:', sessionID);
+            console.log('Tenant ID:', tenantID);
+
+            try {
+                updateStatus('Joining room...');
+                // 1. Join Room & Get Router Rtp Capabilities
+                const joinResp = await fetch(`http://localhost:8080/api/v1/sfu/rooms/${id}/join`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionId: sessionID }) // Fix 8: Send Session ID
+                });
+
+                if (joinResp.status === 429) {
+                    throw new Error('Room is full (max 50 viewers)');
+                }
+                if (!joinResp.ok) throw new Error(`Join failed: ${joinResp.status} ${joinResp.statusText}`);
+
+                const routerRtpCapabilities = await joinResp.json();
+
+                // 2. Load Mediasoup Device
+                device = new mediasoupClient.Device();
+                await device.load({ routerRtpCapabilities });
+                updateStatus('Device loaded.');
+
+                if (device.canProduce('video')) {
+                    // console.warn('We can produce video, but this is a View-Only client.');
+                }
+
+                updateStatus('Device loaded. Connecting WS...');
+
+                // 3. Connect WebSocket for Signaling Events
+                const wsUrl = `ws://localhost:8080/api/v1/sfu/ws?token=${token}`;
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log('WS Connected');
+                    ws.send(JSON.stringify({ type: 'connection-state', state: 'connecting' }));
+                };
+
+                ws.onerror = (e) => console.error('WS Error:', e);
+
+                // 3b. Create Transport on Server
+                const transportResp = await fetch(`http://localhost:8080/api/v1/sfu/rooms/${id}/transports`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!transportResp.ok) throw new Error('Create transport failed');
+                const transportInfo = await transportResp.json();
+
+                // Create client-side transport (only once!)
+                transport = device.createRecvTransport(transportInfo);
+
+                transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+                    try {
+                        await fetch(`http://localhost:8080/api/v1/sfu/transports/${transport.id}/connect`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ dtlsParameters })
+                        });
+                        callback();
+                    } catch (error) {
+                        console.error("Transport connect failed:", error);
+                        errback(error);
+                        fallbackToHLS(cameraID, token);
+                    }
+                });
+
+                transport.on('connectionstatechange', (state) => {
+                    console.log('Transport State:', state);
+                    if (state === 'failed' || state === 'disconnected') {
+                        console.warn('Transport failed, switching to HLS...');
+                        fallbackToHLS(cameraID, token);
+                        ws.send(JSON.stringify({ type: 'connection-state', state: 'failed' }));
+                    } else {
+                        ws.send(JSON.stringify({ type: 'connection-state', state }));
+                    }
+                });
+
+                // ICE Timeout Watchdog
+                setTimeout(() => {
+                    if (transport.connectionState !== 'connected' && transport.connectionState !== 'completed') {
+                        console.warn('ICE Timeout (5s), switching to HLS...');
+                        fallbackToHLS(cameraID, token);
+                    }
+                }, 5000);
+
+                // 5. Consume Video Stream
+                const consumeUrl = `http://localhost:8080/api/v1/sfu/rooms/${id}/transports/${transport.id}/consume`;
+                console.log("Consuming from:", consumeUrl);
+                const consumeResp = await fetch(consumeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ rtpCapabilities: device.rtpCapabilities })
+                });
+
+                if (!consumeResp.ok) {
+                    const errText = await consumeResp.text();
+                    throw new Error(`Consume failed: ${consumeResp.status} ${consumeResp.statusText} - ${errText}`);
+                }
+                const consumerInfo = await consumeResp.json();
+
+                const consumer = await transport.consume({
+                    id: consumerInfo.id,
+                    producerId: consumerInfo.producerId,
+                    kind: consumerInfo.kind,
+                    rtpParameters: consumerInfo.rtpParameters
+                });
+
+                // Attach to video element
+                const video = document.getElementById('remoteVideo');
+                video.srcObject = new MediaStream([consumer.track]);
+                await video.play();
+
+                updateStatus('Streaming live via WebRTC.');
+
+            } catch (e) {
+                console.error("Setup failed:", e);
+                updateStatus('Error: ' + e.message + '. Retrying with HLS...');
+                // Immediate fallback on setup error (e.g. Router capability mismatch)
+                fallbackToHLS(cameraID, token);
+            }
+        }
+
+        let hlsInstance = null;
+
+        async function getSignedHlsUrl(cameraID, sessionID) {
+            const secret = "dev-hls-secret";
+            const kid = "v1";
+            const expiryMinutes = 60;
+            const exp = Math.floor(Date.now() / 1000) + (expiryMinutes * 60);
+            const canonical = `hls|${cameraID}|${sessionID}|${exp}`;
+
+            const encoder = new TextEncoder();
+            const key = await crypto.subtle.importKey(
+                "raw",
+                encoder.encode(secret),
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign"]
+            );
+            const signature = await crypto.subtle.sign(
+                "HMAC",
+                key,
+                encoder.encode(canonical)
+            );
+            const sigHex = Array.from(new Uint8Array(signature))
+                .map(b => b.toString(16).padStart(2, "0"))
+                .join("");
+
+            const query = `sub=${cameraID}&sid=${sessionID}&exp=${exp}&scope=hls&kid=${kid}&sig=${sigHex}`;
+            return `http://localhost:8081/hls/live/${tenantID}/${cameraID}/${sessionID}/playlist.m3u8?${query}`;
+        }
+
+        async function fallbackToHLS(cameraID, token) {
+            updateStatus("Streaming live (HLS Fallback).");
+            const video = document.getElementById('remoteVideo');
+
+            // Get Session ID from hlsd
+            let sessionID;
+            try {
+                const sessionRes = await fetch(`http://localhost:8081/hls/session/${cameraID}`);
+                if (!sessionRes.ok) throw new Error("No active HLS session");
+                const sessionData = await sessionRes.json();
+                sessionID = sessionData.session_id;
+                console.log("Session ID:", sessionID);
+            } catch (e) {
+                console.error("HLS Session Error:", e);
+                updateStatus("HLS Failed: No active session");
+                return;
+            }
+
+            // Construct HLS URL with Signature
+            const tenantID = getTenantIdFromToken(token);
+
+            // Generate valid signature locally (since we have the secret locally for testing)
+            // In prod, this URL would come from the API.
+            // For this test, we replicate the backend signing logic.
+            const secret = "dev-hls-secret";
+            const exp = Math.floor(Date.now() / 1000) + (60 * 60); // 1 hour
+            const kid = "v1";
+
+            // Canonical: hls|{sub}|{sid}|{exp}
+            const canonical = `hls|${cameraID}|${sessionID}|${exp}`;
+
+            const encoder = new TextEncoder();
+            const keyData = encoder.encode(secret);
+            const msgData = encoder.encode(canonical);
+
+            const cryptoKey = await crypto.subtle.importKey(
+                "raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+            );
+            const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
+            const sigHex = Array.from(new Uint8Array(signature))
+                .map(b => b.toString(16).padStart(2, "0"))
+                .join("");
+
+            // Parameters
+            const queryParams = `sub=${cameraID}&sid=${sessionID}&exp=${exp}&scope=hls&kid=${kid}&sig=${sigHex}`;
+            const hlsUrl = `http://localhost:8081/hls/live/${tenantID}/${cameraID}/${sessionID}/playlist.m3u8?${queryParams}`;
+
+            console.log("Loading HLS URL:", hlsUrl);
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    // CRITICAL: Propagate token to segment requests
+                    xhrSetup: function (xhr, url) {
+                        if (url.includes('.mp4') && !url.includes('sig=')) {
+                            // Append the token query string if missing
+                            const separator = url.includes('?') ? '&' : '?';
+                            xhr.open('GET', url + separator + queryParams);
+                        }
+                    }
+                });
+                hls.loadSource(hlsUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                    video.play();
+                });
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    console.error("HLS Fatal Error:", data);
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log("fatal network error encountered, try to recover");
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log("fatal media error encountered, try to recover");
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                hls.destroy();
+                                break;
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = hlsUrl;
+                video.addEventListener('loadedmetadata', function () {
+                    video.play();
+                });
+            }
+        }
+        async function stopView() {
+            const token = document.getElementById('token').value;
+            if (cameraID) {
+                try {
+                    await fetch(`http://localhost:8080/api/v1/sfu/sessions/${cameraID}/leave`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                } catch (e) { }
+                location.reload();
+            }
+        }
+
+        function updateStatus(msg) {
+            document.getElementById('status').innerText = msg;
+        }
+    </script>
+</body>
+
+</html>

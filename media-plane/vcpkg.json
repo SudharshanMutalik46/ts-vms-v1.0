@@ -1,0 +1,13 @@
+{
+    "name": "vms-media",
+    "version-string": "0.1.0",
+    "dependencies": [
+        "grpc",
+        "protobuf",
+        "spdlog",
+        "nlohmann-json",
+        "prometheus-cpp",
+        "gtest"
+    ],
+    "builtin-baseline": "fafcc0e93bfba303e5e48790def745d27e6d449b"
+}

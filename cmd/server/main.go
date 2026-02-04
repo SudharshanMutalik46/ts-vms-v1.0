@@ -23,12 +23,14 @@ import (
 	"github.com/technosupport/ts-vms/internal/discovery"
 	"github.com/technosupport/ts-vms/internal/health"
 	"github.com/technosupport/ts-vms/internal/license"
+	"github.com/technosupport/ts-vms/internal/media"
 	"github.com/technosupport/ts-vms/internal/middleware"
 	"github.com/technosupport/ts-vms/internal/nvr"
 	"github.com/technosupport/ts-vms/internal/platform/paths"
 	"github.com/technosupport/ts-vms/internal/platform/windows"
 	"github.com/technosupport/ts-vms/internal/ratelimit"
 	"github.com/technosupport/ts-vms/internal/session"
+	"github.com/technosupport/ts-vms/internal/sfu"
 	"github.com/technosupport/ts-vms/internal/tokens"
 	"github.com/technosupport/ts-vms/internal/users"
 
@@ -78,6 +80,19 @@ func main() {
 	dbName := os.Getenv("DB_NAME")
 	redisAddr := os.Getenv("REDIS_ADDR")
 	jwtKey := os.Getenv("JWT_SIGNING_KEY")
+	sfuURL := os.Getenv("SFU_BASE_URL")
+	sfuSecret := os.Getenv("SFU_SECRET")
+	mediaAddr := os.Getenv("MEDIA_PLANE_ADDR")
+
+	if sfuURL == "" {
+		sfuURL = "http://localhost:8085"
+	}
+	if sfuSecret == "" {
+		sfuSecret = "sfu-internal-secret"
+	}
+	if mediaAddr == "" {
+		mediaAddr = "localhost:50051"
+	}
 
 	if jwtKey == "" {
 		jwtKey = "dev-secret-do-not-use-in-prod"
@@ -162,6 +177,15 @@ func main() {
 	// Note: CredService and OnvifClient used internally
 	mediaService := cameras.NewMediaService(mediaRepo, &camRepo, credService, auditService)
 	mediaHandler := api.NewMediaHandler(mediaService)
+
+	// SFU Components (Phase 3.4)
+	sfuClient := sfu.NewClient(sfuURL, sfuSecret)
+	mediaClient, err := media.NewClient(mediaAddr)
+	if err != nil {
+		log.Printf("Warning: Failed to connect to Media Plane: %v", err)
+	}
+	sfuService := cameras.NewSfuService(sfuClient, mediaClient, &camRepo, mediaRepo)
+	sfuHandler := api.NewSfuHandler(sfuService)
 
 	// NVR Components (Phase 2.6)
 	nvrRepo := data.NVRModel{DB: db}
@@ -436,6 +460,20 @@ func main() {
 	mux.Handle("GET /api/v1/alerts/cameras", Protect(permsMiddleware.RequirePermission("alerts.read", "tenant")(http.HandlerFunc(healthHandler.ListAlerts))))
 	mux.Handle("POST /api/v1/cameras/{id}/health-recheck", Protect(permsMiddleware.RequirePermission("camera.health.recheck", "tenant")(http.HandlerFunc(healthHandler.ManualRecheck))))
 
+	// WS Signaling (Phase 3.4 Fix 4)
+	wsHandler := api.NewSfuWsHandler(tokenMgr)
+	mux.HandleFunc("/api/v1/sfu/ws", wsHandler.ServeWS)
+
+	// SFU Routes (Phase 3.4)
+	mux.Handle("GET /api/v1/sfu/rooms/{id}/rtp-capabilities", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.GetRtpCapabilities))))
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/join", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom))))
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.CreateTransport))))
+	mux.Handle("POST /api/v1/sfu/transports/{transportId}/connect", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.ConnectTransport))))
+	mux.Handle("POST /api/v1/sfu/producers", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom)))) // Re-using Join for simpler flow or add explicit?
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/consume", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.Consume))))
+	mux.Handle("POST /api/v1/sfu/consumers/{id}/resume", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.Consume)))) // Placeholder
+	mux.Handle("POST /api/v1/sfu/sessions/{id}/leave", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.LeaveRoom))))
+
 	// NVR Routes (Phase 2.6)
 	// CRUD
 	mux.Handle("POST /api/v1/nvrs", Protect(permsMiddleware.RequirePermission("nvr.write", "tenant")(http.HandlerFunc(nvrHandler.Create))))
@@ -515,9 +553,10 @@ func main() {
 	// Usually audit successful or app-level failures.
 	// Let's put Audit right before Mux (after Rate Limit).
 
-	// RateLimit -> Audit -> Mux
+	// CORS -> RateLimit -> Audit -> Mux
 	auditWrappedMux := auditMiddleware.LogRequest(mux)
-	finalHandler := rlMiddleware.GlobalLimiter(auditWrappedMux)
+	rlWrappedMux := rlMiddleware.GlobalLimiter(auditWrappedMux)
+	finalHandler := middleware.CORS(rlWrappedMux)
 
 	port := os.Getenv("PORT")
 	if port == "" {
