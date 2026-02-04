@@ -88,14 +88,26 @@ We have successfully completed the foundation and security layer of the VMS:
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Windows Native)
 
-1. **Prerequisites**: Install Go, PostgreSQL, Redis, and NATS.
-2. **Setup DB**: Run `.\migrator.exe -up`.
-3. **Build**: Run `go build -o server.exe ./cmd/server`.
-4. **Firewall**: Run `.\scripts\firewall-manager.ps1 -Action Install` as Admin.
-5. **Deploy**: Use `.\scripts\service-manager.ps1 -Action Install` as Administrator.
+1.  **Prerequisites**: Install Go, Node.js, CMake, Visual Studio 2022, GStreamer (MSVC), PostgreSQL, and Redis.
+2.  **Setup DB**: `.\migrator.exe -up`
+3.  **Build All**:
+    *   **Control**: `go build -o bin/vms-control.exe ./cmd/server`
+    *   **SFU**: `cd sfu; npm install; npm run build; cd ..`
+    *   **Media**: (See [SOP](docs/ops/windows-deployment-sop.md) for CMake steps)
+4.  **Run (Dev)**: `.\scripts\dev-restart.ps1`
+5.  **Run (Prod)**: `.\scripts\service-manager.ps1 -Action Install` (Admin)
 
-For detailed instructions, see the following SOPs:
-- [Phase 1 to 1.8 Deployment SOP](docs/ops/Phase-1-to-1-8-SOP.md)
-- [Phase 2 Deployment & Verification SOP](docs/ops/Phase-2-SOP.md)
+For detailed build and deployment instructions, see the **[Windows Deployment SOP](docs/ops/windows-deployment-sop.md)**.
+
+## 🛠️ Tech Stack & Tools
+
+| Component | Technology | Responsibility |
+|-----------|------------|----------------|
+| **Control Plane** | Go 1.25+ | API, Auth, Orchestration (Windows Service) |
+| **Media Plane** | C++ (MSVC) | GStreamer-based RTSP Ingest & Transcoding (D3D11) |
+| **SFU** | Node.js (TypeScript) | WebRTC Signal & Routing (Mediasoup) |
+| **HLS Daemon** | Go | HLS Segment Serving |
+| **Database** | PostgreSQL 14+ | Relational Data & Compliance Logs |
+
