@@ -117,3 +117,17 @@ For detailed build and deployment instructions, see the **[Windows Deployment SO
 | **HLS Daemon** | Go | HLS Segment Serving |
 | **Database** | PostgreSQL 14+ | Relational Data & Compliance Logs |
 
+## 🧩 Service Checklist (What Must Be Running)
+
+| Service Name | Binary / Process | Port | Role |
+| :--- | :--- | :--- | :--- |
+| **PostgreSQL** | `postgres.exe` | `5432` | Primary Database |
+| **Redis** | `redis-server.exe` | `6379` | Session Store & Event Bus |
+| **NATS** | `nats-server.exe` | `4222` | Real-time Messaging Broker |
+| **Control Plane** | `vms-control.exe` | `8080` | Core API & Orchestrator |
+| **Media Plane** | `vms-media.exe` | `50051` | RTSP Ingest & GStreamer Bridge |
+| **SFU Service** | `node.exe` (sfu) | `8085` | WebRTC Selective Forwarding Unit |
+| **HLS Daemon** | `vms-hlsd.exe` | `N/A` | HLS Segment Server |
+| **AI Service** | `vms-ai-mock.exe` | `N/A` | Object Detection (Consumer) |
+
+

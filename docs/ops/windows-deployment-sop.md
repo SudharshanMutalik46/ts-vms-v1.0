@@ -112,6 +112,24 @@ For permanent deployment, install the components as Windows Services.
     .\scripts\service-manager.ps1 -Action Status
     ```
 
+### 4.1 Verification Checklist
+Ensure all the following are active for a fully functional system:
+
+1.  **Infrastructure Services** (Must start first):
+    *   [ ] **PostgreSQL** (Port 5432)
+    *   [ ] **Redis** (Port 6379)
+    *   [ ] **NATS Server** (Port 4222) - *Required for AI & Real-time events*
+
+2.  **Application Services**:
+    *   [ ] **vms-control** (Port 8080) - Core API
+    *   [ ] **vms-media** (Port 50051) - Media Bridge
+    *   [ ] **vms-sfu** (Port 8085) - Node.js WebRTC Engine
+    *   [ ] **vms-hlsd** - HLS Segmenter
+    *   [ ] **vms-ai** (or `ai-mock`) - Object Detection Engine
+
+**Tip:** Use `Get-Process vms-*, postgres, redis-server, nats-server, node` to check status quickly.
+
+
 ## 5. Directory Structure
 The application uses standard Windows paths:
 *   **Binaries**: `C:\Program Files\TechnoSupport\VMS` (or local `bin/` in Dev)
