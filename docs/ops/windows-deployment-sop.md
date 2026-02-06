@@ -74,6 +74,13 @@ npm run build
 go build -o bin/vms-hlsd.exe ./cmd/hlsd
 ```
 
+### 3.5 AI Service (Go Mock Fallback)
+Due to current DLL conflicts in the native C++ build, the system is configured to use the Go Mock AI by default.
+```powershell
+go build -o bin/vms-ai-mock.exe ./cmd/ai-service
+```
+*(Note: `dev-restart.ps1` runs this via `go run` automatically)*
+
 ## 4. Running the System
 
 ### Option A: Development Mode (Recommended for Testing)

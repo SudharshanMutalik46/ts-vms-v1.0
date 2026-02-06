@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <chrono>
+#include <atomic>
 #include "pipeline_fsm.hpp"
 
 namespace ts::vms::media::pipeline {
@@ -58,6 +59,18 @@ public:
     bool StartSfuRtpEgress(const SfuConfig& config);
     void StopSfuRtpEgress();
     bool IsSfuEgressRunning() const;
+    
+    // Metrics (Phase 3.5)
+    struct Metrics {
+        int64_t ingest_latency_ms = 0;
+        int64_t frames_processed = 0;
+        int64_t frames_dropped = 0;
+        int64_t bitrate_bps = 0;
+        uint64_t bytes_in_total = 0;
+        uint32_t pipeline_restarts_total = 0;
+        uint64_t last_frame_ts_ms = 0;
+    };
+    Metrics GetMetrics() const;
 
 private:
     static void OnPadAdded(GstElement* src, GstPad* pad, gpointer data);
@@ -107,6 +120,15 @@ private:
 
     enum class CodecType { UNKNOWN, H264, H265 };
     CodecType codec_type_ = CodecType::UNKNOWN;
+
+    // Metrics Counters (Atomic)
+    std::atomic<int64_t> metrics_frames_processed_{0};
+    std::atomic<int64_t> metrics_frames_dropped_{0};
+    std::atomic<int64_t> metrics_bitrate_bps_{0}; 
+    std::atomic<uint64_t> metrics_bytes_in_total_{0};
+    std::atomic<uint32_t> metrics_restarts_total_{0};
+    std::atomic<uint64_t> metrics_last_frame_unix_ms_{0};
+    std::atomic<int64_t> metrics_ingest_latency_ms_{0};
 };
 
 } // namespace ts::vms::media::pipeline

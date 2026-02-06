@@ -1,45 +1,57 @@
+# check-camera.ps1
+# Check if a specific camera is running
+
 param(
-    [string]$CameraId
+    [string]$CameraId = "6ed6cf65-a421-4f5f-bfa3-363f33dbf23a"
 )
 
-$ErrorActionPreference = "Stop"
-$BaseUrl = "http://localhost:8082/api/v1"
+Write-Host "`n=== Checking Camera Status ===" -ForegroundColor Cyan
+Write-Host "Camera ID: $CameraId`n" -ForegroundColor Yellow
 
-# 1. Generate Dev Token
-Write-Host "Generating Admin Token..."
-$env:JWT_SIGNING_KEY = "dev-secret-do-not-use-in-prod"
-$TokenRaw = (go run scripts/gen-dev-token.go) -join "`n"
-# Extract the token using regex
-if ($TokenRaw -match "Token: ([^\s\r\n]+)") {
-    $Token = $Matches[1]
-}
-else {
-    Write-Error "Failed to parse token from output: $TokenRaw"
-    exit 1
-}
-Write-Host "Token extracted successfully."
-if (-not $Token) { Write-Error "Failed to generate token"; exit 1 }
+# Method 1: Check via gRPC (Media Plane)
+Write-Host "[1] Media Plane Status:" -ForegroundColor Green
+$env:CAM_ID = $CameraId
+go run scripts/check_camera_status.go
 
-# 2. List Cameras (or specific one if ID provided)
-$Headers = @{ "Authorization" = "Bearer $Token" }
-
+# Method 2: Check Prometheus Metrics
+Write-Host "`n[2] Prometheus Metrics:" -ForegroundColor Green
 try {
-    if ($CameraId) {
-        Write-Host "Checking Camera: $CameraId"
-        $Response = Invoke-RestMethod -Uri "$BaseUrl/cameras/$CameraId" -Headers $Headers -Method Get
-        $Response | Format-List
+    $metrics = Invoke-WebRequest -Uri "http://localhost:8080/metrics" -UseBasicParsing
+    $pattern = 'vms_media_ingest_latency_ms\{camera_id="' + $CameraId + '"\}\s+([0-9\.]+)'
+    if ($metrics.Content -match $pattern) {
+        $latency = $matches[1]
+        Write-Host "  [OK] Camera is RUNNING" -ForegroundColor Green
+        Write-Host "  - Latency: ${latency}ms" -ForegroundColor White
+        
+        # Get additional metrics
+        $framesPattern = 'vms_media_frames_processed_total\{camera_id="' + $CameraId + '"\}\s+([0-9\.]+)'
+        if ($metrics.Content -match $framesPattern) {
+            Write-Host "  - Frames Processed: $($matches[1])" -ForegroundColor White
+        }
+        $bitratePattern = 'vms_media_bitrate_bps\{camera_id="' + $CameraId + '"\}\s+([0-9\.]+)'
+        if ($metrics.Content -match $bitratePattern) {
+            $bitrate = [math]::Round($matches[1] / 1000000, 2)
+            Write-Host "  - Bitrate: ${bitrate} Mbps" -ForegroundColor White
+        }
     }
     else {
-        Write-Host "Listing All Cameras..."
-        $Response = Invoke-RestMethod -Uri "$BaseUrl/cameras" -Headers $Headers -Method Get
-        if ($Response.data) {
-            $Response.data | Format-Table -Property id, name, ip_address, port, is_enabled -AutoSize
-        }
-        else {
-            Write-Host "No cameras found for this tenant."
-        }
+        Write-Host "  [FAIL] Camera NOT found in metrics" -ForegroundColor Red
     }
 }
 catch {
-    Write-Error "API Request Failed: $_"
+    Write-Host "  [FAIL] Failed to fetch metrics: $_" -ForegroundColor Red
 }
+
+# Method 3: Check Database
+Write-Host "`n[3] Database Record:" -ForegroundColor Green
+$env:PGPASSWORD = 'ts1234'
+$dbCheck = psql -h localhost -U postgres -d ts_vms -t -c "SELECT name, is_enabled FROM cameras WHERE id = '$CameraId';"
+if ($dbCheck) {
+    Write-Host "  [OK] Camera exists in database" -ForegroundColor Green
+    Write-Host "  $dbCheck" -ForegroundColor White
+}
+else {
+    Write-Host "  [FAIL] Camera NOT found in database" -ForegroundColor Red
+}
+
+Write-Host "`n=== Check Complete ===`n" -ForegroundColor Cyan

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -58,7 +60,9 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 
 	if out != nil {
-		return json.NewDecoder(resp.Body).Decode(out)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("[DEBUG] SFU Client Response (path=%s): %s", path, string(bodyBytes))
+		return json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(out)
 	}
 
 	return nil

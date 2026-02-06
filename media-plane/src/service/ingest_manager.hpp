@@ -18,6 +18,7 @@ struct CameraStatus {
     int64_t last_frame_age_ms;
     int reconnect_attempts;
     pipeline::IngestPipeline::HlsState hls_state;
+    pipeline::IngestPipeline::Metrics metrics;
 };
 
 class IngestManager {

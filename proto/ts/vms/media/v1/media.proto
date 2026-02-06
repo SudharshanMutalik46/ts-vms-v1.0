@@ -67,6 +67,16 @@ message GetIngestStatusResponse {
   string recent_error_code = 10;
   int64 disk_free_bytes = 11;
   string required_action = 12; // e.g., "Clean Disk"
+
+  // Phase 3.5 Metrics
+  int64 ingest_latency_ms = 13;
+  int64 frames_processed = 14;
+  int64 frames_dropped = 15;
+  int64 bitrate_bps = 16;
+  uint64 bytes_in_total = 17;
+  uint32 pipeline_restarts_total = 18;
+  uint64 last_frame_ts_ms = 19; // Unix ms of last buffer presentation ts
+  string camera_id = 20;
 }
 
 message ListIngestsRequest {}

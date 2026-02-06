@@ -2,27 +2,49 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"time"
 
-	"github.com/technosupport/ts-vms/internal/tokens"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
+type Claims struct {
+	TenantID  string `json:"tenant_id"`
+	UserID    string `json:"sub"`
+	TokenType string `json:"token_type"`
+	jwt.RegisteredClaims
+}
+
 func main() {
-	key := "dev-secret-do-not-use-in-prod"
-	mgr := tokens.NewManager(key)
+	key := []byte("dev-secret-do-not-use-in-prod")
 
-	// User: admin (ID from DB ...0002)
-	// Tenant: ...0001
-	// Role: Admin (Permissions are loaded from DB/Redis? No, Permissions are RBAC).
-	// JWT claims usually contain UserID+TenantID. Role/Perms are checked via MW using UserID.
-
-	// I need the exact User UUID.
-	// From previous psql: 00000000-0000-0000-0000-000000000002
 	userID := "00000000-0000-0000-0000-000000000002"
 	tenantID := "00000000-0000-0000-0000-000000000001"
 
-	token, err := mgr.GenerateAccessToken(userID, tenantID)
+	now := time.Now().UTC()
+	claims := Claims{
+		TenantID:  tenantID,
+		UserID:    userID,
+		TokenType: "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)), // 24 Hours!
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ID:        uuid.New().String(),
+			Subject:   userID,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token.Header["kid"] = "v1"
+
+	tokenString, err := token.SignedString(key)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(token)
+
+	fmt.Println("Generated 24h Token:")
+	fmt.Println(tokenString)
+	os.WriteFile("token.txt", []byte(tokenString), 0644)
 }

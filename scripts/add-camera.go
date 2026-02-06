@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -30,9 +31,10 @@ func main() {
 	siteID := uuid.MustParse("950fe99a-a4eb-4d7c-ac58-aaff6ea03d1d")
 	cameraID := uuid.New()
 
-	ip := net.ParseIP("192.168.1.7")
-	name := "Real Camera 1.7"
-	rtspURL := "rtsp://192.168.1.7:554/live/stream1"
+	// Random IP to avoid conflicts
+	ip := net.ParseIP(fmt.Sprintf("192.168.1.%d", time.Now().UnixNano()%255))
+	name := fmt.Sprintf("Cam-%d", time.Now().UnixNano()%1000)
+	rtspURL := fmt.Sprintf("rtsp://%s:554/live/stream1", ip.String())
 
 	fmt.Printf("Adding camera: %s (%s) ID: %s\n", name, ip, cameraID)
 
@@ -40,8 +42,6 @@ func main() {
 	err = db.QueryRowContext(ctx, `
 		INSERT INTO cameras (id, tenant_id, site_id, name, ip_address, port, is_enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT ON CONSTRAINT idx_cameras_unique_net 
-		DO UPDATE SET name = EXCLUDED.name, is_enabled = true
 		RETURNING id`,
 		cameraID, tenantID, siteID, name, ip.String(), 554, true).Scan(&cameraID)
 	if err != nil {

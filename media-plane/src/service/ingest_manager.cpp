@@ -93,7 +93,8 @@ std::optional<CameraStatus> IngestManager::GetStatus(const std::string& camera_i
         it->second->GetFps(),
         it->second->GetLastFrameTimeMs(),
         reconnect_attempts_[camera_id],
-        it->second->GetHlsState()
+        it->second->GetHlsState(),
+        it->second->GetMetrics()
     };
 }
 
@@ -107,7 +108,8 @@ std::vector<CameraStatus> IngestManager::ListIngests() {
             pipeline->GetFps(),
             pipeline->GetLastFrameTimeMs(),
             reconnect_attempts_[id],
-            pipeline->GetHlsState()
+            pipeline->GetHlsState(),
+            pipeline->GetMetrics()
         });
     }
     return list;
@@ -131,7 +133,10 @@ std::optional<IngestManager::Snapshot> IngestManager::CaptureSnapshot(const std:
 IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt) {
     std::lock_guard<std::mutex> lock(map_mutex_);
     auto it = pipelines_.find(camera_id);
-    if (it == pipelines_.end()) return Result::CAMERA_NOT_FOUND;
+    if (it == pipelines_.end()) {
+        spdlog::warn("[IngestManager] StartSfuRtpEgress: Camera {} NOT FOUND in pipelines map. Active pipelines: {}", camera_id, pipelines_.size());
+        return Result::CAMERA_NOT_FOUND;
+    }
 
     if (it->second->IsSfuEgressRunning()) return Result::ALREADY_RUNNING;
 

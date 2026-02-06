@@ -27,5 +27,6 @@ export declare class MediasoupManager {
     resumeConsumer(consumerID: string): Promise<void>;
     cleanupRoom(roomID: string): Promise<void>;
     leaveRoom(roomID: string): Promise<void>;
+    getStats(): Promise<any>;
 }
 //# sourceMappingURL=mediasoup.d.ts.map

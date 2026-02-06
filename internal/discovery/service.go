@@ -69,6 +69,7 @@ func (s *Service) StartDiscovery(ctx context.Context, tenantID uuid.UUID, siteID
 		TargetID:   run.ID.String(),
 		TargetType: "discovery_run",
 		TenantID:   tenantID,
+		Result:     "success",
 		Metadata:   meta,
 	})
 

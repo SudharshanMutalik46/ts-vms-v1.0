@@ -171,7 +171,9 @@ func (m *PermissionMiddleware) RequirePermission(permSlug string, scopeType stri
 
 			allowed, err := m.CheckPermission(r.Context(), permSlug, scopeType, scopeID)
 			if err != nil || !allowed {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"step":"rbac", "error_code":"ERR_RBAC_DENIED"}`))
 				return
 			}
 

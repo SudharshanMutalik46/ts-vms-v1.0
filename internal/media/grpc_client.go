@@ -42,6 +42,13 @@ func (c *Client) StartIngest(ctx context.Context, cameraID, rtspURL string, pref
 	return err
 }
 
+func (c *Client) GetIngestStatus(ctx context.Context, cameraID string) (*mediav1.GetIngestStatusResponse, error) {
+	req := &mediav1.GetIngestStatusRequest{
+		CameraId: cameraID,
+	}
+	return c.client.GetIngestStatus(ctx, req)
+}
+
 func (c *Client) StartSfuRtpEgress(ctx context.Context, cameraID, roomID string, ssrc, pt uint32, dstIP string, dstPort int32) (bool, error) {
 	req := &mediav1.StartSfuRtpEgressRequest{
 		CameraId: cameraID,
@@ -84,4 +91,8 @@ func (c *Client) Health(ctx context.Context) (bool, string, error) {
 		return false, "", err
 	}
 	return resp.Ok, resp.Status, nil
+}
+
+func (c *Client) GRPC() mediav1.MediaServiceClient {
+	return c.client
 }

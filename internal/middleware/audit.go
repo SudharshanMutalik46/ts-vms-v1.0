@@ -43,13 +43,13 @@ func (m *AuditMiddleware) LogRequest(next http.Handler) http.Handler {
 		// Prepare Audit Event
 		evt := audit.AuditEvent{
 			EventID:    uuid.New(),
-			Action:     fmt.Sprintf("http.%s", strings.ToLower(r.Method)),
+			Action:     truncate(fmt.Sprintf("http.%s", strings.ToLower(r.Method)), 100),
 			TargetType: "http_route",
-			TargetID:   r.URL.Path, // Could match route template if available in ctx (mux dependent)
+			TargetID:   truncate(r.URL.Path, 100),
 			Result:     "success",
-			RequestID:  r.Header.Get("X-Request-ID"),
-			ClientIP:   extractIP(r),
-			UserAgent:  r.UserAgent(),
+			RequestID:  truncate(r.Header.Get("X-Request-ID"), 100),
+			ClientIP:   truncate(extractIP(r), 50),
+			UserAgent:  truncate(r.UserAgent(), 255),
 			CreatedAt:  time.Now(),
 		}
 
@@ -59,7 +59,7 @@ func (m *AuditMiddleware) LogRequest(next http.Handler) http.Handler {
 
 		if ww.status >= 400 {
 			evt.Result = "failure"
-			evt.ReasonCode = fmt.Sprintf("http_%d", ww.status)
+			evt.ReasonCode = truncate(fmt.Sprintf("http_%d", ww.status), 50)
 		}
 
 		// Auth Context
@@ -107,4 +107,11 @@ func extractIP(r *http.Request) string {
 	// Wait, 1.4 "ip_hash" was mandatory for limiter keys. 1.5 says "ip_hash... optional".
 	// Let's just return what we have.
 	return ip
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen]
+	}
+	return s
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -17,29 +18,87 @@ func NewSfuHandler(svc *cameras.SfuService) *SfuHandler {
 	return &SfuHandler{Service: svc}
 }
 
-func (h *SfuHandler) writeError(w http.ResponseWriter, msg string, code int) {
+// writeStructuredError writes a standardized JSON error response.
+func (h *SfuHandler) writeStructuredError(w http.ResponseWriter, r *http.Request, err error) {
+	log.Printf("[ERROR] SFU Handler error: %v (REQ:%s)", err, r.Header.Get("X-Request-ID"))
+	// 1. Get X-Request-ID
+	reqID := w.Header().Get("X-Request-ID")
+	if reqID == "" {
+		// Fallback check request header if response header not set yet?
+		reqID = r.Header.Get("X-Request-ID")
+	}
+	if reqID == "" {
+		reqID = "unknown"
+	}
+
+	resp := map[string]interface{}{
+		"req_id": reqID,
+	}
+
+	statusCode := http.StatusInternalServerError
+
+	// 2. Unpack Error
+	if sfuErr, ok := err.(*cameras.SfuStepError); ok {
+		resp["step"] = sfuErr.Step
+		resp["error_code"] = sfuErr.ErrorCode
+		resp["safe_message"] = sfuErr.SafeMessage
+		if sfuErr.RequiredAction != "" {
+			resp["required_action"] = sfuErr.RequiredAction
+		}
+
+		if sfuErr.FallbackHint {
+			resp["fallback_hint"] = true
+			if sfuErr.FallbackURL != "" {
+				resp["fallback_url"] = sfuErr.FallbackURL
+			}
+		} else {
+			resp["fallback_hint"] = nil
+		}
+
+		// Map codes
+		switch sfuErr.ErrorCode {
+		case "ERR_AUTH_MISSING", "ERR_AUTH_INVALID":
+			statusCode = http.StatusUnauthorized
+		case "ERR_RBAC_DENIED", "ERR_FORBIDDEN":
+			statusCode = http.StatusForbidden
+		case "ERR_ROOM_FULL":
+			statusCode = http.StatusTooManyRequests
+		case "ERR_CAMERA_NOT_FOUND":
+			statusCode = http.StatusNotFound
+		case "ERR_BAD_REQUEST":
+			statusCode = http.StatusBadRequest
+		default:
+			statusCode = http.StatusInternalServerError
+		}
+	} else {
+		// Generic
+		resp["step"] = "handler"
+		resp["error_code"] = "ERR_INTERNAL"
+		resp["safe_message"] = err.Error()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *SfuHandler) GetRtpCapabilities(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeError(w, "invalid camera id: "+idStr, http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
 		return
 	}
 
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		h.writeError(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
 	caps, err := h.Service.GetRtpCapabilities(r.Context(), tenantID, cameraID)
 	if err != nil {
-		h.writeError(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err) // Service returns SfuStepError hopefully, if not generic wraps it handling
 		return
 	}
 
@@ -51,13 +110,13 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeError(w, "invalid camera id: "+idStr, http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
 		return
 	}
 
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		h.writeError(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
@@ -73,64 +132,34 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.Service.JoinRoom(r.Context(), tenantID, cameraID, sessionID)
 	if err != nil {
-		if err.Error() == "SFU error: status=429" || err.Error() == "room at capacity" {
-			h.writeError(w, "room at capacity", http.StatusTooManyRequests)
-			return
-		}
-		h.writeError(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err)
 		return
 	}
 
+	// Inject X-Request-ID logic is handled by middleware, but we return explicit JSON on failure.
+	// On success, we just return the caps.
+	// We MUST include X-Request-ID in header (Middleware does it).
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(res)
 }
 
 func (h *SfuHandler) CreateTransport(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	// For CreateTransport, 'id' in path ? The route is POST /api/v1/sfu/transports (no id?)
-	// Wait, existing code used r.PathValue("id").
-	// Checking main.go:
-	// mux.Handle("POST /api/v1/sfu/transports", ...HandlerFunc(sfuHandler.CreateTransport))))
-	// THERE IS NO {id} in the route!
-	// So r.PathValue("id") returns "" (empty string).
-	// uuid.Parse("") fails.
-	// THIS IS THE BUG for CreateTransport.
-	// But JoinRoom HAS {id}.
-	// "POST /api/v1/sfu/rooms/{id}/join"
-	// So JoinRoom should work.
-	// I will fix JoinRoom JSON here.
-
-	// Re-checking CreateTransport logic:
-	// It calls h.Service.CreateTransport(ctx, tenantID, cameraID).
-	// Does it NEED a camera ID?
-	// The MediaSoup Router is associated with a Room (Camera).
-	// So CreateTransport MUST know the Room.
-	// BUT the route `POST /api/v1/sfu/transports` has NO Camera ID.
-	// This API design is flawed or I missed something.
-	// Maybe it expects CameraID in body?
-	// Or maybe the route SHOULD be `/api/v1/sfu/rooms/{id}/transports`?
-	// Let's assume the previous code was wrong and I should fix the ROUTE in main.go too?
-	// Or maybe client sends it?
-
-	// Proceeding with JSON fix for now.
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
-		// If route doesn't have ID, this always fails.
-		// I'll emit JSON so client sees it.
-		h.writeError(w, "missing or invalid camera id (route parameter)", http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
 		return
 	}
 
-	// ...
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		h.writeError(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
 	transport, err := h.Service.CreateTransport(r.Context(), tenantID, cameraID)
 	if err != nil {
-		h.writeError(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err)
 		return
 	}
 
@@ -144,7 +173,7 @@ func (h *SfuHandler) ConnectTransport(w http.ResponseWriter, r *http.Request) {
 
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
@@ -152,12 +181,12 @@ func (h *SfuHandler) ConnectTransport(w http.ResponseWriter, r *http.Request) {
 		DtlsParameters json.RawMessage `json:"dtlsParameters"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_body", "ERR_BAD_REQUEST", "invalid body", err))
 		return
 	}
 
 	if err := h.Service.ConnectTransport(r.Context(), tenantID.String(), idStr, transportID, body.DtlsParameters); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err)
 		return
 	}
 
@@ -170,7 +199,7 @@ func (h *SfuHandler) Consume(w http.ResponseWriter, r *http.Request) {
 
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
@@ -178,14 +207,14 @@ func (h *SfuHandler) Consume(w http.ResponseWriter, r *http.Request) {
 		RtpCapabilities json.RawMessage `json:"rtpCapabilities"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_body", "ERR_BAD_REQUEST", "invalid body", err))
 		return
 	}
 
 	consumer, err := h.Service.Consume(r.Context(), tenantID.String(), idStr, transportID, body.RtpCapabilities)
 	if err != nil {
 		fmt.Printf("[ERROR] SFU Handler Consume failed: %v\n", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err)
 		return
 	}
 
@@ -197,18 +226,18 @@ func (h *SfuHandler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "invalid camera id", http.StatusBadRequest)
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
 		return
 	}
 
 	tenantID, err := getTenantID(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
 		return
 	}
 
 	if err := h.Service.LeaveRoom(r.Context(), tenantID, cameraID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeStructuredError(w, r, err)
 		return
 	}
 

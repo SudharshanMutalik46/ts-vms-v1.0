@@ -1,0 +1,46 @@
+groups:
+- name: vms_latency_alerts
+  rules:
+  - alert: HighIngestLatency
+    expr: vms_media_ingest_latency_ms > 300
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High ingest latency for camera {{ $labels.camera_id }}"
+      description: "Latency is {{ $value }}ms (Threshold 300ms). Check disk I/O or network."
+
+  - alert: PipelineRestartLoop
+    expr: rate(vms_media_restarts_total[5m]) > 0.2
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Pipeline restarting frequently: {{ $labels.camera_id }}"
+      description: "Pipeline restarted more than once in 5 minutes."
+
+  - alert: SFUHighViewerLoad
+    expr: vms_sfu_viewers > 100
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "SFU Viewer count high ({{ $value }})"
+
+  - alert: MetricsScrapeDown
+    expr: vms_metrics_up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Component {{ $labels.component }} metrics down"
+      description: "Collector failed to scrape {{ $labels.component }}."
+
+  - alert: OldMetricsSnapshot
+    expr: time() - vms_metrics_snapshot_age_seconds > 120
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Metrics Snapshot is stale"
+      description: "Data has not been updated in > 2 minutes."

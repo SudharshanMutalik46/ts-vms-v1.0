@@ -85,6 +85,12 @@ We have successfully completed the foundation and security layer of the VMS:
   - **NVR Ecosystem**: Deep integration with Hikvision (ISAPI) and Dahua (JSON-RPC) event streams.
   - **Windows Native**: Automated firewall orchestration and WMI-based network discovery.
   - **Health Monitoring**: Continuous RTSP and NVR connectivity probing with Prometheus metrics.
+  
+- **Phase 3: Real-Time Streaming & AI (Completed)**
+  - **WebRTC Live View**: Low-latency (<500ms) streaming via Mediasoup SFU.
+  - **HLS Fallback**: Robust high-latency fallback for reliable recording playback.
+  - **AI Overlay (Option A - Active)**: Real-time person/vehicle detection using a **Go-based Mock AI** (serving as a stable fallback for the Native C++ implementation).
+  - **Native C++ AI (Option B)**: Fully implemented and audited but currently disabled pending DLL conflict resolution (Phase 4).
 
 ---
 

@@ -6,6 +6,9 @@ const port = process.env.PORT || 8085;
 const sharedSecret = process.env.SFU_SECRET || 'sfu-internal-secret';
 app.use(cors());
 app.use(express.json());
+app.get('/health', (req, res) => {
+    res.sendStatus(200);
+});
 // Auth Middleware
 app.use((req, res, next) => {
     const authHeader = req.headers['x-internal-auth'];
@@ -16,6 +19,15 @@ app.use((req, res, next) => {
 });
 const msMgr = new MediasoupManager();
 // Endpoints
+app.get('/stats', async (req, res) => {
+    try {
+        const stats = await msMgr.getStats();
+        res.json(stats);
+    }
+    catch (e) {
+        res.status(500).send(e.message);
+    }
+});
 app.get('/rooms/:roomID/rtp-capabilities', async (req, res) => {
     try {
         const router = await msMgr.getRouter(req.params.roomID);
@@ -47,6 +59,7 @@ app.post('/rooms/:roomID/ingest', async (req, res) => {
         res.json(info);
     }
     catch (e) {
+        console.error(`Ingest allocation failed for ${req.params.roomID}:`, e);
         res.status(500).send(e.message);
     }
 });
@@ -115,11 +128,8 @@ wss.on('connection', (ws, req) => {
         return;
     }
     // Attach WS to Room/Session in MediasoupManager (Simplification: just log for now)
-    // Ideally, we'd register this connection to receive events.
-    // For Phase 3.4 Fix 4, we just need the endpoint to exist and accept connections.
     console.log(`WS Connected: Room=${roomId}, Session=${sessionId}`);
     ws.on('message', (message) => {
-        // Handle client messages (e.g. connection state)
         try {
             const msg = JSON.parse(message.toString());
             console.log(`WS Message from ${sessionId}:`, msg);
@@ -134,8 +144,9 @@ wss.on('connection', (ws, req) => {
 });
 msMgr.init().then(() => {
     // Listen on the HTTP server, not just the Express app
+    // Bind to 127.0.0.1 to ensure internal-only access (Phase 3.5 Check 3)
     server.listen(port, () => {
-        console.log(`SFU Service listening on port ${port} (HTTP + WS)`);
+        console.log(`SFU Service listening on port ${port} (127.0.0.1 only)`);
     });
 });
 //# sourceMappingURL=main.js.map

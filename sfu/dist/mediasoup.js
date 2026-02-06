@@ -99,6 +99,26 @@ export class MediasoupManager {
                             'level-asymmetry-allowed': 1
                         }
                     },
+                    {
+                        kind: 'video',
+                        mimeType: 'video/H264',
+                        clockRate: 90000,
+                        parameters: {
+                            'packetization-mode': 1,
+                            'profile-level-id': '4d001f',
+                            'level-asymmetry-allowed': 1
+                        }
+                    },
+                    {
+                        kind: 'video',
+                        mimeType: 'video/H264',
+                        clockRate: 90000,
+                        parameters: {
+                            'packetization-mode': 1,
+                            'profile-level-id': '64001f',
+                            'level-asymmetry-allowed': 1
+                        }
+                    },
                 ]
             });
             // Attach worker PID to router for WebRtcServer lookup
@@ -137,6 +157,7 @@ export class MediasoupManager {
             enableTcp: true,
             preferUdp: true,
             initialAvailableOutgoingBitrate: 1000000,
+            appData: { roomID }
         });
         this.transports.set(transport.id, transport);
         return {
@@ -154,6 +175,28 @@ export class MediasoupManager {
     }
     async prepareIngest(roomID) {
         const router = await this.getRouter(roomID);
+        // Fix: Reuse existing producer/transport if already ingesting
+        const existingProducer = this.producers.get(roomID + ':video');
+        if (existingProducer) {
+            // Find associated transport using appData (we need to iterate or store it better)
+            // For now, iterate transports to find the one with appData.ingestPort matching?
+            // Or simply store the Ingest Transport ID in the RoomState?
+            // Since we don't have RoomState ref here easily without lookup.
+            // Optimization: Just return the stored info if we had it.
+            // But we need the PORT.
+            // Let's iterate transports.
+            for (const transport of this.transports.values()) {
+                if (transport.appData && transport.appData.ingestPort && transport.appData.roomID === roomID) {
+                    console.log(`Reusing existing Ingest Transport for room ${roomID} on port ${transport.appData.ingestPort}`);
+                    return {
+                        ip: '127.0.0.1',
+                        port: transport.appData.ingestPort,
+                        ssrc: 11111111,
+                        pt: 96
+                    };
+                }
+            }
+        }
         const localIp = process.env['ANNOUNCED_IP'] || '127.0.0.1';
         const port = this.getFreeIngestPort();
         // Fix 1: Explicit PlainTransport port
@@ -167,12 +210,13 @@ export class MediasoupManager {
             rtcpMux: true,
             comedia: true, // receive from any port (Media Plane)
         });
-        // Store port in appData for release
-        transport.appData = { ingestPort: port };
+        // Store port AND roomID in appData for release/lookup
+        transport.appData = { ingestPort: port, roomID: roomID };
         transport.on('close', () => {
             this.releaseIngestPort(port);
             console.log(`Released ingest port ${port}`);
         });
+        console.log(`Created PlainTransport (Ingest) for room ${roomID} on port ${port}`);
         this.transports.set(transport.id, transport);
         // For simplicity, we use hardcoded SSRC/PT for now or generate them
         const ssrc = 11111111;
@@ -197,7 +241,29 @@ export class MediasoupManager {
                 encodings: [{ ssrc }]
             }
         });
+        console.log(`Created Producer for room ${roomID}: ID=${producer.id}, PT=${pt}, SSRC=${ssrc}`);
+        console.log(`[Producer ${producer.id}] Codec: ${producer.rtpParameters.codecs?.[0]?.mimeType}`); // Task B: Log Codec
         this.producers.set(roomID + ':video', producer);
+        // Debug: Listen for Transport events
+        transport.on('tuple', (tuple) => {
+            console.log(`[Ingest Transport] Latched to remote producer: ${tuple.remoteIp}:${tuple.remotePort}`);
+        });
+        // Debug: Listen for Producer events
+        producer.on('score', (score) => {
+            console.log(`[Producer ${producer.id}] Score:`, score);
+        });
+        producer.on('videoorientationchange', (videoOrientation) => {
+            console.log(`[Producer ${producer.id}] Video Orientation:`, videoOrientation);
+        });
+        producer.on('trace', (trace) => {
+            console.log(`[Producer ${producer.id}] Trace:`, trace);
+        });
+        console.log('Ingest Info ready:', {
+            ip: '127.0.0.1',
+            port: transport.tuple.localPort,
+            ssrc,
+            pt
+        });
         return {
             ip: '127.0.0.1',
             port: transport.tuple.localPort,
@@ -214,19 +280,35 @@ export class MediasoupManager {
         if (!producer)
             throw new Error('Producer not found');
         if (!router.canConsume({ producerId: producer.id, rtpCapabilities })) {
+            console.error(`[Consume Error] Router cannot consume (Producer: ${producer.id}, Room: ${roomID})`);
+            console.error(`[Consume Error] Producer RTP Parameters:`, JSON.stringify(producer.rtpParameters, null, 2));
+            console.error(`[Consume Error] Client RTP Capabilities:`, JSON.stringify(rtpCapabilities, null, 2));
             throw new Error('Cannot consume');
         }
         const consumer = await transport.consume({
             producerId: producer.id,
             rtpCapabilities,
-            paused: true, // start paused
+            paused: true, // start paused, then resume
         });
+        console.log(`[Consumer ${consumer.id}] Created (paused=${consumer.paused}) for Producer ${producer.id}`);
+        // Task A: Ensure consumer is resumed immediately
+        await consumer.resume();
+        console.log(`[Consumer ${consumer.id}] Resumed (paused=${consumer.paused})`);
+        // Task C: Request Keyframe Best-Effort
+        try {
+            await consumer.requestKeyFrame();
+            console.log(`[Consumer ${consumer.id}] PLI Requested (Codec: ${consumer.rtpParameters.codecs?.[0]?.mimeType})`);
+        }
+        catch (e) {
+            console.warn(`[Consumer ${consumer.id}] PLI Request failed:`, e);
+        }
         this.consumers.set(consumer.id, consumer);
         return {
             id: consumer.id,
             producerId: producer.id,
             kind: consumer.kind,
             rtpParameters: consumer.rtpParameters,
+            paused: consumer.paused
         };
     }
     async resumeConsumer(consumerID) {
@@ -257,6 +339,52 @@ export class MediasoupManager {
     async leaveRoom(roomID) {
         // Just trigger cleanup
         await this.cleanupRoom(roomID);
+    }
+    async getStats() {
+        const stats = {
+            totals: {
+                rooms: this.rooms.size,
+                workers: this.workers.length,
+                producers: this.producers.size,
+                consumers: this.consumers.size,
+                transports: this.transports.size,
+                bytes_in: 0,
+                bytes_out: 0
+            },
+            rooms: {}
+        };
+        // Populate room basic stats
+        for (const [id, room] of this.rooms) {
+            stats.rooms[id] = {
+                viewers: room.viewerSessions.size,
+                producers: this.producers.has(id + ':video') ? 1 : 0,
+                bytes_in: 0,
+                bytes_out: 0
+            };
+        }
+        // Aggregate bytes
+        for (const transport of this.transports.values()) {
+            try {
+                const tStats = await transport.getStats();
+                for (const s of tStats) {
+                    // Check generic stats structure (WebRtcTransportStats or PlainTransportStats)
+                    if (typeof s.bytesReceived === 'number') {
+                        stats.totals.bytes_in += s.bytesReceived;
+                        const rid = transport.appData?.roomID;
+                        if (rid && stats.rooms[rid])
+                            stats.rooms[rid].bytes_in += s.bytesReceived;
+                    }
+                    if (typeof s.bytesSent === 'number') {
+                        stats.totals.bytes_out += s.bytesSent;
+                        const rid = transport.appData?.roomID;
+                        if (rid && stats.rooms[rid])
+                            stats.rooms[rid].bytes_out += s.bytesSent;
+                    }
+                }
+            }
+            catch (e) { /* ignore */ }
+        }
+        return stats;
     }
 }
 //# sourceMappingURL=mediasoup.js.map

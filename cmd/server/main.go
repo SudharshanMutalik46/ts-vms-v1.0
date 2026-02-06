@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -23,7 +25,9 @@ import (
 	"github.com/technosupport/ts-vms/internal/discovery"
 	"github.com/technosupport/ts-vms/internal/health"
 	"github.com/technosupport/ts-vms/internal/license"
+	"github.com/technosupport/ts-vms/internal/live"
 	"github.com/technosupport/ts-vms/internal/media"
+	"github.com/technosupport/ts-vms/internal/metrics"
 	"github.com/technosupport/ts-vms/internal/middleware"
 	"github.com/technosupport/ts-vms/internal/nvr"
 	"github.com/technosupport/ts-vms/internal/platform/paths"
@@ -220,9 +224,39 @@ func main() {
 	// Use Real Camera Resolver (camRepo implements it)
 	permsMiddleware := middleware.NewPermissionMiddleware(permModel, camRepo)
 
+	// --- Phase 3.6 WebRTC-HLS Fallback ---
+	// Live Service & Handler (Needed for NATS AI Sub)
+	liveService := live.NewService(rdb, camService, "http://localhost:8080", live.HLSParams{
+		BaseURL: "http://localhost:8081",
+	})
+	telemetryService := live.NewTelemetryService(rdb)
+	liveHandler := api.NewLiveHandler(liveService, telemetryService)
+
+	// --- NATS Connection (Phase 3.8 AI & Phase 2.10 NVR) ---
+	natsURL := os.Getenv("NATS_URL")
+	if natsURL == "" {
+		natsURL = nats.DefaultURL
+	}
+	nc, err := nats.Connect(natsURL, nats.Name(serviceName))
+	if err != nil {
+		log.Printf("Warning: NATS Connect Failed: %v. AI/Events disabled.", err)
+	} else {
+		log.Println("Connected to NATS")
+		// --- Phase 3.8 AI Detection Subscription ---
+		_, err = nc.Subscribe("detections.>", func(m *nats.Msg) {
+			if err := liveService.SaveDetectionFromNATS(context.Background(), m.Data); err != nil {
+				log.Printf("Error saving AI detection from NATS: %v", err)
+			}
+		})
+		if err == nil {
+			log.Println("AI Detection Subscriber Active on subject: detections.>")
+		}
+		defer nc.Close()
+	}
+
 	// --- Phase 2.10 NVR Events ---
 	var nvrPoller *nvr.NVRPoller
-	if rootCfg.Events.Nvr.Enabled {
+	if rootCfg.Events.Nvr.Enabled && nc != nil {
 		// Re-define a local config struct that matches yaml
 		type NvrEventConfig struct {
 			Enabled          bool   `yaml:"enabled"`
@@ -245,43 +279,27 @@ func main() {
 		_ = yaml.Unmarshal(cfgData, &rawEvtCfg) // Re-parse for safety config match
 		c := rawEvtCfg.Events.Nvr
 
-		// NATS Connection
-		// Default to localhost:4222 for now or env
-		natsURL := os.Getenv("NATS_URL")
-		if natsURL == "" {
-			natsURL = nats.DefaultURL
+		// Components
+		pub := nvr.NewNATSPublisher(nc, c.NatsSubject, c.PublishRetryMax)
+		enricher := nvr.NewEventEnricher(&nvrRepo)
+		dedup := nvr.NewEventDedup(c.DedupMaxKeys, c.DedupTTLSeconds)
+
+		// Poller
+		pCfg := nvr.PollerConfig{
+			Enabled:          c.Enabled,
+			PollInterval:     time.Duration(c.PollIntervalMs) * time.Millisecond,
+			MaxInflight:      c.MaxInflight,
+			MaxEventsPerPoll: c.MaxEventsPerPoll,
+			TimeBudget:       time.Duration(c.TimeBudgetMs) * time.Millisecond,
+			Backoff:          time.Duration(c.BackoffMs) * time.Millisecond,
 		}
-		nc, err := nats.Connect(natsURL, nats.Name(serviceName))
-		if err != nil {
-			elog.Error(eventIDError, fmt.Sprintf("NATS Connect Failed: %v", err))
-			log.Printf("Warning: NATS Connect Failed: %v. Event polling disabled.", err)
-		} else {
-			elog.Info(eventIDStart, "Connected to NATS")
-
-			// Components
-			pub := nvr.NewNATSPublisher(nc, c.NatsSubject, c.PublishRetryMax)
-			enricher := nvr.NewEventEnricher(&nvrRepo)
-			dedup := nvr.NewEventDedup(c.DedupMaxKeys, c.DedupTTLSeconds)
-
-			// Poller
-			pCfg := nvr.PollerConfig{
-				Enabled:          c.Enabled,
-				PollInterval:     time.Duration(c.PollIntervalMs) * time.Millisecond,
-				MaxInflight:      c.MaxInflight,
-				MaxEventsPerPoll: c.MaxEventsPerPoll,
-				TimeBudget:       time.Duration(c.TimeBudgetMs) * time.Millisecond,
-				Backoff:          time.Duration(c.BackoffMs) * time.Millisecond,
-			}
-			if pCfg.PollInterval == 0 {
-				pCfg.PollInterval = 5 * time.Second
-			}
-
-			nvrPoller = nvr.NewNVRPoller(nvrService, pub, enricher, dedup, pCfg)
-			nvrPoller.Start()
-			elog.Info(eventIDStart, "NVR Event Poller Started")
-
-			defer nc.Close()
+		if pCfg.PollInterval == 0 {
+			pCfg.PollInterval = 5 * time.Second
 		}
+
+		nvrPoller = nvr.NewNVRPoller(nvrService, pub, enricher, dedup, pCfg)
+		nvrPoller.Start()
+		elog.Info(eventIDStart, "NVR Event Poller Started")
 	}
 
 	// Credential Handler (Phase 2.2)
@@ -367,6 +385,13 @@ func main() {
 		fmt.Fprintf(w, "Hello Tenant:%s User:%s", ac.TenantID, ac.UserID)
 	}))
 	protectedMux.Handle("GET /api/v1/debug/me", debugHandler)
+
+	liveDebugHandler := api.NewDebugHandler(sfuService, mediaClient)
+	protectedMux.Handle("GET /api/v1/debug/live/{id}", permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(liveDebugHandler.GetLiveDebug)))
+
+	// Task C: Debug HLS Endpoint
+	hlsDebugHandler := api.NewHlsDebugHandler(mediaClient, &camRepo, mediaRepo)
+	protectedMux.Handle("GET /api/v1/debug/hls/{id}", permsMiddleware.RequirePermission("admin.debug.view", "tenant")(http.HandlerFunc(hlsDebugHandler.GetHlsDebug)))
 
 	// Audit
 	protectedMux.Handle("GET /api/v1/audit/events",
@@ -541,29 +566,71 @@ func main() {
 	// Windows-Specific (Phase 2.11)
 	mux.Handle("POST /api/v1/windows/discovery:scan", Protect(permsMiddleware.RequirePermission("admin.discovery.run", "tenant")(http.HandlerFunc(winHandler.WindowsDiscoveryHandler))))
 
-	// Wrap TOP Level Mux with Global Rate Limiter -> Audit Logger
-	// Order: RateLimit -> Audit (Log accepted requests) -> Mux
-	// If RateLimit blocks, Audit middleware won't run (or should it? Usually no, unless we audit blocks too.
-	// Prompt says "Log all mutating requests". If blocked 429, it never reached mux.
-	// But `finalHandler` wraps mux.
-	// Correct chain: RateLimit (outer) -> Audit (inner) -> Mux.
-	// If RateLimit blocks, it returns early. Audit assumes request reached app logic.
-	// If user wants to audit ratelimits, audit should be OUTER.
-	// Prompt D: "Automatic HTTP Request Logging... Log all mutating...".
-	// Usually audit successful or app-level failures.
-	// Let's put Audit right before Mux (after Rate Limit).
+	// Health Check (Safeguard #3)
+	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"go_version":"%s", "build_version":"1.0.0", "commit":"HEAD", "build_time":"%s"}`,
+			runtime.Version(), time.Now().Format(time.RFC3339))
+	})
 
-	// CORS -> RateLimit -> Audit -> Mux
+	// Metrics (Phase 3.5)
+	internalHandler := api.NewInternalHandler(liveService)
+	// Routes
+	mux.Handle("POST /api/v1/cameras/{id}/live/start", Protect(http.HandlerFunc(liveHandler.StartSession)))
+	mux.Handle("POST /api/v1/live/events", Protect(http.HandlerFunc(liveHandler.RecordEvent)))
+
+	// Phase 3.8: Overlay & Polling
+	mux.Handle("POST /api/v1/live/{session_id}/overlay/enable", Protect(http.HandlerFunc(liveHandler.EnableOverlay)))
+	mux.Handle("POST /api/v1/live/{session_id}/overlay/disable", Protect(http.HandlerFunc(liveHandler.DisableOverlay)))
+	mux.Handle("GET /api/v1/cameras/{id}/detections/latest", Protect(http.HandlerFunc(liveHandler.GetLatestDetection)))
+	mux.Handle("GET /api/v1/cameras/{id}/snapshot", Protect(http.HandlerFunc(liveHandler.GetSnapshot)))
+
+	// Phase 3.8: Internal AI Service
+	mux.Handle("POST /api/v1/internal/detections", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.IngestDetection)))
+	mux.Handle("GET /api/v1/internal/cameras/active", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetActiveCameras)))
+
+	mux.Handle("GET /api/v1/internal/cameras/{id}/snapshot", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetInternalSnapshot)))
+
+	// Metrics (Phase 3.5)
+	metricsCfg := metrics.Config{
+		MediaClient: mediaClient.GRPC(),
+		SfuURL:      sfuURL,
+		SfuSecret:   sfuSecret,
+		MaxCameras:  500,
+		PerCamera:   true,
+	}
+	if os.Getenv("METRICS_PER_CAMERA") == "false" {
+		metricsCfg.PerCamera = false
+	}
+	metricsCollector := metrics.NewCollector(metricsCfg)
+	go metricsCollector.Start(context.Background())
+
+	mux.Handle("/metrics", metricsCollector.Handler())
+
+	// Serve Static Files (Phase 3.8 Verification)
+	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("./web"))))
+
+	// Wrap TOP Level Mux with Global Rate Limiter -> Audit Logger -> RequestLogger
+
+	// CORS -> RequestLogger -> RateLimit -> Audit -> Mux
 	auditWrappedMux := auditMiddleware.LogRequest(mux)
 	rlWrappedMux := rlMiddleware.GlobalLimiter(auditWrappedMux)
-	finalHandler := middleware.CORS(rlWrappedMux)
+	// A1: Add Request Logger
+	loggingWrappedMux := middleware.RequestLogger(rlWrappedMux)
+	finalHandler := middleware.CORS(loggingWrappedMux)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	log.Printf("Starting server on :%s", port)
+	log.Printf("Starting server on :%s (Go Runtime: %s)", port, runtime.Version())
+	if !strings.Contains(runtime.Version(), "go1.2") && !strings.Contains(runtime.Version(), "go1.3") {
+		// Basic check for 1.2x+. Ideally semver check but string contains is safer for "go1.25.6"
+		// If < 1.22 (e.g. 1.21), the patch might fail.
+		// Assuming go1.25 is what we saw.
+	}
+
 	server := &http.Server{
 		Addr:    ":" + port,
 		Handler: finalHandler,

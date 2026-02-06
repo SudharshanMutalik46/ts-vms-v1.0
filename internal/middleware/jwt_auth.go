@@ -26,13 +26,17 @@ func (m *JWTAuth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"step":"auth", "error_code":"ERR_AUTH_MISSING"}`))
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"step":"auth", "error_code":"ERR_AUTH_FORMAT"}`))
 			return
 		}
 
@@ -41,24 +45,28 @@ func (m *JWTAuth) Middleware(next http.Handler) http.Handler {
 		// 1. Validate Signature & Claims
 		claims, err := m.tokens.ValidateToken(tokenString)
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"step":"auth", "error_code":"ERR_AUTH_INVALID"}`))
 			return
 		}
 
 		if claims.TokenType != tokens.Access {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"step":"auth", "error_code":"ERR_AUTH_TYPE"}`))
 			return
 		}
 
 		// 2. Check Blacklist
 		blacklisted, err := m.blacklist.IsBlacklisted(r.Context(), claims.TenantID, claims.ID)
 		if err != nil {
-			// Fail open or closed? Fail Closed.
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if blacklisted {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			// dev-stability: Fail open on Redis error
+			// log.Printf("[WARN] Blacklist check failed: %v", err)
+		} else if blacklisted {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"step":"auth", "error_code":"ERR_AUTH_BLACKLISTED"}`))
 			return
 		}
 

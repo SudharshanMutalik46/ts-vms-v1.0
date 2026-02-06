@@ -79,6 +79,9 @@ The Media Plane must strictly adhere to the following on-disk structure:
     "target_duration": 1.0,
     "part_duration": 0.2,
     "playlist_window": 10
+  }
+}
+```
 
 ## SFU Strategy (Phase 3.4)
 
@@ -102,3 +105,63 @@ Each Camera corresponds to one Mediasoup Room. A Room contains exactly one Media
 - **Audio**: Not currently enabled.
 - **Simulcast**: Disabled (Single high-quality stream from Media Plane).
 
+---
+
+## Phase 3.6: Start Live View Contract
+
+### 1. Endpoint: `POST /api/v1/cameras/{camera_id}/live/start`
+
+Response JSON structure (Dual-Path):
+```json
+{
+  "session_id": "viewer_session_xyz123",
+  "expires_at": 1707127056,
+  "primary": "webrtc",
+  "fallback": "hls",
+  "webrtc": {
+    "sfu_url": "http://localhost:8080/api/v1/sfu",
+    "room_id": "camera_id",
+    "connect_timeout_ms": 5000
+  },
+  "hls": {
+    "playlist_url": "http://localhost:8081/hls/live/tenant/cam/session/playlist.m3u8?token=...",
+    "target_latency_ms": 4000
+  },
+  "fallback_policy": {
+    "webrtc_connect_timeout_ms": 5000,
+    "webrtc_track_timeout_ms": 3000,
+    "max_auto_retries": 2,
+    "retry_backoff_ms": [1000, 3000]
+  },
+  "telemetry_policy": {
+    "client_event_endpoint": "/api/v1/live/events"
+  }
+}
+```
+
+### 2. Reason Codes (Standardized)
+Used in telemetry and logs.
+
+| Code | Description |
+|------|-------------|
+| `SFU_SIGNALING_FAILED` | API error when talking to SFU |
+| `ICE_FAILED` | WebRTC ICE connection failed or disconnected |
+| `DTLS_FAILED` | DTLS handshake failure |
+| `TRACK_TIMEOUT` | Connected but no media received in time |
+| `RTP_TIMEOUT` | Media stopped flowing after start |
+| `SFU_BUSY` | SFU at capacity |
+| `BROWSER_NOT_SUPPORTED` | Client browser missing features |
+| `PERMISSION_DENIED` | Auth or RBAC failure |
+| `UNKNOWN` | Fallback catch-all |
+
+### 3. Telemetry Endpoint: `POST /api/v1/live/events`
+
+Request Payload:
+```json
+{
+  "viewer_session_id": "viewer_session_xyz123",
+  "event": "fallback_to_hls",
+  "reason": "ICE_FAILED",
+  "meta": { "ice_state": "failed" }
+}
+```

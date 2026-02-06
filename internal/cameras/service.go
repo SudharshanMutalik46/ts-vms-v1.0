@@ -336,6 +336,11 @@ func (s *Service) GetByID(ctx context.Context, id, tenantID uuid.UUID) (*data.Ca
 	return s.repo.GetByID(ctx, id)
 }
 
+// GetByIDUnsafe retrieves camera without tenant check (INTERNAL USE ONLY)
+func (s *Service) GetByIDUnsafe(ctx context.Context, id uuid.UUID) (*data.Camera, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
 func (s *Service) CreateGroup(ctx context.Context, g *data.CameraGroup) error {
 	return s.repo.CreateGroup(ctx, g) // TODO: Audit
 }
@@ -355,4 +360,22 @@ func (s *Service) SetGroupMembers(ctx context.Context, groupID, tenantID uuid.UU
 func toMeta(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+func (s *Service) GetCamera(ctx context.Context, tenantID uuid.UUID, id string) (*data.Camera, error) {
+	// Parse ID
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	// For now, assume GetByID checks tenant? Or we need to check tenant.
+	// The repo.GetByID likely returns camera regardless of tenant if not enforced.
+	// Let's check `repo.GetByID`. If it doesn't take tenantID, we must verify it.
+	cam, err := s.repo.GetByID(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if cam.TenantID != tenantID {
+		return nil, errors.New("camera not found (tenant mismatch)")
+	}
+	return cam, nil
 }

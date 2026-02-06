@@ -80,10 +80,11 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	var c Camera
 	var ipStr string
 	var tags []string
+	var manufacturer, model, serialNumber, macAddress sql.NullString
 
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port,
-		&c.Manufacturer, &c.Model, &c.SerialNumber, &c.MacAddress,
+		&manufacturer, &model, &serialNumber, &macAddress,
 		&c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
 	)
 
@@ -95,6 +96,10 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	}
 	c.IPAddress = net.ParseIP(ipStr)
 	c.Tags = tags
+	c.Manufacturer = manufacturer.String
+	c.Model = model.String
+	c.SerialNumber = serialNumber.String
+	c.MacAddress = macAddress.String
 	return &c, nil
 }
 

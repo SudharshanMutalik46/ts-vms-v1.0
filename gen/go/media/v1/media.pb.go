@@ -305,8 +305,17 @@ type GetIngestStatusResponse struct {
 	RecentErrorCode string `protobuf:"bytes,10,opt,name=recent_error_code,json=recentErrorCode,proto3" json:"recent_error_code,omitempty"`
 	DiskFreeBytes   int64  `protobuf:"varint,11,opt,name=disk_free_bytes,json=diskFreeBytes,proto3" json:"disk_free_bytes,omitempty"`
 	RequiredAction  string `protobuf:"bytes,12,opt,name=required_action,json=requiredAction,proto3" json:"required_action,omitempty"` // e.g., "Clean Disk"
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Phase 3.5 Metrics
+	IngestLatencyMs       int64  `protobuf:"varint,13,opt,name=ingest_latency_ms,json=ingestLatencyMs,proto3" json:"ingest_latency_ms,omitempty"`
+	FramesProcessed       int64  `protobuf:"varint,14,opt,name=frames_processed,json=framesProcessed,proto3" json:"frames_processed,omitempty"`
+	FramesDropped         int64  `protobuf:"varint,15,opt,name=frames_dropped,json=framesDropped,proto3" json:"frames_dropped,omitempty"`
+	BitrateBps            int64  `protobuf:"varint,16,opt,name=bitrate_bps,json=bitrateBps,proto3" json:"bitrate_bps,omitempty"`
+	BytesInTotal          uint64 `protobuf:"varint,17,opt,name=bytes_in_total,json=bytesInTotal,proto3" json:"bytes_in_total,omitempty"`
+	PipelineRestartsTotal uint32 `protobuf:"varint,18,opt,name=pipeline_restarts_total,json=pipelineRestartsTotal,proto3" json:"pipeline_restarts_total,omitempty"`
+	LastFrameTsMs         uint64 `protobuf:"varint,19,opt,name=last_frame_ts_ms,json=lastFrameTsMs,proto3" json:"last_frame_ts_ms,omitempty"` // Unix ms of last buffer presentation ts
+	CameraId              string `protobuf:"bytes,20,opt,name=camera_id,json=cameraId,proto3" json:"camera_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GetIngestStatusResponse) Reset() {
@@ -419,6 +428,62 @@ func (x *GetIngestStatusResponse) GetDiskFreeBytes() int64 {
 func (x *GetIngestStatusResponse) GetRequiredAction() string {
 	if x != nil {
 		return x.RequiredAction
+	}
+	return ""
+}
+
+func (x *GetIngestStatusResponse) GetIngestLatencyMs() int64 {
+	if x != nil {
+		return x.IngestLatencyMs
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetFramesProcessed() int64 {
+	if x != nil {
+		return x.FramesProcessed
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetFramesDropped() int64 {
+	if x != nil {
+		return x.FramesDropped
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetBitrateBps() int64 {
+	if x != nil {
+		return x.BitrateBps
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetBytesInTotal() uint64 {
+	if x != nil {
+		return x.BytesInTotal
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetPipelineRestartsTotal() uint32 {
+	if x != nil {
+		return x.PipelineRestartsTotal
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetLastFrameTsMs() uint64 {
+	if x != nil {
+		return x.LastFrameTsMs
+	}
+	return 0
+}
+
+func (x *GetIngestStatusResponse) GetCameraId() string {
+	if x != nil {
+		return x.CameraId
 	}
 	return ""
 }
@@ -942,7 +1007,7 @@ const file_ts_vms_media_v1_media_proto_rawDesc = "" +
 	"\x12StopIngestResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"5\n" +
 	"\x16GetIngestStatusRequest\x12\x1b\n" +
-	"\tcamera_id\x18\x01 \x01(\tR\bcameraId\"\xc0\x03\n" +
+	"\tcamera_id\x18\x01 \x01(\tR\bcameraId\"\x83\x06\n" +
 	"\x17GetIngestStatusResponse\x12\x18\n" +
 	"\arunning\x18\x01 \x01(\bR\arunning\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x10\n" +
@@ -957,7 +1022,16 @@ const file_ts_vms_media_v1_media_proto_rawDesc = "" +
 	"\x11recent_error_code\x18\n" +
 	" \x01(\tR\x0frecentErrorCode\x12&\n" +
 	"\x0fdisk_free_bytes\x18\v \x01(\x03R\rdiskFreeBytes\x12'\n" +
-	"\x0frequired_action\x18\f \x01(\tR\x0erequiredAction\"\x14\n" +
+	"\x0frequired_action\x18\f \x01(\tR\x0erequiredAction\x12*\n" +
+	"\x11ingest_latency_ms\x18\r \x01(\x03R\x0fingestLatencyMs\x12)\n" +
+	"\x10frames_processed\x18\x0e \x01(\x03R\x0fframesProcessed\x12%\n" +
+	"\x0eframes_dropped\x18\x0f \x01(\x03R\rframesDropped\x12\x1f\n" +
+	"\vbitrate_bps\x18\x10 \x01(\x03R\n" +
+	"bitrateBps\x12$\n" +
+	"\x0ebytes_in_total\x18\x11 \x01(\x04R\fbytesInTotal\x126\n" +
+	"\x17pipeline_restarts_total\x18\x12 \x01(\rR\x15pipelineRestartsTotal\x12'\n" +
+	"\x10last_frame_ts_ms\x18\x13 \x01(\x04R\rlastFrameTsMs\x12\x1b\n" +
+	"\tcamera_id\x18\x14 \x01(\tR\bcameraId\"\x14\n" +
 	"\x12ListIngestsRequest\"Y\n" +
 	"\x13ListIngestsResponse\x12B\n" +
 	"\aingests\x18\x01 \x03(\v2(.ts.vms.media.v1.GetIngestStatusResponseR\aingests\"\x0f\n" +

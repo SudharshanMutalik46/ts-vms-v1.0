@@ -107,6 +107,24 @@ func (m *MediaModel) ListProfiles(ctx context.Context, cameraID uuid.UUID) ([]*C
 	return list, nil
 }
 
+func (m *MediaModel) GetProfile(ctx context.Context, cameraID uuid.UUID, token string) (*CameraMediaProfile, error) {
+	query := `
+		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, 
+		       width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
+		FROM camera_media_profiles 
+		WHERE camera_id = $1 AND profile_token = $2
+	`
+	p := &CameraMediaProfile{}
+	err := m.DB.QueryRowContext(ctx, query, cameraID, token).Scan(
+		&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec,
+		&p.Width, &p.Height, &p.FPS, &p.BitrateKbps, &p.RTSPURLSanitized, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // Selections
 func (m *MediaModel) UpsertSelection(ctx context.Context, s *CameraStreamSelection) error {
 	query := `
@@ -143,16 +161,30 @@ func (m *MediaModel) GetSelection(ctx context.Context, cameraID uuid.UUID) (*Cam
 		FROM camera_stream_selections WHERE camera_id = $1
 	`
 	s := &CameraStreamSelection{}
+	var mainToken, mainRTSP, subToken, subRTSP sql.NullString
+
 	err := m.DB.QueryRowContext(ctx, query, cameraID).Scan(
 		&s.ID, &s.TenantID, &s.CameraID,
-		&s.MainProfileToken, &s.MainRTSP, &s.MainSupported,
-		&s.SubProfileToken, &s.SubRTSP, &s.SubSupported, &s.SubIsSameAsMain,
+		&mainToken, &mainRTSP, &s.MainSupported,
+		&subToken, &subRTSP, &s.SubSupported, &s.SubIsSameAsMain,
 		&s.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil // Not found is clean nil
+		return nil, nil
 	}
-	return s, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Manual fix for s.CameraID mapping if I made a typo above
+	s.CameraID = cameraID
+
+	s.MainProfileToken = mainToken.String
+	s.MainRTSP = mainRTSP.String
+	s.SubProfileToken = subToken.String
+	s.SubRTSP = subRTSP.String
+
+	return s, nil
 }
 
 // Validation
