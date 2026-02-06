@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -79,3 +81,5 @@ func main() {
 	fmt.Println("Camera added successfully!")
 	fmt.Printf("CAMERA_ID=%s\n", cameraID)
 }
+//go:build ignore
+

@@ -38,11 +38,8 @@ func NewHandler(cfg Config, perms *middleware.PermissionMiddleware) *Handler {
 }
 
 func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
-	// 0. Handle CORS - Allow all origins for development testing
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Range, Cookie")
-	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
+	// 0. Handle CORS
+	h.applyCORS(w, r)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -59,22 +56,12 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Tenant Isolation (JWT Context check removed - using HMAC Token)
-	// Since this handler is public (no JWT middleware), we rely on ValidateHLSToken below.
+	// 2. Tenant Isolation
 	if tenantID == "" {
 		http.Error(w, "Missing tenant_id", http.StatusBadRequest)
 		return
 	}
 
-	// 3. RBAC Check (Camera View) - TEMPORARILY BYPASSED FOR DEVELOPMENT
-	// TODO: Restore when RBAC grants are properly configured
-	// allowed, err := h.perms.CheckPermission(r.Context(), "camera.view", "camera", cameraID)
-	// if err != nil || !allowed {
-	// 	http.Error(w, "Forbidden (RBAC)", http.StatusForbidden)
-	// 	return
-	// }
-
-	// 4. Token Validation (Query or Cookie)
 	// 4. Token Validation (Query or Cookie)
 	// Check Query Params FIRST (works for both playlist and segments if propagated)
 	err := ValidateHLSToken(cameraID, sessionID, r.URL.Query(), h.cfg.Keys)
@@ -104,6 +91,14 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized (Invalid Cookie Token)", http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// 3. RBAC Check (Camera View)
+	// We check this AFTER token validation so that missing token returns 401, not 403.
+	allowed, err := h.perms.CheckPermission(r.Context(), "camera.view", "camera", cameraID)
+	if err != nil || !allowed {
+		http.Error(w, "Forbidden (RBAC)", http.StatusForbidden)
+		return
 	}
 
 	// 5. Path Resolution

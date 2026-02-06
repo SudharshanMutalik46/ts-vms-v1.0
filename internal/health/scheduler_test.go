@@ -13,7 +13,7 @@ import (
 func TestScheduler_Run(t *testing.T) {
 	mockRepo := new(MockHealthRepo)
 	mockProber := new(MockProber)
-	svc := NewService(mockRepo, mockProber)
+	svc := NewService(mockRepo, &MockNVRRepo{}, mockProber)
 
 	cfg := SchedulerConfig{
 		Interval:       100 * time.Millisecond,

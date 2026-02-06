@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -37,3 +39,6 @@ func main() {
 		fmt.Printf("Main URL: %s\n", mainURL.String)
 	}
 }
+//go:build ignore
+
+

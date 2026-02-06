@@ -149,12 +149,12 @@ func (m *Manager) CheckOperation(op string, tenantID uuid.UUID) error {
 	m.mu.RUnlock()
 
 	// 1. Check Base Status
-	// DEV MODE BYPASS
-	if state.Status == StatusMissing || state.Status == StatusParseError {
+	// DEV MODE BYPASS: Only for Missing License (Implicit Trial)
+	if state.Status == StatusMissing {
 		// Allow for dev
 	} else {
 		switch state.Status {
-		case StatusInvalidSignature:
+		case StatusInvalidSignature, StatusParseError:
 			return fmt.Errorf("license_invalid")
 		case StatusExpiredBlocked:
 			// Deny All

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -47,3 +49,6 @@ func main() {
 
 	fmt.Println(tokenString)
 }
+//go:build ignore
+
+

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -39,3 +41,6 @@ func main() {
 
 	fmt.Printf("StopIngest response: %+v\n", resp)
 }
+//go:build ignore
+
+

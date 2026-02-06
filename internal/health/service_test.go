@@ -13,7 +13,7 @@ import (
 func TestService_PerformCheck_AlertLogic(t *testing.T) {
 	mockRepo := new(MockHealthRepo)
 	mockProber := new(MockProber)
-	svc := NewService(mockRepo, mockProber)
+	svc := NewService(mockRepo, &MockNVRRepo{}, mockProber)
 
 	tid := uuid.New()
 	cid := uuid.New()
@@ -54,8 +54,7 @@ func TestService_PerformCheck_AlertLogic(t *testing.T) {
 func TestService_PerformCheck_Recovery(t *testing.T) {
 	mockRepo := new(MockHealthRepo)
 	mockProber := new(MockProber)
-	svc := NewService(mockRepo, mockProber)
-
+	svc := NewService(mockRepo, &MockNVRRepo{}, mockProber)
 	tid := uuid.New()
 	cid := uuid.New()
 	url := "rtsp://test"

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -58,3 +60,6 @@ func main() {
 		fmt.Printf("Body: %s\n", string(buf[:n]))
 	}
 }
+//go:build ignore
+
+

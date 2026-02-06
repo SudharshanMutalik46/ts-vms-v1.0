@@ -94,7 +94,8 @@ func TestHLSDeliveryScenarios(t *testing.T) {
 	})
 
 	t.Run("3. RBAC: Denied", func(t *testing.T) {
-		req := withAuth(httptest.NewRequest("GET", "/hls/live/tenant1/cam1/sess1/index.m3u8", nil), "tenant1", "unauthorized")
+		u := getSignedURL("/hls/live/tenant1/cam1/sess1/index.m3u8", "cam1", "sess1", "v1", hmacSecret, time.Now().Add(time.Hour).Unix())
+		req := withAuth(httptest.NewRequest("GET", u, nil), "tenant1", "unauthorized")
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusForbidden {

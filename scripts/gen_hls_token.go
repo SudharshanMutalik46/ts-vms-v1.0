@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -25,3 +27,6 @@ func main() {
 
 	fmt.Printf("token_params: sub=%s&sid=%s&exp=%s&scope=hls&kid=v1&sig=%s\n", sub, sid, exp, sig)
 }
+//go:build ignore
+
+

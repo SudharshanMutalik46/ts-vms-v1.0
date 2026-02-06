@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -23,3 +25,6 @@ func main() {
 	}
 	fmt.Printf("IP: %s\n", ip)
 }
+//go:build ignore
+
+

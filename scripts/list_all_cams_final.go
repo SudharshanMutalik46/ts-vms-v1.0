@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -30,3 +32,6 @@ func main() {
 		fmt.Printf("%s | %s | %s | %s\n", id, tid, name, ip)
 	}
 }
+//go:build ignore
+
+

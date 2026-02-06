@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -44,3 +46,6 @@ func main() {
 	fmt.Printf("SFU Egress started successfully!\n")
 	fmt.Printf("Response: %+v\n", resp)
 }
+//go:build ignore
+
+

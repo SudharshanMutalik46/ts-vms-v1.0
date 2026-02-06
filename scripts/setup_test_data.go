@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -69,3 +71,6 @@ func main() {
 
 	fmt.Println("test_data.json created")
 }
+//go:build ignore
+
+

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -55,3 +57,6 @@ func main() {
 
 	fmt.Printf("Ingest Status: Running=%v, SessionId=%s\n", statusResp.Running, statusResp.SessionId)
 }
+//go:build ignore
+
+
