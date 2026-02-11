@@ -70,22 +70,10 @@ else {
 }
 
 Write-Host "Starting SFU..." -ForegroundColor Cyan
-Start-Job -ScriptBlock {
-    $env:SFU_SECRET = "sfu-internal-secret"
-    $env:PORT = "8085"
-    Set-Location "c:\Users\sudha\Desktop\ts_vms_1.0\sfu"
-    # Ensure node is found.
-    node dist/main.js > "..\logs\sfu.log" 2>&1
-} | Out-Null
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:SFU_SECRET='sfu-internal-secret'; `$env:PORT='8085'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0\sfu'; node dist/main.js > '..\logs\sfu.log' 2>&1"
 
 Write-Host "Starting AI Service (Go Mock)..." -ForegroundColor Cyan
-Start-Job -ScriptBlock {
-    $env:NATS_URL = "nats://localhost:4222"
-    $env:CP_BASE_URL = "http://localhost:8080"
-    Set-Location "c:\Users\sudha\Desktop\ts_vms_1.0"
-    # Ensure go is found
-    go run ./cmd/ai-service > "logs\ai_mock.log" 2>&1
-} | Out-Null
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0'; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"
 
 Write-Host "Starting HLSD..." -ForegroundColor Cyan
 if (Test-Path "$Root\bin\vms-hlsd.exe") {

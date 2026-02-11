@@ -102,6 +102,7 @@ We have successfully completed the foundation and security layer of the VMS:
     *   **Control**: `go build -o bin/vms-control.exe ./cmd/server`
     *   **SFU**: `cd sfu; npm install; npm run build; cd ..`
     *   **Media**: (See [SOP](docs/ops/windows-deployment-sop.md) for CMake steps)
+    *   **Desktop Client**: `cd desktop/TSVmsDesktop; dotnet build; cd ../..`
 4.  **Run (Dev)**: `.\scripts\dev-restart.ps1`
 5.  **Run (Prod)**: `.\scripts\service-manager.ps1 -Action Install` (Admin)
 
@@ -115,6 +116,7 @@ For detailed build and deployment instructions, see the **[Windows Deployment SO
 | **Media Plane** | C++ (MSVC) | GStreamer-based RTSP Ingest & Transcoding (D3D11) |
 | **SFU** | Node.js (TypeScript) | WebRTC Signal & Routing (Mediasoup) |
 | **HLS Daemon** | Go | HLS Segment Serving |
+| **Desktop Client** | WPF / .NET 8 | Native Windows Management Interface (MVVM) |
 | **Database** | PostgreSQL 14+ | Relational Data & Compliance Logs |
 
 ## 🧩 Service Checklist (What Must Be Running)

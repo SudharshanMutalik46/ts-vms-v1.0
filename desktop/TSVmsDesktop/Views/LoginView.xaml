@@ -1,0 +1,96 @@
+<UserControl x:Class="TSVmsDesktop.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Grid>
+        <Grid.Background>
+            <ImageBrush ImageSource="/Images/background.jpg" Stretch="UniformToFill" Opacity="1.0"/>
+        </Grid.Background>
+
+        <Border Width="1050" Height="600" CornerRadius="15" Background="White">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.1" Color="Black"/>
+            </Border.Effect>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.5*"/>  <ColumnDefinition Width="1*"/>    </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0" Margin="70,50">
+                    <StackPanel VerticalAlignment="Center">
+                        <Image Source="/Images/logo.png" HorizontalAlignment="Left" Height="40" Margin="0,0,0,50"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                        <TextBlock Text="Sign In to VMS Dashboard" FontSize="24" FontWeight="Bold" 
+                                   Foreground="{StaticResource TechnoOrange}" Margin="0,0,0,40" 
+                                   HorizontalAlignment="Center"/>
+
+                        <Grid Margin="0,0,0,20" Height="50">
+                            <TextBox Style="{StaticResource ModernInputStyle}" Text="{Binding Username}" x:Name="UserBox"/>
+                            <TextBlock Text="✉" Foreground="#BBB" FontSize="16" VerticalAlignment="Center" Margin="15,0,0,0" IsHitTestVisible="False"/>
+                            <TextBlock Text="Email / Phone" IsHitTestVisible="False" Foreground="#BBB" FontSize="13" VerticalAlignment="Center" Margin="42,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=UserBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,25" Height="50">
+                            <TextBox Style="{StaticResource ModernInputStyle}" Text="{Binding Password}" x:Name="PassBox"/>
+                            <TextBlock Text="🔒" Foreground="#BBB" FontSize="16" VerticalAlignment="Center" Margin="15,0,0,0" IsHitTestVisible="False"/>
+                            <TextBlock Text="Password" IsHitTestVisible="False" Foreground="#BBB" FontSize="13" VerticalAlignment="Center" Margin="42,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=PassBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,50">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <CheckBox VerticalContentAlignment="Center"/>
+                                <TextBlock Text="Remember password" Foreground="#666" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            
+                            <TextBlock Text="Forgot your password?" Foreground="#333" HorizontalAlignment="Right" 
+                                       Cursor="Hand" TextDecorations="Underline" FontSize="13" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Button Content="SIGN IN" Command="{Binding LoginCommand}" 
+                                Style="{StaticResource PillButtonStyle}" Width="160" Height="48" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <Border Grid.Column="1" Background="{StaticResource TechnoOrange}" CornerRadius="0,15,15,0" ClipToBounds="True">
+                    <Grid>
+                        <Image Source="/Images/background.jpg" Stretch="UniformToFill" Opacity="0.1"/>
+
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="50">
+                            <TextBlock Text="Hello, Friend!" Foreground="White" FontSize="36" FontWeight="Bold" 
+                                       TextAlignment="Center" Margin="0,0,0,20"/>
+                            
+                            <TextBlock Text="Add your information and start your journey with us." 
+                                       Foreground="White" FontSize="15" TextAlignment="Center" 
+                                       TextWrapping="Wrap" Opacity="0.9" Margin="0,0,0,45" LineHeight="24"/>
+                            
+                            <Button Content="SIGN UP" Style="{StaticResource OutlineButtonStyle}" Width="160" Height="48"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,100 @@
+<UserControl x:Class="TSVmsDesktop.Views.LiveView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:TSVmsDesktop.Controls">
+    
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header Section -->
+        <Grid Grid.Row="0" Margin="0,0,10,15">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0">
+                <TextBlock Text="Total Cameras: " Foreground="Gray" FontSize="14"/>
+                <TextBlock Text="{Binding CameraGrid.Count}" Foreground="{StaticResource TechnoOrange}" FontWeight="Bold" FontSize="14"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="↻" Width="30" Height="30" Background="Transparent" BorderThickness="0" Foreground="#AAA" FontSize="20" Margin="0,0,10,0" Cursor="Hand"/>
+                
+                <Button Command="{Binding ConnectDemoCommand}" Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{StaticResource TechnoOrange}" CornerRadius="15" Padding="20,6">
+                                <TextBlock Text="View All" Foreground="White" FontSize="12" FontWeight="Bold"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Opacity" Value="0.9"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Camera Grid -->
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding CameraGrid}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Columns="4" Rows="3"/> 
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Background="{StaticResource VideoTileGray}" CornerRadius="12" Margin="6" ClipToBounds="True">
+                        <Grid>
+                            <!-- No Signal Overlay -->
+                            <Grid x:Name="NoSignalOverlay">
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.4">
+                                    <TextBlock Text="NO SIGNAL" Foreground="#999" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="camera disconnected" Foreground="#AAA" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Video Canvas -->
+                            <controls:VideoCanvas x:Name="VideoSurface" 
+                                                  Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                            <!-- Overlays (Text & REC) -->
+                            <Grid Margin="10" Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="{Binding OverlayText}" Foreground="LimeGreen" FontWeight="SemiBold" FontSize="12"
+                                           HorizontalAlignment="Left" VerticalAlignment="Bottom">
+                                     <TextBlock.Effect>
+                                        <DropShadowEffect Color="Black" BlurRadius="2" ShadowDepth="1"/>
+                                    </TextBlock.Effect>
+                                </TextBlock>
+                                
+                                <Border Background="Red" CornerRadius="3" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="6,2">
+                                    <TextBlock Text="REC" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</UserControl>

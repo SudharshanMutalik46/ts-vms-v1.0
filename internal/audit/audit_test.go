@@ -1,12 +1,16 @@
 package audit_test
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,13 +66,27 @@ func TestWriteEvent_Failover(t *testing.T) {
 
 // 3. Replay Logic (Idempotency)
 func TestReplay_Idempotency(t *testing.T) {
-	// Setup Spool File with 1 Event
-	tempDir, _ := os.MkdirTemp("", "replay_test")
-	defer os.RemoveAll(tempDir)
+	// Restore globals
+	oldDir := audit.SpoolDir
+	defer func() { audit.SpoolDir = oldDir }()
+
+	tempDir := t.TempDir()
 	audit.ConfigureFailover(tempDir, 100)
 
 	evt := audit.AuditEvent{EventID: uuid.New(), Action: "replay.action", TenantID: uuid.New()}
-	audit.SpoolEvent(evt)
+
+	// Manually create a historical file so ReplaySpool doesn't skip it
+	history := time.Now().Add(-2*time.Hour).Format("20060102_15") + "_audit_spool.log"
+	path := filepath.Join(tempDir, history)
+
+	payload := audit.FailoverEvent{
+		EventID:   evt.EventID.String(),
+		TenantID:  evt.TenantID.String(),
+		Payload:   evt,
+		Timestamp: time.Now(),
+	}
+	line, _ := json.Marshal(payload)
+	_ = os.WriteFile(path, append(line, '\n'), 0o600)
 
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
@@ -79,12 +97,6 @@ func TestReplay_Idempotency(t *testing.T) {
 
 	s.ReplaySpool(context.Background())
 
-	// Check file gone (rotated/deleted) or empty
-	// Our replay implementation deletes replay file.
-	// Check audit_spool.log is recreated empty or gone if renamed.
-	// Actually we rename audit_spool.log -> replay_xxx.log
-	// Test checks if replay_xxx.log is processed.
-	// We can check mock expectations.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("Replay didn't call DB: %s", err)
 	}
@@ -336,7 +348,10 @@ func TestExport_Filter_Tenant(t *testing.T) {
 
 // 20. Test Failover Config
 func TestFailover_Config(t *testing.T) {
-	tmp := os.TempDir()
+	oldDir := audit.SpoolDir
+	defer func() { audit.SpoolDir = oldDir }()
+
+	tmp := t.TempDir()
 	audit.ConfigureFailover(tmp, 500)
 	if audit.SpoolDir != tmp {
 		t.Error("Config failed")
@@ -345,11 +360,118 @@ func TestFailover_Config(t *testing.T) {
 
 // 21. Test Spool Full (Mock logic via small max size)
 func TestSpool_Full_Rotation(t *testing.T) {
-	// Not easily testable with real files without filling disk,
-	// but we can check if SpoolEvent doesn't panic.
+	oldDir := audit.SpoolDir
+	defer func() { audit.SpoolDir = oldDir }()
+
+	audit.SpoolDir = t.TempDir()
+
 	evt := audit.AuditEvent{EventID: uuid.New(), TenantID: uuid.New()}
 	err := audit.SpoolEvent(evt)
 	if err != nil {
-		// Might fail if we messed up config in previous test
+		t.Errorf("SpoolEvent failed: %v", err)
+	}
+}
+
+// 22. Test Spool Concurrency (Safety & Line Integrity)
+func TestSpool_Concurrency(t *testing.T) {
+	// Save globals and restore after test.
+	oldDir := audit.SpoolDir
+	oldMax := audit.MaxSpoolSize
+	defer func() {
+		audit.SpoolDir = oldDir
+		audit.MaxSpoolSize = oldMax
+	}()
+
+	audit.SpoolDir = t.TempDir()
+	audit.MaxSpoolSize = 1 << 30 // 1GB
+
+	if err := os.MkdirAll(audit.SpoolDir, 0o755); err != nil {
+		t.Fatalf("mkdir spooldir: %v", err)
+	}
+
+	const (
+		goroutines = 50
+		perG       = 200
+		total      = goroutines * perG
+	)
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	errCh := make(chan error, total)
+
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			<-start
+
+			for i := 0; i < perG; i++ {
+				evt := audit.AuditEvent{
+					EventID:   uuid.New(),
+					TenantID:  uuid.New(),
+					Action:    fmt.Sprintf("action-%d-%d", g, i),
+					CreatedAt: time.Now(),
+				}
+
+				if err := audit.SpoolEvent(evt); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}(g)
+	}
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatalf("SpoolEvent failed: %v", err)
+	}
+
+	// Collect all hourly spool logs.
+	pattern := filepath.Join(audit.SpoolDir, "*_audit_spool.log")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no spool files found with pattern %q", pattern)
+	}
+
+	seen := make(map[string]struct{})
+	count := 0
+	for _, fn := range files {
+		f, err := os.Open(fn)
+		if err != nil {
+			t.Fatalf("open %s: %v", fn, err)
+		}
+
+		reader := bufio.NewReader(f)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				var fe audit.FailoverEvent
+				if err := json.Unmarshal(line, &fe); err != nil {
+					f.Close()
+					t.Fatalf("corrupt JSON line in %s: %v\nline=%q", fn, err, string(line))
+				}
+				if _, dup := seen[fe.EventID]; dup {
+					f.Close()
+					t.Fatalf("duplicate EventID detected: %s", fe.EventID)
+				}
+				seen[fe.EventID] = struct{}{}
+				count++
+			}
+			if err != nil {
+				break
+			}
+		}
+		f.Close()
+	}
+
+	if count != total {
+		t.Fatalf("expected %d spooled lines, got %d (files=%v)", total, count, files)
 	}
 }
