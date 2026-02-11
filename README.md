@@ -95,7 +95,7 @@ We have successfully completed the foundation and security layer of the VMS:
     - **Secure Storage (3.9)**: Windows DPAPI integration for encrypted token storage.
     - **System Health Supervisor (3.9)**: Management dashboard for restarting core services.
     - **Settings Persistence (3.9)**: Local JSON configuration in `%AppData%`.
-    - **Camera Management (Phase 4)**: Real-time Camera Management UI with auto-save and persistence.
+    - **Camera Management (3.9)**: Real-time Camera Management UI with auto-save and persistence.
 
 - **Phase 3.9 Verification Suite**: Automated gatekeeper script (`verify-phase-3.9.ps1`) for build and security validation.
 
