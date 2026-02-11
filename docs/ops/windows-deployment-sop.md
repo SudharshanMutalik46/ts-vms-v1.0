@@ -1,8 +1,8 @@
 # SOP: Windows Native Deployment
 
 **Document ID:** SOP-MASTER-003  
-**Version:** 1.0  
-**Last Updated:** 2026-02-04
+**Version:** 1.1  
+**Last Updated:** 2026-02-11
 
 ## 1. Objective
 This document details the procedure for building, deploying, and running the Techno Support VMS entirely on native Windows, eliminating Docker dependencies for core services.
@@ -21,6 +21,7 @@ Ensure the following tools are installed and added to your System PATH:
     *   Add `C:\gstreamer\1.0\msvc_x86_64\bin` to PATH.
 6.  **PostgreSQL 14+** (Local Service)
 7.  **Redis 6+** (Local Service or Memurai)
+8.  **.NET 8 SDK** (Desktop Client)
 
 ### Environment Variables
 The following environment variables are required for the build and runtime scripts.
@@ -81,6 +82,15 @@ go build -o bin/vms-ai-mock.exe ./cmd/ai-service
 ```
 *(Note: `dev-restart.ps1` runs this via `go run` automatically)*
 
+### 3.6 Desktop Client (WPF)
+The Desktop Client is a .NET 8 WPF application.
+```powershell
+cd desktop\TSVmsDesktop
+dotnet build
+dotnet run
+```
+Configuration is stored in `%AppData%\TS-VMS\config.json`.
+
 ## 4. Running the System
 
 ### Option A: Development Mode (Recommended for Testing)
@@ -126,6 +136,7 @@ Ensure all the following are active for a fully functional system:
     *   [ ] **vms-sfu** (Port 8085) - Node.js WebRTC Engine
     *   [ ] **vms-hlsd** - HLS Segmenter
     *   [ ] **vms-ai** (or `ai-mock`) - Object Detection Engine
+    *   [ ] **TSVmsDesktop** - Native Operator Client
 
 **Tip:** Use `Get-Process vms-*, postgres, redis-server, nats-server, node` to check status quickly.
 
