@@ -92,6 +92,13 @@ We have successfully completed the foundation and security layer of the VMS:
   - **AI Overlay (Option A - Active)**: Real-time person/vehicle detection using a **Go-based Mock AI** (serving as a stable fallback for the Native C++ implementation).
   - **Native C++ AI (Option B)**: Fully implemented and audited but currently disabled pending DLL conflict resolution (Phase 4).
 
+- **Phase 4: Native Desktop Client (WPF) - (Completed)**
+  - **Modern UI/UX**: Dark/Light mode, responsive grid layout, and highly polished visual design.
+  - **MVVM Architecture**: Clean separation of concerns using CommunityToolkit.Mvvm for testability and maintainability.
+  - **Settings Persistence**: Application settings (Window State, Theme, Hardware Acceleration) saved to `%AppData%`.
+  - **Camera Management**: Native UI for viewing, adding, and managing RTSP sources.
+  - **Health Dashboard**: Real-time status monitoring of all VMS microservices.
+
 ---
 
 ## 🚀 Quick Start (Windows Native)
