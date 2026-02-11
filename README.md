@@ -89,14 +89,15 @@ We have successfully completed the foundation and security layer of the VMS:
 - **Phase 3: Real-Time Streaming, AI & Desktop Client (Completed)**
   - **WebRTC Live View**: Low-latency (<500ms) streaming via Mediasoup SFU.
   - **HLS Fallback**: Robust high-latency fallback for reliable recording playback.
-  - **AI Overlay (Option A - Active)**: Real-time person/vehicle detection using a **Go-based Mock AI** (serving as a stable fallback for the Native C++ implementation).
-  - **Native C++ AI (Option B)**: Fully implemented and audited but currently disabled pending DLL conflict resolution.
+  - **AI Overlay**: Real-time person/vehicle detection with bounding box overlays.
   - **Native Desktop Client (WPF)**:
-    - **Modern UI/UX**: Dark/Light mode, responsive grid layout, and highly polished visual design.
-    - **MVVM Architecture**: Clean separation of concerns using CommunityToolkit.Mvvm for testability and maintainability.
-    - **Settings Persistence**: Application settings (Window State, Theme, Hardware Acceleration) saved to `%AppData%`.
-    - **Camera Management**: Native UI for viewing, adding, and managing RTSP sources.
-    - **Health Dashboard**: Real-time status monitoring of all VMS microservices.
+    - **Modern UI/UX**: Dark mode, responsive 12-channel grid, and highly polished visual design.
+    - **Secure Storage (3.9)**: Windows DPAPI integration for encrypted token storage.
+    - **System Health Supervisor (3.9)**: Management dashboard for restarting core services.
+    - **Settings Persistence (3.9)**: Local JSON configuration in `%AppData%`.
+    - **Camera Management (Phase 4)**: Real-time Camera Management UI with auto-save and persistence.
+
+- **Phase 3.9 Verification Suite**: Automated gatekeeper script (`verify-phase-3.9.ps1`) for build and security validation.
 
 ---
 

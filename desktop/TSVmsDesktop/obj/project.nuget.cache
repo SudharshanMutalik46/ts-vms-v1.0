@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "+VSlgmrugRg=",
+  "dgSpecHash": "aVnL/h7Sxrc=",
   "success": true,
   "projectFilePath": "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\desktop\\TSVmsDesktop\\TSVmsDesktop.csproj",
   "expectedPackageFiles": [
@@ -20,7 +20,8 @@
     "C:\\Users\\sudha\\.nuget\\packages\\microsoft.extensions.primitives\\8.0.0\\microsoft.extensions.primitives.8.0.0.nupkg.sha512",
     "C:\\Users\\sudha\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
     "C:\\Users\\sudha\\.nuget\\packages\\system.diagnostics.diagnosticsource\\8.0.0\\system.diagnostics.diagnosticsource.8.0.0.nupkg.sha512",
-    "C:\\Users\\sudha\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512"
+    "C:\\Users\\sudha\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512",
+    "C:\\Users\\sudha\\.nuget\\packages\\system.security.cryptography.protecteddata\\8.0.0\\system.security.cryptography.protecteddata.8.0.0.nupkg.sha512"
   ],
   "logs": []
 }

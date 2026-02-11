@@ -1,45 +1,74 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.Linq;
+using System;
+using TSVmsDesktop.Services;
 
 namespace TSVmsDesktop.ViewModels
 {
+    // FIX: Ensure this class is 'partial' and inherits 'ObservableObject'
     public partial class CameraSlot : ObservableObject
     {
-        [ObservableProperty] private string _cameraName = "No Signal";
-        [ObservableProperty] private bool _isConnected = false;
-        [ObservableProperty] private string _overlayText = "CAM-01";
+        [ObservableProperty] private string _overlayText = "";
+        
+        // THIS is the property that triggers the visibility change
+        [ObservableProperty] private bool _isConnected = false; 
+        
+        [ObservableProperty] private string _cameraName = "";
+
+        public IntPtr PipelineHandle { get; set; } = IntPtr.Zero;
+        public string RtspUrl { get; set; } = ""; 
     }
 
     public partial class LiveViewModel : ObservableObject
     {
-        // 12 Slots for 4x3 Grid
+        private readonly VideoService _videoService;
+        private readonly CameraService _cameraService;
+
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
 
-        public LiveViewModel()
+        public LiveViewModel(VideoService videoService, CameraService cameraService) 
         {
-            // Reset and create exactly 12 slots to match the 4x3 Dashboard Grid
-            CameraGrid.Clear();
-            for(int i = 1; i <= 12; i++)
-            {
-                CameraGrid.Add(new CameraSlot { OverlayText = $"CAM-{i:D2}" });
-            }
+            _videoService = videoService;
+            _cameraService = cameraService;
+            _videoService.Initialize();
+
+            RefreshGrid();
         }
 
         [RelayCommand]
         public void ConnectDemo()
         {
-            // Simulates connecting a camera behavior
-            if (CameraGrid.Count > 0)
+            System.Diagnostics.Debug.WriteLine("[TS-VMS] 'View All' Clicked - Updating Slots...");
+            
+            foreach (var slot in CameraGrid)
             {
-                CameraGrid[0].IsConnected = true;
-                CameraGrid[0].CameraName = "Parking Lot Entry";
-                
-                // Light up a few more for the "View All" demo feel
-                if (CameraGrid.Count > 4) {
-                     CameraGrid[1].IsConnected = true;
-                     CameraGrid[4].IsConnected = true;
+                // Force the UI to update
+                slot.IsConnected = true;
+                slot.CameraName = string.IsNullOrEmpty(slot.CameraName) ? "Live Stream" : slot.CameraName;
+            }
+        }
+
+        private void RefreshGrid()
+        {
+            CameraGrid.Clear();
+            var realCameras = _cameraService.AllCameras;
+
+            for (int i = 0; i < 12; i++)
+            {
+                var slot = new CameraSlot { OverlayText = $"CAM-{i+1:D2}", IsConnected = false };
+
+                if (i < realCameras.Count)
+                {
+                    var cam = realCameras[i];
+                    slot.CameraName = cam.Name;
+                    slot.RtspUrl = cam.RtspUrl;
+                    slot.OverlayText = cam.Name;
+                    // Note: We keep IsConnected false initially so the button click triggers the change
                 }
+
+                CameraGrid.Add(slot);
             }
         }
     }

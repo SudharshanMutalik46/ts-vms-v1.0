@@ -1,5 +1,7 @@
 # Binaries
 *.exe
+*.dll
+*.pdb
 migrator.exe
 server.exe
 vms-media.exe
@@ -9,7 +11,13 @@ web-server.exe
 node.exe
 python.exe
 
-# OS generated files
+# Build directories
+**/bin/
+**/obj/
+**/build/
+**/vcpkg_installed/
+**/out/
+
 .DS_Store
 Thumbs.db
 
@@ -45,5 +53,12 @@ coverage.out
 *.sqlite
 *.rdb
 *.txt
-**/build/
-**/vcpkg_installed/
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore user-specific data (but keep the structure)
+**/cameras.json
+**/desktop-config.json
+**/token.dat

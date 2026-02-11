@@ -1,7 +1,8 @@
 <UserControl x:Class="TSVmsDesktop.Views.LiveView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:TSVmsDesktop.Controls">
+             xmlns:controls="clr-namespace:TSVmsDesktop.Controls"
+             Unloaded="UserControl_Unloaded">
     
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
@@ -76,7 +77,9 @@
 
                             <!-- Video Canvas -->
                             <controls:VideoCanvas x:Name="VideoSurface" 
-                                                  Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                  DataContext="{Binding}"
+                                                  Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                  IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
 
                             <!-- Overlays (Text & REC) -->
                             <Grid Margin="10" Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">

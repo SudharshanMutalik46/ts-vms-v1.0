@@ -1,73 +1,91 @@
 using System;
-using System.IO;
-using System.Security.Cryptography;
 using System.Text;
+using System.Security.Cryptography;
+using System.IO;
 
 namespace TSVmsDesktop.Services
 {
     public interface ISecureStorageService
     {
-        void SaveToken(string token);
         string? GetToken();
+        void SetToken(string token);
         void ClearToken();
+        string Encrypt(string plainText);
+        string Decrypt(string cipherText);
     }
 
     public class SecureStorageService : ISecureStorageService
     {
-        // Simple implementation for now. In a real app, use DPAPI or similar.
-        private readonly string _filePath;
+        private readonly string _tokenFile;
+
+        // Uses Windows DPAPI (Data Protection API)
+        // Data is encrypted using the current user's credentials.
+        // Only this user on this machine can decrypt it.
 
         public SecureStorageService()
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var folder = Path.Combine(appData, "TS-VMS");
-            Directory.CreateDirectory(folder);
-            _filePath = Path.Combine(folder, "token.dat");
-        }
-
-        public void SaveToken(string token)
-        {
-            try
-            {
-                // Simple encoding for now, NOT secure encryption. 
-                // TODO: upgrade to ProtectedData.Protect for production
-                var bytes = Encoding.UTF8.GetBytes(token);
-                var base64 = Convert.ToBase64String(bytes);
-                File.WriteAllText(_filePath, base64);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving token: {ex.Message}");
-            }
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TS-VMS");
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+            _tokenFile = Path.Combine(folder, "token.dat");
         }
 
         public string? GetToken()
         {
+            if (!File.Exists(_tokenFile)) return null;
             try
             {
-                if (!File.Exists(_filePath)) return null;
-                var base64 = File.ReadAllText(_filePath);
-                var bytes = Convert.FromBase64String(base64);
-                return Encoding.UTF8.GetString(bytes);
+                byte[] cipherText = File.ReadAllBytes(_tokenFile);
+                byte[] decrypted = ProtectedData.Unprotect(cipherText, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(decrypted);
             }
-            catch
+            catch { return null; }
+        }
+
+        public void SetToken(string token)
+        {
+            try
             {
-                return null;
+                byte[] plainText = Encoding.UTF8.GetBytes(token);
+                byte[] encrypted = ProtectedData.Protect(plainText, null, DataProtectionScope.CurrentUser);
+                File.WriteAllBytes(_tokenFile, encrypted);
             }
+            catch { }
         }
 
         public void ClearToken()
         {
+            if (File.Exists(_tokenFile)) File.Delete(_tokenFile);
+        }
+
+        public string Encrypt(string plainText)
+        {
+            if (string.IsNullOrEmpty(plainText)) return string.Empty;
+
             try
             {
-                if (File.Exists(_filePath))
-                {
-                    File.Delete(_filePath);
-                }
+                byte[] data = Encoding.UTF8.GetBytes(plainText);
+                byte[] encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
+                return Convert.ToBase64String(encrypted);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"Error clearing token: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        public string Decrypt(string cipherText)
+        {
+            if (string.IsNullOrEmpty(cipherText)) return string.Empty;
+
+            try
+            {
+                byte[] data = Convert.FromBase64String(cipherText);
+                byte[] decrypted = ProtectedData.Unprotect(data, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(decrypted);
+            }
+            catch (Exception)
+            {
+                return string.Empty;
             }
         }
     }

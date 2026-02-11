@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP
 C:\Users\sudha\Desktop\ts_vms_1.0\desktop\TSVmsDesktop\App.xaml
-6-1814612736
+71587445794
 
-21196775408
+27627632621
 221-1200156658
-Views\CamerasView.xaml;Views\HealthView.xaml;Views\LiveView.xaml;Views\LoginView.xaml;Views\MainWindow.xaml;Views\SettingsView.xaml;
+Views\AddCameraWindow.xaml;Views\CamerasView.xaml;Views\HealthView.xaml;Views\LiveView.xaml;Views\LoginView.xaml;Views\MainWindow.xaml;Views\SettingsView.xaml;
 
 False
 

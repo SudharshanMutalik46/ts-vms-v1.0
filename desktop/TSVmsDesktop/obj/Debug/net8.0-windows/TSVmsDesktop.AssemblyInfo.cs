@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("TSVmsDesktop")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6ea43f1b97661263d8c3aa0629cd22c5b69946ac")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5452a9c346268862b01424b9effed6d287d4dc3f")]
 [assembly: System.Reflection.AssemblyProductAttribute("TSVmsDesktop")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TSVmsDesktop")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

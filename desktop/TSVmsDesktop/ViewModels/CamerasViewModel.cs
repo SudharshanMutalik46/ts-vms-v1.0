@@ -1,35 +1,56 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.Windows; 
 using TSVmsDesktop.Models;
+using TSVmsDesktop.Services;
+using TSVmsDesktop.Views; 
 
 namespace TSVmsDesktop.ViewModels
 {
     public partial class CamerasViewModel : ObservableObject
     {
-        [ObservableProperty] private ObservableCollection<CameraModel> _cameras = new();
+        private readonly CameraService _cameraService;
 
-        public CamerasViewModel()
+        // BINDING DIRECTLY to the Service's collection ensures updates are instant
+        public ObservableCollection<CameraModel> Cameras => _cameraService.AllCameras;
+
+        public CamerasViewModel(CameraService cameraService)
         {
-            // Load Dummy Data for Design Verification
-            Cameras.Add(new CameraModel { Name = "Main Gate Entry", IpAddress = "192.168.1.101", Status = "Online", Model = "Hikvision 4K" });
-            Cameras.Add(new CameraModel { Name = "Lobby Wide", IpAddress = "192.168.1.102", Status = "Online", Model = "Axis P32" });
-            Cameras.Add(new CameraModel { Name = "Parking North", IpAddress = "192.168.1.105", Status = "Offline", Model = "Dahua Bullet" });
-            Cameras.Add(new CameraModel { Name = "Server Room", IpAddress = "192.168.1.110", Status = "Online", Model = "Uniview Dome" });
-            Cameras.Add(new CameraModel { Name = "Warehouse Dock", IpAddress = "192.168.1.112", Status = "Error", Model = "Generic RTSP" });
+            _cameraService = cameraService;
         }
 
         [RelayCommand]
         public void AddCamera()
         {
-            // Placeholder for "Add Camera" Dialog
-            Cameras.Add(new CameraModel { Name = "New Camera", IpAddress = "0.0.0.0", Status = "Offline" });
+            // 1. Create and Configure the Window
+            var dialog = new AddCameraWindow();
+            dialog.Owner = System.Windows.Application.Current.MainWindow; 
+            
+            // 2. Show Modal
+            bool? result = dialog.ShowDialog();
+
+            // 3. Process Result
+            if (result == true && dialog.CreatedCamera != null)
+            {
+                _cameraService.AddCamera(dialog.CreatedCamera);
+                
+                // Optional: Provide feedback
+                // System.Windows.MessageBox.Show($"Camera '{dialog.CreatedCamera.Name}' added successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
 
         [RelayCommand]
         public void DeleteCamera(CameraModel cam)
         {
-            if (Cameras.Contains(cam)) Cameras.Remove(cam);
+            if (cam == null) return;
+
+            var result = System.Windows.MessageBox.Show($"Are you sure you want to delete '{cam.Name}'?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            
+            if (result == System.Windows.MessageBoxResult.Yes)
+            {
+                _cameraService.RemoveCamera(cam);
+            }
         }
     }
 }

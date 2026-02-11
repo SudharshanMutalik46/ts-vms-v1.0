@@ -62,6 +62,10 @@
             "System.Drawing.Common": {
               "target": "Package",
               "version": "[8.0.0, )"
+            },
+            "System.Security.Cryptography.ProtectedData": {
+              "target": "Package",
+              "version": "[8.0.0, )"
             }
           },
           "imports": [

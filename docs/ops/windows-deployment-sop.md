@@ -89,7 +89,21 @@ cd desktop\TSVmsDesktop
 dotnet build
 dotnet run
 ```
-Configuration is stored in `%AppData%\TS-VMS\config.json`.
+**Storage Persistence:**
+- **Cameras**: `%AppData%\TS-VMS\cameras.json`
+- **Settings**: `%AppData%\TS-VMS\desktop-config.json`
+- **Security**: Tokens are encrypted via DPAPI and stored in `%LocalAppData%\TS-VMS\token.dat`.
+
+## 4. Phase 3.9 Verification Suite
+To confirm the system is ready for production, run the automated verification script:
+```powershell
+.\scripts\verify-phase-3.9.ps1
+```
+This script validates:
+1. **Build Integrity**: Ensures 0 warnings/errors in desktop and backend.
+2. **Backend Health**: Pulses the Control Plane API (HTTP 200).
+3. **DPAPI Security**: Performs an encryption/decryption self-test.
+4. **Local Paths**: Verifies writability to AppData for configuration.
 
 ## 4. Running the System
 

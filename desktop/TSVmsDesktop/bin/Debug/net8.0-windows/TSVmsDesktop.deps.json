@@ -12,7 +12,8 @@
           "Microsoft.Extensions.DependencyInjection": "8.0.0",
           "Microsoft.Extensions.Http": "8.0.0",
           "Microsoft.Win32.SystemEvents": "8.0.0",
-          "System.Drawing.Common": "8.0.0"
+          "System.Drawing.Common": "8.0.0",
+          "System.Security.Cryptography.ProtectedData": "8.0.0"
         },
         "runtime": {
           "TSVmsDesktop.dll": {}
@@ -186,7 +187,8 @@
         "dependencies": {
           "Microsoft.Win32.SystemEvents": "8.0.0"
         }
-      }
+      },
+      "System.Security.Cryptography.ProtectedData/8.0.0": {}
     }
   },
   "libraries": {
@@ -313,6 +315,13 @@
       "sha512": "sha512-JkbHJjtI/dWc5dfmEdJlbe3VwgZqCkZRtfuWFh5GOv0f+gGCfBtzMpIVkmdkj2AObO9y+oiOi81UGwH3aBYuqA==",
       "path": "system.drawing.common/8.0.0",
       "hashPath": "system.drawing.common.8.0.0.nupkg.sha512"
+    },
+    "System.Security.Cryptography.ProtectedData/8.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-+TUFINV2q2ifyXauQXRwy4CiBhqvDEDZeVJU7qfxya4aRYOKzVBpN+4acx25VcPB9ywUN6C0n8drWl110PhZEg==",
+      "path": "system.security.cryptography.protecteddata/8.0.0",
+      "hashPath": "system.security.cryptography.protecteddata.8.0.0.nupkg.sha512"
     }
   }
 }

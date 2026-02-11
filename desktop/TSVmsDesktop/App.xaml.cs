@@ -21,7 +21,10 @@ namespace TSVmsDesktop
             var services = new ServiceCollection();
 
             services.AddSingleton<IConfigService, ConfigService>();
+            services.AddSingleton<Services.VideoService>();
+            services.AddSingleton<Services.CameraService>();
             services.AddSingleton<ISecureStorageService, SecureStorageService>();
+            services.AddSingleton<Services.SettingsService>();
             services.AddHttpClient<IHealthService, HealthService>();
 
             services.AddSingleton<MainViewModel>();
@@ -29,6 +32,7 @@ namespace TSVmsDesktop
             services.AddTransient<LiveViewModel>();
             services.AddTransient<CamerasViewModel>();
             services.AddTransient<HealthViewModel>();
+            services.AddTransient<SystemHealthViewModel>();
             services.AddTransient<SettingsViewModel>();
             services.AddTransient<MainWindow>();
 
