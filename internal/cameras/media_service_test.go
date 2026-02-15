@@ -46,20 +46,24 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 						Width  int
 						Height int
 					}
+					Rate    float64 `xml:"FrameRateLimit"`
+					Bitrate int     `xml:"BitrateLimit"`
 				}{Encoding: "H264", Resolution: struct {
 					Width  int
 					Height int
-				}{1920, 1080}}},
+				}{1920, 1080}, Rate: 30, Bitrate: 4096}},
 				{Token: "t2", Name: "Sub", VideoEncoderConfiguration: struct {
 					Encoding   string
 					Resolution struct {
 						Width  int
 						Height int
 					}
+					Rate    float64 `xml:"FrameRateLimit"`
+					Bitrate int     `xml:"BitrateLimit"`
 				}{Encoding: "H264", Resolution: struct {
 					Width  int
 					Height int
-				}{640, 360}}},
+				}{640, 360}, Rate: 15, Bitrate: 1024}},
 			},
 			StreamURI: "rtsp://camera",
 		}, nil

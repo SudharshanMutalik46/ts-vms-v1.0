@@ -135,6 +135,7 @@ type NVRRepository interface {
 	// Event Polling
 	UpsertEventPollState(ctx context.Context, state *NVREventPollState) error
 	GetEventPollState(ctx context.Context, nvrID uuid.UUID) (*NVREventPollState, error)
+	GetDefaultSite(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error)
 }
 
 // Health Models

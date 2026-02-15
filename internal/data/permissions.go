@@ -75,3 +75,40 @@ func (m PermissionModel) GetPermissionsForUser(ctx context.Context, tenantID, us
 
 	return perms, nil
 }
+
+// GetFullIdentity returns both role names and permission names
+func (m PermissionModel) GetFullIdentity(ctx context.Context, tenantID, userID string) ([]string, []string, error) {
+	// 1. Get Roles
+	roleQuery := `
+		SELECT r.name
+		FROM user_roles ur
+		JOIN roles r ON ur.role_id = r.id
+		WHERE ur.user_id = $1 AND ur.scope_id = $2
+	`
+	rows, err := m.DB.QueryContext(ctx, roleQuery, userID, tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	roles := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			roles = append(roles, name)
+		}
+	}
+
+	// 2. Get Permissions
+	grants, err := m.GetPermissionsForUser(ctx, tenantID, userID)
+	if err != nil {
+		return roles, nil, err
+	}
+
+	perms := make([]string, 0, len(grants))
+	for k := range grants {
+		perms = append(perms, k)
+	}
+
+	return roles, perms, nil
+}

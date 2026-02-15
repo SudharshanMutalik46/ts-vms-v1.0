@@ -65,6 +65,15 @@ func (s *Service) CreateNVR(ctx context.Context, nvr *data.NVR) error {
 	if ip := net.ParseIP(nvr.IPAddress); ip == nil {
 		return errors.New("invalid ip address")
 	}
+
+	// Default Site Handling
+	if nvr.SiteID == uuid.Nil {
+		siteID, err := s.repo.GetDefaultSite(ctx, nvr.TenantID)
+		if err != nil {
+			return fmt.Errorf("failed to get default site: %w", err)
+		}
+		nvr.SiteID = siteID
+	}
 	// Vendor allowed: "hikvision" | "dahua" | "onvif" | "generic" | "unknown"
 	switch nvr.Vendor {
 	case "hikvision", "dahua", "onvif", "generic", "unknown":

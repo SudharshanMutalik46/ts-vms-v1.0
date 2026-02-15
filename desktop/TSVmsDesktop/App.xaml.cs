@@ -28,19 +28,36 @@ namespace TSVmsDesktop
             services.AddSingleton<Services.ApiClient>();
             services.AddSingleton<Services.VideoService>();
             services.AddSingleton<Services.CameraService>();
+            services.AddSingleton<Services.OnvifService>();
+            services.AddSingleton<Services.MediaService>();
+            services.AddSingleton<Services.CredentialService>();
+            services.AddSingleton<Services.AlertsService>();
             services.AddHttpClient<IHealthService, HealthService>();
             services.AddSingleton<Services.AuditService>(); // New
+            services.AddSingleton<Services.LicenseService>();
+            services.AddSingleton<Services.UserService>();
+            services.AddSingleton<Services.SupervisorService>();
+            services.AddSingleton<Services.NvrService>();
+            services.AddSingleton<Services.WindowsService>();
 
             services.AddSingleton<MainViewModel>();
             services.AddTransient<StartupViewModel>(); // New
             services.AddTransient<LoginViewModel>();
             services.AddTransient<LiveViewModel>();
             services.AddTransient<CamerasViewModel>();
+            services.AddTransient<CameraDetailsViewModel>();
+            services.AddTransient<OnvifDiscoveryViewModel>();
             services.AddTransient<AuditViewModel>(); // New
             services.AddTransient<HealthViewModel>();
             services.AddTransient<SystemHealthViewModel>();
             services.AddTransient<SettingsViewModel>();
             services.AddTransient<MainWindow>();
+            services.AddTransient<LicenseViewModel>();
+            services.AddTransient<UsersViewModel>();
+            services.AddTransient<SupervisorViewModel>();
+            services.AddTransient<NvrsViewModel>();
+            services.AddTransient<NvrDetailsViewModel>();
+            services.AddTransient<WindowsDiscoveryViewModel>();
 
             Services = services.BuildServiceProvider();
             Console.WriteLine("DEBUG: Services Built");

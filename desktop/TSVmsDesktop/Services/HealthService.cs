@@ -18,7 +18,7 @@ namespace TSVmsDesktop.Services
         public HealthService(HttpClient httpClient)
         {
             _httpClient = httpClient;
-            _httpClient.Timeout = TimeSpan.FromSeconds(2);
+            _httpClient.Timeout = TimeSpan.FromSeconds(10);
         }
 
         public async Task<(bool IsHealthy, string Details)> CheckHealthAsync()

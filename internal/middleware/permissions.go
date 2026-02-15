@@ -19,6 +19,7 @@ type permissionCache struct {
 
 type cacheItem struct {
 	perms     map[string]data.PermissionGrant
+	roles     []string
 	expiresAt time.Time
 }
 
@@ -29,22 +30,22 @@ func newPermissionCache(maxItems int) *permissionCache {
 	}
 }
 
-func (c *permissionCache) get(key string) (map[string]data.PermissionGrant, bool) {
+func (c *permissionCache) get(key string) (map[string]data.PermissionGrant, []string, bool) {
 	c.Lock()
 	defer c.Unlock()
 
 	item, found := c.items[key]
 	if !found {
-		return nil, false
+		return nil, nil, false
 	}
 	if time.Now().After(item.expiresAt) {
 		delete(c.items, key)
-		return nil, false
+		return nil, nil, false
 	}
-	return item.perms, true
+	return item.perms, item.roles, true
 }
 
-func (c *permissionCache) set(key string, perms map[string]data.PermissionGrant, ttl time.Duration) {
+func (c *permissionCache) set(key string, perms map[string]data.PermissionGrant, roles []string, ttl time.Duration) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -58,6 +59,7 @@ func (c *permissionCache) set(key string, perms map[string]data.PermissionGrant,
 
 	c.items[key] = cacheItem{
 		perms:     perms,
+		roles:     roles,
 		expiresAt: time.Now().Add(ttl),
 	}
 }
@@ -77,6 +79,7 @@ func (s StubCameraResolver) ResolveSiteID(ctx context.Context, cameraID string) 
 // PermissionProvider interface for fetching permissions
 type PermissionProvider interface {
 	GetPermissionsForUser(ctx context.Context, tenantID, userID string) (map[string]data.PermissionGrant, error)
+	GetFullIdentity(ctx context.Context, tenantID, userID string) ([]string, []string, error)
 }
 
 // PermissionMiddleware handles hierarchical checks
@@ -105,14 +108,29 @@ func (m *PermissionMiddleware) CheckPermission(ctx context.Context, permSlug, sc
 
 	// 1. Fetch Permissions (Cached)
 	cacheKey := fmt.Sprintf("%s:%s", ac.TenantID, ac.UserID)
-	grants, found := m.cache.get(cacheKey)
+	grants, roles, found := m.cache.get(cacheKey)
 	if !found {
 		var err error
 		grants, err = m.permsRepo.GetPermissionsForUser(ctx, ac.TenantID, ac.UserID)
 		if err != nil {
 			return false, err
 		}
-		m.cache.set(cacheKey, grants, 60*time.Second)
+		// Also fetch roles to populate ac.Roles
+		pm, ok := m.permsRepo.(data.PermissionModel)
+		if ok {
+			roles, _, _ = pm.GetFullIdentity(ctx, ac.TenantID, ac.UserID)
+		}
+
+		m.cache.set(cacheKey, grants, roles, 60*time.Second)
+	}
+
+	// Always sync roles to ac for downstream handlers
+	ac.Roles = roles
+	ac.Permissions = grants
+
+	// 1.5 Short-circuit for elevated roles (Global Bypass)
+	if ac.HasRole("admin") || ac.HasRole("operator") {
+		return true, nil
 	}
 
 	// 2. Check Permission Exists
@@ -131,14 +149,9 @@ func (m *PermissionMiddleware) CheckPermission(ctx context.Context, permSlug, sc
 		_, ok := grant.SiteIDs[scopeID]
 		return ok, nil
 	} else if scopeType == "camera" {
-		// Note: For camera scope, we usually need resolution first.
-		// If scopeID is passed here, we assume it's CAMERA ID? Or SITE ID?
-		// Standard: CheckPermission is usually called AFTER resolution.
-		// If scopeType is "camera", scopeID is "cameraID".
-		// We resolve here.
 		siteID, err := m.cameraResolver.ResolveSiteID(ctx, scopeID)
 		if err != nil {
-			return false, nil // Camera not found or error leads to deny
+			return false, nil
 		}
 		if grant.TenantWide {
 			return true, nil
@@ -180,4 +193,15 @@ func (m *PermissionMiddleware) RequirePermission(permSlug string, scopeType stri
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// LoadIdentity populates AuthContext with roles/permissions without enforcing a specific slug.
+// Useful for generic handlers like ListUsers that do their own internal RBAC checks.
+func (m *PermissionMiddleware) LoadIdentity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Just call CheckPermission with dummy slug to trigger population
+		// CheckPermission already syncs roles/perms to AuthContext
+		_, _ = m.CheckPermission(r.Context(), "", "", "")
+		next.ServeHTTP(w, r)
+	})
 }

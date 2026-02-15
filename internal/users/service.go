@@ -53,6 +53,12 @@ func (s *Service) CreateUser(ctx context.Context, u *data.User, password string,
 	return nil
 }
 
+// ListUsers retrieves users with pagination
+func (s *Service) ListUsers(ctx context.Context, tenantID uuid.UUID, limit, offset int) ([]*data.User, error) {
+	// For now, direct pass-through. Could add audit or specific logic later.
+	return s.Repo.List(ctx, tenantID, limit, offset)
+}
+
 // UpdateUser handles updates and audit
 func (s *Service) UpdateUser(ctx context.Context, u *data.User, actorID uuid.UUID) error {
 	err := s.Repo.Update(ctx, u)
@@ -99,6 +105,13 @@ func (s *Service) EnableUser(ctx context.Context, userID, tenantID, actorID uuid
 	u.IsDisabled = false
 	err = s.Repo.Update(ctx, u)
 	s.audit(ctx, "user.enable", userID, actorID, tenantID, err)
+	return err
+}
+
+// DeleteUser
+func (s *Service) DeleteUser(ctx context.Context, userID, tenantID, actorID uuid.UUID) error {
+	err := s.Repo.SoftDelete(ctx, userID)
+	s.audit(ctx, "user.delete", userID, actorID, tenantID, err)
 	return err
 }
 
@@ -180,6 +193,44 @@ func (s *Service) CompleteReset(ctx context.Context, rawToken, newPassword strin
 	// Target is user.
 	s.audit(ctx, "user.password.reset_complete", user.ID, uuid.Nil, user.TenantID, nil)
 	return nil
+}
+
+// AdminResetPassword generates a temporary password and sets it directly
+func (s *Service) AdminResetPassword(ctx context.Context, userID, tenantID, actorID uuid.UUID) (string, error) {
+	// 1. Generate Random Password
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	length := 12
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	for i, b := range bytes {
+		bytes[i] = chars[b%byte(len(chars))]
+	}
+	tempPass := string(bytes)
+
+	// 2. Hash it
+	hash, err := auth.HashPassword(tempPass)
+	if err != nil {
+		return "", err
+	}
+
+	// 3. Update User
+	u, err := s.Repo.GetByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	u.PasswordHash = hash
+
+	// Force password change on next login? (Not implemented yet, but good practice)
+	// u.RequiresPasswordChange = true
+
+	if err := s.Repo.Update(ctx, u); err != nil {
+		return "", err
+	}
+
+	s.audit(ctx, "user.password.admin_reset", userID, actorID, tenantID, nil)
+	return tempPass, nil
 }
 
 func (s *Service) audit(ctx context.Context, action string, targetID, actorID, tenantID uuid.UUID, err error) {

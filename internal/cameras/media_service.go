@@ -16,10 +16,10 @@ import (
 type MediaRepository interface {
 	UpsertProfile(ctx context.Context, p *data.CameraMediaProfile) error
 	UpsertSelection(ctx context.Context, s *data.CameraStreamSelection) error
-	GetSelection(ctx context.Context, cameraID uuid.UUID) (*data.CameraStreamSelection, error)
-	GetValidationResults(ctx context.Context, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error)
+	GetSelection(ctx context.Context, tenantID, cameraID uuid.UUID) (*data.CameraStreamSelection, error)
+	GetValidationResults(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error)
 	UpsertValidationResult(ctx context.Context, res *data.RTSPValidationResult) error
-	ListProfiles(ctx context.Context, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error)
+	ListProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error)
 }
 
 type CredentialProvider interface {
@@ -145,19 +145,15 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 		}
 
 		p := media.Profile{
-			Token:      op.Token,
-			Name:       op.Name,
-			VideoCodec: codec,
-			Width:      op.VideoEncoderConfiguration.Resolution.Width,
-			Height:     op.VideoEncoderConfiguration.Resolution.Height,
-			RTSPURL:    uri, // Raw needed for Selector? No, Selector just passes it through.
-			// But Selector should ideally work on objects.
-			// Wait, we need to store Sanitized in DB.
-			// The Validator needs Raw (with creds injected) OR Creds separately.
-			// Validator takes (User, Pass, SanitizedURL).
-			// So we store Sanitized.
+			Token:       op.Token,
+			Name:        op.Name,
+			VideoCodec:  codec,
+			Width:       op.VideoEncoderConfiguration.Resolution.Width,
+			Height:      op.VideoEncoderConfiguration.Resolution.Height,
+			FPS:         op.VideoEncoderConfiguration.Rate,    // FIXED: Map ONVIF Rate to FPS
+			BitrateKbps: op.VideoEncoderConfiguration.Bitrate, // FIXED: Map ONVIF Bitrate to BitrateKbps
+			RTSPURL:     sanitizedURI,
 		}
-		p.RTSPURL = sanitizedURI // Store sanitized in struct used for selection
 
 		domainProfiles = append(domainProfiles, p)
 
@@ -170,6 +166,8 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 			VideoCodec:       string(p.VideoCodec),
 			Width:            p.Width,
 			Height:           p.Height,
+			FPS:              p.FPS,
+			BitrateKbps:      p.BitrateKbps,
 			RTSPURLSanitized: sanitizedURI,
 		}
 		s.MediaRepo.UpsertProfile(ctx, dbP)
@@ -231,24 +229,29 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	return dbSel, nil
 }
 
-func (s *MediaService) GetProfiles(ctx context.Context, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error) {
-	return s.MediaRepo.ListProfiles(ctx, cameraID)
+func (s *MediaService) GetProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error) {
+	return s.MediaRepo.ListProfiles(ctx, tenantID, cameraID)
 }
 
-func (s *MediaService) GetSelection(ctx context.Context, cameraID uuid.UUID) (*data.CameraStreamSelection, []*data.RTSPValidationResult, error) {
-	sel, err := s.MediaRepo.GetSelection(ctx, cameraID)
+func (s *MediaService) GetSelection(ctx context.Context, tenantID, cameraID uuid.UUID) (*data.CameraStreamSelection, []*data.RTSPValidationResult, error) {
+	sel, err := s.MediaRepo.GetSelection(ctx, tenantID, cameraID)
 	if err != nil {
 		return nil, nil, err
 	}
-	val, err := s.MediaRepo.GetValidationResults(ctx, cameraID)
+	val, err := s.MediaRepo.GetValidationResults(ctx, tenantID, cameraID)
 	return sel, val, err
 }
 
 func (s *MediaService) ValidateRTSP(ctx context.Context, tenantID, cameraID uuid.UUID) error {
 	// Re-run validation for current selection
-	sel, err := s.MediaRepo.GetSelection(ctx, cameraID)
+	sel, err := s.MediaRepo.GetSelection(ctx, tenantID, cameraID)
 	if err != nil || sel == nil {
-		return fmt.Errorf("no selection found")
+		// Attempt auto-selection if missing
+		// This makes the validation endpoint robust against race conditions or missing init steps
+		sel, err = s.SelectMediaProfiles(ctx, tenantID, cameraID)
+		if err != nil {
+			return fmt.Errorf("no selection found and auto-selection failed: %w", err)
+		}
 	}
 	if sel.TenantID.String() != tenantID.String() {
 		return fmt.Errorf("unauthorized")

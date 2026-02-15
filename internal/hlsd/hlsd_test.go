@@ -28,6 +28,13 @@ func (m MockPermissionProvider) GetPermissionsForUser(ctx context.Context, tenan
 	}, nil
 }
 
+func (m MockPermissionProvider) GetFullIdentity(ctx context.Context, tenantID, userID string) ([]string, []string, error) {
+	if userID == "unauthorized" {
+		return nil, nil, nil
+	}
+	return []string{"viewer"}, []string{"camera.view"}, nil
+}
+
 type MockCameraResolver struct{}
 
 func (m MockCameraResolver) ResolveSiteID(ctx context.Context, cameraID string) (string, error) {

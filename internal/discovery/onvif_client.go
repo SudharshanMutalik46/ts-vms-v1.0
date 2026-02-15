@@ -155,6 +155,8 @@ type MediaProfile struct {
 			Width  int
 			Height int
 		}
+		Rate    float64 `xml:"FrameRateLimit"`
+		Bitrate int     `xml:"BitrateLimit"`
 	}
 }
 

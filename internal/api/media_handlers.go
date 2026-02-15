@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/cameras"
+	"github.com/technosupport/ts-vms/internal/data"
 	"github.com/technosupport/ts-vms/internal/middleware"
 )
 
@@ -35,17 +35,27 @@ func (h *MediaHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	// Just need to ensure permission.
 	// Actually, we should check `RequirePermission("camera.media.read")` middleware in Routes.
 
-	idStr := chi.URLParam(r, "id")
+	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "invalid camera id", http.StatusBadRequest)
 		return
 	}
 
-	profiles, err := h.Service.GetProfiles(r.Context(), cameraID)
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	profiles, err := h.Service.GetProfiles(r.Context(), tenantID, cameraID)
 	if err != nil {
 		http.Error(w, "failed to get profiles", http.StatusInternalServerError)
 		return
+	}
+	// Ensure non-nil slice so JSON is [] not null
+	if profiles == nil {
+		profiles = []*data.CameraMediaProfile{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -56,7 +66,7 @@ func (h *MediaHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 func (h *MediaHandler) SelectProfiles(w http.ResponseWriter, r *http.Request) {
 	// RBAC: camera.media.select
 
-	idStr := chi.URLParam(r, "id")
+	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "invalid camera id", http.StatusBadRequest)
@@ -85,14 +95,20 @@ func (h *MediaHandler) SelectProfiles(w http.ResponseWriter, r *http.Request) {
 func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
 	// RBAC: camera.media.read
 
-	idStr := chi.URLParam(r, "id")
+	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "invalid camera id", http.StatusBadRequest)
 		return
 	}
 
-	sel, val, err := h.Service.GetSelection(r.Context(), cameraID)
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sel, val, err := h.Service.GetSelection(r.Context(), tenantID, cameraID)
 	if err != nil {
 		http.Error(w, "failed to get selection", http.StatusInternalServerError)
 		return
@@ -115,7 +131,7 @@ func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
 func (h *MediaHandler) ValidateRTSP(w http.ResponseWriter, r *http.Request) {
 	// RBAC: camera.media.validate
 
-	idStr := chi.URLParam(r, "id")
+	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "invalid camera id", http.StatusBadRequest)

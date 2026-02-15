@@ -1,0 +1,23 @@
+<UserControl x:Class="TSVmsDesktop.Views.WindowsDiscoveryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="30">
+        <StackPanel>
+            <TextBlock Text="Windows Discovery Helper" FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
+            
+            <Border Background="#E3F2FD" Padding="15" CornerRadius="8" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Troubleshooting Checklist" FontWeight="Bold" Foreground="#0D47A1" Margin="0,0,0,5"/>
+                    <TextBlock Text="• Ensure the backend is running as Administrator."/>
+                    <TextBlock Text="• Check Windows Firewall allows UDP Port 3702 (WS-Discovery)."/>
+                    <TextBlock Text="• Ensure network profile is set to 'Private' not 'Public'."/>
+                </StackPanel>
+            </Border>
+
+            <Button Command="{Binding RunScanCommand}" Content="Run Diagnostics Scan" Style="{StaticResource PillButtonStyle}" Width="200" Height="45" HorizontalAlignment="Left"/>
+            
+            <TextBlock Text="Scan Results:" FontWeight="Bold" Margin="0,20,0,5"/>
+            <TextBox Text="{Binding ScanResult}" Height="200" FontFamily="Consolas" IsReadOnly="True" Background="#F5F5F5" Padding="10"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -14,6 +14,10 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("ip_address")]
         public string IpAddress { get; set; } = "127.0.0.1";
 
+        // Required by backend
+        [JsonPropertyName("site_id")]
+        public string SiteId { get; set; } = "";
+
         // NEW: Capture the Port from JSON (default to 554 RTSP)
         [JsonPropertyName("port")]
         public int Port { get; set; } = 554;
@@ -53,5 +57,9 @@ namespace TSVmsDesktop.Models
         
         [JsonIgnore]
         public string Thumbnail { get; set; } = "/Images/cam_placeholder.png"; 
+
+        [ObservableProperty]
+        [JsonIgnore]
+        private bool _isSelected;
     }
 }

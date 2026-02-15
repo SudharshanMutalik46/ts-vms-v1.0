@@ -14,7 +14,7 @@ namespace TSVmsDesktop.Services
         private readonly HttpClient _http;
         private readonly ISessionService _session;
         private readonly SettingsService _settings;
-        private bool _isRefreshing = false;
+        private static readonly System.Threading.SemaphoreSlim _refreshLock = new System.Threading.SemaphoreSlim(1, 1);
         private const int MaxRetries = 3;
 
         public ApiClient(ISessionService session, SettingsService settings)
@@ -39,15 +39,47 @@ namespace TSVmsDesktop.Services
         {
             EnsureBaseUrl();
 
-            if (!string.IsNullOrEmpty(_session.AccessToken))
+            // Capture current token before sending
+            string tokenUsed = _session.AccessToken;
+            
+            if (!string.IsNullOrEmpty(tokenUsed))
             {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _session.AccessToken);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsed);
             }
 
             try 
             {
                 // We use ResponseHeadersRead to avoid buffering large responses mostly, but here it's fine.
                 var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+                // 0. Handle 409 Conflict (Duplicates)
+                if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    throw new Exception("Duplicate entry: This resource already exists.");
+                }
+
+                // 0. Handle 403 Forbidden
+                if (response.StatusCode == HttpStatusCode.Forbidden) 
+                {
+                    System.Diagnostics.Debug.WriteLine("[ApiClient] 403 Forbidden - Access Denied");
+                    // return default; // We can't return default here easily as it returns HttpResponseMessage.
+                    // We should probably let it fall through or return the response so the caller handles it, 
+                    // OR if we want to suppress it:
+                    // But SendAsync returns HttpResponseMessage. Returning response is fine, but maybe mark it?
+                    // The plan says "return default" but SendAsync returns HttpResponseMessage. 
+                    // The "return default" likely referred to the generic GetAsync/PostAsync wrappers.
+                    // However, if I throw here, it bubbles up. If I return response, IsSuccessStatusCode is false.
+                    // Let's stick to returning response but maybe Log it clearly. 
+                    // The plan snippet: "if (response.StatusCode == HttpStatusCode.Forbidden) { ... return default; }"
+                    // That snippet was likely intended for the GetAsync/PostAsync wrappers or needed adaptation.
+                    // I will let it fall through to the caller where IsSuccessStatusCode check will catch it,
+                    // BUT I will add the specific catch in GetAsync/PostAsync implementation or here?
+                    // Actually, let's look at where SendAsync is used.
+                    // It returns HttpResponseMessage.
+                    // If I return response, the caller checks IsSuccessStatusCode.
+                    // If I want to interrupt, I should throw or handle it.
+                    // The generic wrappers return default(T) if !IsSuccessStatusCode.
+                }
 
                 // 1. Handle Rate Limiting (429)
                 if (response.StatusCode == (HttpStatusCode)429)
@@ -66,18 +98,42 @@ namespace TSVmsDesktop.Services
                 }
 
                 // 2. Handle Auth (401)
-                if (response.StatusCode == HttpStatusCode.Unauthorized && allowAuthRetry && !_isRefreshing)
+                if (response.StatusCode == HttpStatusCode.Unauthorized && allowAuthRetry)
                 {
-                    _isRefreshing = true;
-                    if (await PerformRefreshAsync())
+                    // Check if token has changed since we sent the request (another thread might have refreshed it)
+                    if (_session.AccessToken != tokenUsed && !string.IsNullOrEmpty(_session.AccessToken))
                     {
-                        _isRefreshing = false;
+                        // Token already refreshed by someone else, retry immediately with new token
                         var newReq = CloneRequest(request);
-                        return await SendAsync(newReq, false, 0); // Reset retry count for fresh token
+                        return await SendAsync(newReq, false, 0); // Retry once with new token
                     }
-                    _isRefreshing = false;
-                    _session.Clear(); 
-                    // Refresh failed, effectively logged out. Caller will handle 401 response.
+
+                    // Otherwise, we need to refresh
+                    await _refreshLock.WaitAsync();
+                    try
+                    {
+                        // Double check after acquiring lock
+                         if (_session.AccessToken != tokenUsed && !string.IsNullOrEmpty(_session.AccessToken))
+                        {
+                             // Token refreshed while we waited
+                             var newReq = CloneRequest(request);
+                             return await SendAsync(newReq, false, 0);
+                        }
+
+                        if (await PerformRefreshAsync())
+                        {
+                            var newReq = CloneRequest(request);
+                            return await SendAsync(newReq, false, 0); // Retry with new token
+                        }
+                        else 
+                        {
+                            _session.Clear(); // Logout if refresh fails
+                        }
+                    }
+                    finally
+                    {
+                        _refreshLock.Release();
+                    }
                 }
 
                 return response;
@@ -105,10 +161,15 @@ namespace TSVmsDesktop.Services
 
         private async Task<bool> PerformRefreshAsync()
         {
-            if (string.IsNullOrEmpty(_session.RefreshToken)) return false;
+            if (string.IsNullOrEmpty(_session.RefreshToken)) 
+            {
+                System.Diagnostics.Debug.WriteLine("[Auth] PerformRefreshAsync: No RefreshToken available.");
+                return false;
+            }
 
             try
             {
+                System.Diagnostics.Debug.WriteLine("[Auth] Attempting Token Refresh...");
                 // Create a separate request to avoid infinite loops in SendAsync
                 var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
                 req.Content = JsonContent.Create(new RefreshRequest { refresh_token = _session.RefreshToken });
@@ -121,12 +182,21 @@ namespace TSVmsDesktop.Services
                     var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
                     if (data != null)
                     {
+                        System.Diagnostics.Debug.WriteLine("[Auth] Token Refresh Successful.");
                         _session.SetTokens(data.access_token, data.refresh_token);
                         return true;
                     }
                 }
+                else
+                {
+                    string errInfo = await res.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"[Auth] Token Refresh Failed: {res.StatusCode} - {errInfo}");
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                 System.Diagnostics.Debug.WriteLine($"[Auth] Token Refresh Exception: {ex.Message}");
+            }
             return false;
         }
 
@@ -143,6 +213,13 @@ namespace TSVmsDesktop.Services
                 string err = $"[{DateTime.Now}] GET {uri} FAILED ({res.StatusCode}):\n{rawResponse}\n";
                 System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
                 return default;
+            }
+
+            // SUCCESS LOGGING for specific endpoints (Media Profiles)
+            if (uri.Contains("media-profiles"))
+            {
+                string successMsg = $"[{DateTime.Now}] GET {uri} SUCCESS. Raw JSON:\n{rawResponse}\n";
+                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", successMsg);
             }
 
             try
@@ -220,6 +297,37 @@ namespace TSVmsDesktop.Services
                 // Throw generic exception so LoginViewModel shows it
                 throw new Exception("JSON Parse Error! Check api_debug_log.txt on Desktop.");
             }
+        }
+
+        public async Task<bool> PutAsync<T>(string uri, T body)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Put, uri);
+            req.Content = JsonContent.Create(body);
+            var res = await SendAsync(req);
+            
+            if (!res.IsSuccessStatusCode)
+            {
+               string raw = await res.Content.ReadAsStringAsync();
+               string err = $"[{DateTime.Now}] PUT {uri} FAILED ({res.StatusCode}):\n{raw}\n";
+               System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+            }
+            
+            return res.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> DeleteAsync(string uri)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Delete, uri);
+            var res = await SendAsync(req);
+            
+            if (!res.IsSuccessStatusCode)
+            {
+               string raw = await res.Content.ReadAsStringAsync();
+               string err = $"[{DateTime.Now}] DELETE {uri} FAILED ({res.StatusCode}):\n{raw}\n";
+               System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+            }
+            
+            return res.IsSuccessStatusCode;
         }
         public async Task<string> GetStringAsync(string uri)
         {

@@ -18,8 +18,11 @@ func (m *MockNVRRepo) List(ctx context.Context, tenantID uuid.UUID, filter data.
 	return nil, 0, nil
 }
 func (m *MockNVRRepo) ListAllNVRs(ctx context.Context) ([]*data.NVR, error) { return nil, nil }
-func (m *MockNVRRepo) Update(ctx context.Context, nvr *data.NVR) error      { return nil }
-func (m *MockNVRRepo) Delete(ctx context.Context, id uuid.UUID) error       { return nil }
+func (m *MockNVRRepo) GetDefaultSite(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
+func (m *MockNVRRepo) Update(ctx context.Context, nvr *data.NVR) error { return nil }
+func (m *MockNVRRepo) Delete(ctx context.Context, id uuid.UUID) error  { return nil }
 
 func (m *MockNVRRepo) UpsertChannel(ctx context.Context, ch *data.NVRChannel) error { return nil }
 func (m *MockNVRRepo) ListChannels(ctx context.Context, nvrID uuid.UUID, filter data.NVRChannelFilter, limit, offset int) ([]*data.NVRChannel, int, error) {

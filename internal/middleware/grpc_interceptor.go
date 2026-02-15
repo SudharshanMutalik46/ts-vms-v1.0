@@ -92,15 +92,21 @@ func (i *GRPCAuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 		// We reuse the logic from PermissionMiddleware but adapted for gRPC context
 		// Fetch Permissions
 		cacheKey := claims.TenantID + ":" + claims.UserID
-		grants, foundCache := i.perms.cache.get(cacheKey)
+		grants, roles, foundCache := i.perms.cache.get(cacheKey)
 		if !foundCache {
 			var err error
 			grants, err = i.perms.permsRepo.GetPermissionsForUser(ctx, claims.TenantID, claims.UserID)
 			if err != nil {
 				return nil, status.Error(codes.PermissionDenied, "failed to load permissions")
 			}
-			i.perms.cache.set(cacheKey, grants, 60e9) // 60s
+			// Fetch roles if possible (optional for gRPC logs/debug for now)
+			roles, _, _ = i.perms.permsRepo.GetFullIdentity(ctx, claims.TenantID, claims.UserID)
+			i.perms.cache.set(cacheKey, grants, roles, 60e9) // 60s
 		}
+
+		// Sync roles to AuthContext for use in handlers
+		ac.Roles = roles
+		ac.Permissions = grants
 
 		grant, exists := grants[perm]
 		if !exists {

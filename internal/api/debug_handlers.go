@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/cameras"
 	"github.com/technosupport/ts-vms/internal/media"
+	"github.com/technosupport/ts-vms/internal/middleware"
 )
 
 type DebugHandler struct {
@@ -81,47 +82,63 @@ func (h *DebugHandler) GetLiveDebug(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// IdentityResponse matches the desktop's UserIdentity model
-type IdentityResponse struct {
-	ID          string   `json:"id"`
-	Username    string   `json:"username"`
-	TenantID    string   `json:"tenant_id"`
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
-}
-
+// DebugMeHandler matches the desktop's UserIdentity model (deprecated, use UserHandler.GetMe)
 func DebugMeHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. In production, extract these from the JWT context middleware
-	// For now, using the IDs from your previous raw response
-	userID := "00000000-0000-0000-0000-000000000002"
-	tenantID := "00000000-0000-0000-0000-000000000001"
-
-	// 2. Define the response with explicit permissions required for Phase 1.5
-	resp := IdentityResponse{
-		ID:       userID,
-		Username: "admin@technosupport.com",
-		TenantID: tenantID,
-		Roles:    []string{"admin"},
-		Permissions: []string{
-			"audit.read",   // Enables Audit Logs Button
-			"audit.export", // Enables Export functionality
-			"user.read",    // Enables User Management view
-			"camera.view",  // Enables Live Dashboard
-			"license.read", // Enables License view
-			"cameras.list", // Fix: Needed for loading cameras
-			"cameras.manage",
-			"cameras.create",
-			"nvr.read",
-			"nvr.write",
-			"admin.access",
-		},
+	// 1. Extract Identity from JWT Context
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
-	// 3. Set production headers
+	// 2. Map Permissions
+	perms := make([]string, 0, len(ac.Permissions))
+	for k := range ac.Permissions {
+		perms = append(perms, k)
+	}
+
+	// 3. Construct Response
+	resp := IdentityResponse{
+		ID:       ac.UserID,
+		Username: "user@" + ac.TenantID, // Placeholder or we inject username into token? Token usually has distinct username claim or we just use ID/Email.
+		// For VMS, we probably want the Email/Username.
+		// Start: TokenManager doesn't put username in AuthContext currently?
+		// Let's check middleware/auth_context.go again. It has UserID, TenantID, Roles.
+		// If we need Username, we might need to DB query OR add it to JWT.
+		// For this specific bug (ID mismatch), ID is what matters.
+		// UI uses Username for display. "user@..." is safe fallback or we can query DB.
+		// Given strict constraints and "DebugMe" nature, I'll stick to ID match first.
+		// Better: The UI might show "user@..." which is ugly.
+		// But to fix the BUG, ID match is key.
+		// Let's rely on ID match.
+		TenantID:    ac.TenantID,
+		Roles:       ac.Roles,
+		Permissions: perms,
+	}
+
+	// FIX: If we want real username, we should query DB. But DebugMeHandler is a func, no dependencies.
+	// To query DB, we'd need to convert it to a struct method or reference a global (bad).
+	// For now, let's fix the ID mismatch. The UI will likely show the ID or "user@..." but the Password Change will WORK.
+	// Actually, the LoginViewModel fetches this and sets `_sessionService.SetIdentity(identity)`.
+	// The `UserDto` from ListUsers has the real username/email.
+	// `UsersViewModel` uses `CurrentUser` (UserDto) for display in the form.
+	// `_session.CurrentUser` is used for permission checks and this ID check.
+	// So `Username` in Identity is less critical for the specific "Old Password" bug, but `ID` is critical.
+	// However, `MainViewModel` logs `Identity found: {identity.Username}`.
+	// I'll set Username to `ac.UserID` or "Authenticated User" to be safe if token doesn't have it.
+
+	resp.Username = "user-" + ac.UserID[:8] // Temporary display name if we can't get real one without DB.
+
+	// FIX: Ensure non-nil slices for JSON serialization (avoid null)
+	if resp.Roles == nil {
+		resp.Roles = []string{}
+	}
+	if resp.Permissions == nil {
+		resp.Permissions = []string{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-
-	// 4. Use Encoder for efficiency
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}

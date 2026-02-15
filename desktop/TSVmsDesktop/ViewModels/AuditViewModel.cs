@@ -19,7 +19,6 @@ namespace TSVmsDesktop.ViewModels
         public AuditViewModel(AuditService auditService)
         {
             _auditService = auditService;
-            // FIX: Automatically load logs when the view model is created
             _ = LoadEvents(); 
         }
 

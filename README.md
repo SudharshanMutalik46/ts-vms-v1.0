@@ -85,6 +85,7 @@ We have successfully completed the foundation and security layer of the VMS:
   - **NVR Ecosystem**: Deep integration with Hikvision (ISAPI) and Dahua (JSON-RPC) event streams.
   - **Windows Native**: Automated firewall orchestration and WMI-based network discovery.
   - **Health Monitoring**: Continuous RTSP and NVR connectivity probing with Prometheus metrics.
+  - **NVR Management (2.11)**: Full CRUD support for NVRs including auto-discovery and default site association.
   
 - **Phase 3: Real-Time Streaming, AI & Desktop Client (Completed)**
   - **WebRTC Live View**: Low-latency (<500ms) streaming via Mediasoup SFU.

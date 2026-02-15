@@ -18,6 +18,7 @@ func main() {
 	upCmd := flag.Bool("up", false, "Run all up migrations")
 	downCmd := flag.Bool("down", false, "Rollback all migrations")
 	stepsCmd := flag.Int("steps", 0, "Run +/- steps")
+	forceCmd := flag.Int("force", -1, "Force validation version (fix dirty state)")
 	flag.Parse()
 
 	// 1. Read Env Config
@@ -79,6 +80,12 @@ func main() {
 			log.Fatalf("Migration DOWN failed: %v", err)
 		}
 		log.Println("Migration DOWN completed.")
+	} else if *forceCmd != -1 {
+		log.Printf("Forcing version %d...\n", *forceCmd)
+		if err := m.Force(*forceCmd); err != nil {
+			log.Fatalf("Migration Force failed: %v", err)
+		}
+		log.Println("Migration Force completed.")
 	} else if *stepsCmd != 0 {
 		log.Printf("Running %d steps...\n", *stepsCmd)
 		if err := m.Steps(*stepsCmd); err != nil && err != migrate.ErrNoChange {

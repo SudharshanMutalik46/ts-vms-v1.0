@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/data"
@@ -59,4 +60,26 @@ func GetUserFromContext(ctx context.Context) (*data.User, error) {
 		ID:       uid,
 		TenantID: tid,
 	}, nil
+}
+
+// HasRole checks if the user has a specific role (case-insensitive)
+func (ac *AuthContext) HasRole(role string) bool {
+	if ac == nil {
+		return false
+	}
+	for _, r := range ac.Roles {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPermission checks for a permission slug
+func (ac *AuthContext) HasPermission(perm string) bool {
+	if ac == nil || ac.Permissions == nil {
+		return false
+	}
+	_, ok := ac.Permissions[perm]
+	return ok
 }

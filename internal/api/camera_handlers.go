@@ -168,6 +168,32 @@ func (h *CameraHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/v1/cameras/{id}
+func (h *CameraHandler) Get(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		idStr = r.URL.Query().Get("id") // Fallback
+	}
+	if idStr == "" {
+		respondError(w, http.StatusBadRequest, "Missing ID")
+		return
+	}
+
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), idStr)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Camera not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, cam)
+}
+
 // POST /api/v1/cameras/bulk
 func (h *CameraHandler) Bulk(w http.ResponseWriter, r *http.Request) {
 	ac, ok := middleware.GetAuthContext(r.Context())
@@ -355,6 +381,29 @@ func (h *CameraHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 
 	ac, _ := middleware.GetAuthContext(r.Context())
 	if err := h.Service.DeleteGroup(r.Context(), groupID, uuid.MustParse(ac.TenantID)); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// DELETE /api/v1/cameras/{id}
+func (h *CameraHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	idStr := r.PathValue("id")
+	cameraID, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid camera id")
+		return
+	}
+
+	tenantID := uuid.MustParse(ac.TenantID)
+	if err := h.Service.DeleteCamera(r.Context(), cameraID, tenantID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

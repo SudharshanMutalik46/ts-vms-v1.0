@@ -91,7 +91,8 @@ func (h *NVRHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NVRHandler) List(w http.ResponseWriter, r *http.Request) {
-	tid := r.Context().Value("tenant_id").(string)
+	ac, _ := middleware.GetAuthContext(r.Context())
+	tid := ac.TenantID
 
 	filter := data.NVRFilter{
 		Query: r.URL.Query().Get("q"),

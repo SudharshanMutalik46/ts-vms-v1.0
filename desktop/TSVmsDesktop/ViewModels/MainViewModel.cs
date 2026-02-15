@@ -30,7 +30,8 @@ namespace TSVmsDesktop.ViewModels
                 return allowed;
             }
         }
-        public bool CanViewUsers => _session.HasPermission("user.read");
+        // Allow all users to access User Management (Backend filters list to "Self" if no permission)
+        public bool CanViewUsers => _session.IsLoggedIn;
         public bool CanViewLicense => _session.HasPermission("license.read");
 
         public MainViewModel(IServiceProvider serviceProvider, IConfigService configService, ISecureStorageService secureStorageService, ISessionService session)
@@ -103,7 +104,7 @@ namespace TSVmsDesktop.ViewModels
                     else
                     {
                         Console.WriteLine("[Auth] Restoration failed. Logout.");
-                        NavigateToLogout();
+                        _ = NavigateToLogout();
                     }
                 });
             }
@@ -111,13 +112,15 @@ namespace TSVmsDesktop.ViewModels
             {
                 Console.WriteLine($"[Auth] Critical Error in Restoration: {ex.Message}");
                 // Fail safe
-                System.Windows.Application.Current.Dispatcher.Invoke(() => NavigateToLogout());
+                System.Windows.Application.Current.Dispatcher.Invoke(() => _ = NavigateToLogout());
             }
         }
 
         public void RefreshRbacUI()
         {
             OnPropertyChanged(nameof(CanViewAudit));
+            OnPropertyChanged(nameof(CanViewUsers));
+            OnPropertyChanged(nameof(CanViewLicense));
             OnPropertyChanged(nameof(CanViewUsers));
             OnPropertyChanged(nameof(CanViewLicense));
         }
@@ -166,7 +169,84 @@ namespace TSVmsDesktop.ViewModels
         { 
             if(CanViewAudit) {
                 CurrentView = _serviceProvider.GetRequiredService<AuditViewModel>();
-                CurrentPage = "Audit"; 
+                CurrentPage = "Audit Log"; 
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToLicense() 
+        {
+            if (CanViewLicense) {
+                CurrentView = _serviceProvider.GetRequiredService<LicenseViewModel>();
+                CurrentPage = "License";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToUsers() 
+        {
+            if (CanViewUsers) {
+                CurrentView = _serviceProvider.GetRequiredService<UsersViewModel>();
+                CurrentPage = "Users";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToSupervisor() 
+        {
+            // Accessible to all logged in users, or restrict if needed. Assuming open for now.
+            CurrentView = _serviceProvider.GetRequiredService<SupervisorViewModel>();
+            CurrentPage = "Supervisor";
+        }
+
+        [RelayCommand]
+        public void NavigateToCameraDetails(string cameraId)
+        {
+            if(IsLoggedIn) 
+            {
+                var detailsVm = _serviceProvider.GetRequiredService<CameraDetailsViewModel>();
+                detailsVm.Load(cameraId);
+                CurrentView = detailsVm;
+                CurrentPage = "Camera Details";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToDiscovery()
+        {
+            if(IsLoggedIn) 
+            {
+                CurrentView = _serviceProvider.GetRequiredService<OnvifDiscoveryViewModel>();
+                CurrentPage = "ONVIF Discovery";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToNvrs() 
+        {
+            if(IsLoggedIn) {
+                CurrentView = _serviceProvider.GetRequiredService<NvrsViewModel>();
+                CurrentPage = "NVRs";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToNvrDetails(string id)
+        {
+            if(IsLoggedIn) {
+                var vm = _serviceProvider.GetRequiredService<NvrDetailsViewModel>();
+                vm.Load(id);
+                CurrentView = vm;
+                CurrentPage = "NVR Details";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToWinDiscovery()
+        {
+            if(IsLoggedIn) {
+                CurrentView = _serviceProvider.GetRequiredService<WindowsDiscoveryViewModel>();
+                CurrentPage = "Win Discovery";
             }
         }
 

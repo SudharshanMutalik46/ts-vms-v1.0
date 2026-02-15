@@ -304,6 +304,79 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"logged_out"}`))
 }
 
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	// 1. Get User from Context (Auth Middleware Required)
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		h.genericError(w)
+		return
+	}
+	userID, err := uuid.Parse(ac.UserID)
+	if err != nil {
+		h.genericError(w)
+		return
+	}
+	tenantID, err := uuid.Parse(ac.TenantID) // Should match user's tenant
+	if err != nil {
+		h.genericError(w)
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.genericError(w)
+		return
+	}
+
+	if req.NewPassword == "" {
+		http.Error(w, "New password required", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Get User to verify Old Password
+	usersRepo := data.UserModel{DB: h.DB}
+	user, err := usersRepo.GetByID(r.Context(), userID)
+	if err != nil {
+		h.genericError(w)
+		return
+	}
+
+	// Verify Tenant
+	if user.TenantID != tenantID {
+		h.genericError(w)
+		return
+	}
+
+	// Verify Old Password
+	match, err := auth.CheckPassword(req.OldPassword, user.PasswordHash)
+	if err != nil || !match {
+		http.Error(w, "Invalid old password", http.StatusUnauthorized)
+		return
+	}
+
+	// 3. Hash New Password
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Update Password
+	user.PasswordHash = newHash
+	if err := usersRepo.Update(r.Context(), user); err != nil {
+		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"password_changed"}`))
+}
+
 func (h *AuthHandler) genericError(w http.ResponseWriter) {
 	http.Error(w, "Invalid credential or request", http.StatusUnauthorized)
 }

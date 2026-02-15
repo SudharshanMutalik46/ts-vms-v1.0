@@ -1,6 +1,7 @@
 ﻿<Application x:Class="TSVmsDesktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:TSVmsDesktop.Converters">
     <Application.Resources>
         <SolidColorBrush x:Key="TechnoOrange" Color="#E65100"/>
         <SolidColorBrush x:Key="TechnoGray" Color="#F7F9FC"/>
@@ -120,6 +121,8 @@
         </Style>
         
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <converters:InverseBooleanConverter x:Key="InverseBoolConverter"/>
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisConverter"/>
         
 
         <Style x:Key="ModernCheckBox" TargetType="CheckBox">

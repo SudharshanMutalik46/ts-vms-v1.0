@@ -19,16 +19,16 @@ var (
 )
 
 type User struct {
-	ID                uuid.UUID
-	TenantID          uuid.UUID
-	Email             string
-	DisplayName       string
-	PasswordHash      string
-	IsDisabled        bool
-	PasswordUpdatedAt time.Time // Legacy field for Auth
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         *time.Time
+	ID                uuid.UUID  `json:"id"`
+	TenantID          uuid.UUID  `json:"tenant_id"`
+	Email             string     `json:"email"`
+	DisplayName       string     `json:"display_name"`
+	PasswordHash      string     `json:"-"` // Never send hash
+	IsDisabled        bool       `json:"is_disabled"`
+	PasswordUpdatedAt time.Time  `json:"password_updated_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
 }
 
 type PasswordResetToken struct {
@@ -222,4 +222,18 @@ func (m UserModel) AssignRole(ctx context.Context, userID, roleID, scopeID uuid.
 	`
 	_, err := m.DB.ExecContext(ctx, query, userID, roleID, scopeType, scopeID)
 	return err
+}
+
+// GetRoleByName retrieves a role ID by name and tenant (Case Insensitive)
+func (m UserModel) GetRoleByName(ctx context.Context, name string, tenantID uuid.UUID) (uuid.UUID, error) {
+	query := `SELECT id FROM roles WHERE LOWER(name) = LOWER($1) AND tenant_id = $2`
+	var id uuid.UUID
+	err := m.DB.QueryRowContext(ctx, query, name, tenantID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return uuid.Nil, errors.New("role not found")
+		}
+		return uuid.Nil, err
+	}
+	return id, nil
 }

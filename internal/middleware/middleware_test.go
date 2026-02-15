@@ -31,6 +31,16 @@ func (m MockPermissionModel) GetPermissionsForUser(ctx context.Context, tenantID
 	return nil, nil // No perms
 }
 
+func (m MockPermissionModel) GetFullIdentity(ctx context.Context, tenantID, userID string) ([]string, []string, error) {
+	if userID == "admin-user" {
+		return []string{"admin"}, []string{"site.view"}, nil
+	}
+	if userID == "site-manager" {
+		return []string{"manager"}, []string{"site.view"}, nil
+	}
+	return nil, nil, nil
+}
+
 // Mock Token Validator
 type MockTokenValidator struct{}
 

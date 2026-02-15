@@ -34,10 +34,10 @@ func (m *MockCredentialProvider) GetCredentials(ctx context.Context, tenantID, c
 type MockMediaRepo struct {
 	UpsertProfileFunc          func(ctx context.Context, p *data.CameraMediaProfile) error
 	UpsertSelectionFunc        func(ctx context.Context, s *data.CameraStreamSelection) error
-	GetSelectionFunc           func(ctx context.Context, cameraID uuid.UUID) (*data.CameraStreamSelection, error)
-	GetValidationResultsFunc   func(ctx context.Context, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error)
+	GetSelectionFunc           func(ctx context.Context, tenantID, cameraID uuid.UUID) (*data.CameraStreamSelection, error)
+	GetValidationResultsFunc   func(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error)
 	UpsertValidationResultFunc func(ctx context.Context, res *data.RTSPValidationResult) error
-	ListProfilesFunc           func(ctx context.Context, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error)
+	ListProfilesFunc           func(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error)
 }
 
 func (m *MockMediaRepo) UpsertProfile(ctx context.Context, p *data.CameraMediaProfile) error {
@@ -52,15 +52,15 @@ func (m *MockMediaRepo) UpsertSelection(ctx context.Context, s *data.CameraStrea
 	}
 	return nil
 }
-func (m *MockMediaRepo) GetSelection(ctx context.Context, cameraID uuid.UUID) (*data.CameraStreamSelection, error) {
+func (m *MockMediaRepo) GetSelection(ctx context.Context, tenantID, cameraID uuid.UUID) (*data.CameraStreamSelection, error) {
 	if m.GetSelectionFunc != nil {
-		return m.GetSelectionFunc(ctx, cameraID)
+		return m.GetSelectionFunc(ctx, tenantID, cameraID)
 	}
 	return nil, nil // Not found
 }
-func (m *MockMediaRepo) GetValidationResults(ctx context.Context, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error) {
+func (m *MockMediaRepo) GetValidationResults(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.RTSPValidationResult, error) {
 	if m.GetValidationResultsFunc != nil {
-		return m.GetValidationResultsFunc(ctx, cameraID)
+		return m.GetValidationResultsFunc(ctx, tenantID, cameraID)
 	}
 	return nil, nil
 }
@@ -70,9 +70,9 @@ func (m *MockMediaRepo) UpsertValidationResult(ctx context.Context, res *data.RT
 	}
 	return nil
 }
-func (m *MockMediaRepo) ListProfiles(ctx context.Context, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error) {
+func (m *MockMediaRepo) ListProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error) {
 	if m.ListProfilesFunc != nil {
-		return m.ListProfilesFunc(ctx, cameraID)
+		return m.ListProfilesFunc(ctx, tenantID, cameraID)
 	}
 	return nil, nil
 }

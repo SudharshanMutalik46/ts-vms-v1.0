@@ -1,0 +1,172 @@
+<UserControl x:Class="TSVmsDesktop.Views.CameraDetailsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="800">
+    <UserControl.Resources>
+        <Style TargetType="TabItem">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="border" BorderBrush="Transparent" BorderThickness="0,0,0,3" Margin="0,0,20,0">
+                            <ContentPresenter ContentSource="Header" Margin="{TemplateBinding Padding}" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#E65100"/>
+                                <Setter Property="Foreground" Value="#E65100"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="#555"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20" Background="#F8F9FA">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
+            <Button Command="{Binding CloseCommand}" Content="← Back" Margin="0,0,20,0" 
+                    Background="Transparent" BorderThickness="0" Foreground="#555" 
+                    FontSize="16" FontWeight="Bold" Cursor="Hand"/>
+            <TextBlock Text="{Binding Camera.Name, StringFormat='Details: {0}'}" FontSize="24" FontWeight="Bold" Foreground="#333" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <TabControl Grid.Row="1" BorderThickness="0" Background="Transparent" SelectedIndex="0">
+            <TabItem Header="Credentials">
+                <StackPanel Margin="0,20,0,0" Width="450" HorizontalAlignment="Left">
+                    <TextBlock Text="Camera Username" Margin="0,10,0,5" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding CredUsername}" Style="{StaticResource ModernInputStyle}" Height="40"/>
+                    
+                    <TextBlock Text="Camera Password" Margin="0,15,0,5" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding CredPassword}" Style="{StaticResource ModernInputStyle}" Height="40"/>
+                    
+                    <Button Command="{Binding SaveCredentialsCommand}" Content="Save Credentials" Margin="0,30,0,0" Style="{StaticResource PillButtonStyle}" Width="160" HorizontalAlignment="Left" Height="40"/>
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="Media Profiles">
+                <Grid Margin="0,20,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0" Command="{Binding FetchProfilesCommand}" Content="Refresh Profiles" HorizontalAlignment="Left" Width="150" Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#999" Height="35" Margin="0,0,0,15"/>
+                    
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Profiles}" AutoGenerateColumns="False" 
+                              Background="White" BorderThickness="0" HeadersVisibility="Column" RowHeight="40"
+                              GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEE">
+                        <DataGrid.Resources>
+                             <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="#F5F7FA"/>
+                                <Setter Property="Padding" Value="10,0"/>
+                                <Setter Property="Height" Value="35"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Style>
+                        </DataGrid.Resources>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="Token" Binding="{Binding Token}" Width="150"/>
+                            <DataGridTextColumn Header="Encoding" Binding="{Binding Encoding}" Width="100"/>
+                            <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="120"/>
+                            <DataGridTextColumn Header="Bitrate" Binding="{Binding Bitrate}" Width="100"/>
+                             <DataGridTextColumn Header="Framerate" Binding="{Binding Framerate}" Width="80"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    
+                    <StackPanel Grid.Row="2" Margin="0,20,0,0">
+                        <TextBlock Text="RTSP Stream Validation" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding ValidateRtspCommand}" Content="Test Stream" Width="120" Style="{StaticResource OutlineButtonStyle}" Foreground="#2E7D32" BorderBrush="#2E7D32" Height="35"/>
+                            <TextBlock Text="{Binding RtspValidationResult}" VerticalAlignment="Center" Margin="15,0,0,0" FontWeight="Bold" Foreground="#444"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+            
+            <TabItem Header="Health">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,20,0,0">
+                     <TextBlock Text="Camera Health" FontSize="18" FontWeight="Bold" Margin="0,0,0,15" Foreground="{DynamicResource TechnoOrange}"/>
+                     
+                     <!-- Status Card -->
+                     <Border Background="White" Padding="25" CornerRadius="8" BorderBrush="#EEE" BorderThickness="1" Margin="0,0,0,15">
+                         <Grid>
+                             <Grid.ColumnDefinitions>
+                                 <ColumnDefinition Width="*"/>
+                                 <ColumnDefinition Width="Auto"/>
+                             </Grid.ColumnDefinitions>
+                             
+                             <StackPanel Grid.Column="0">
+                                 <TextBlock Text="Connection Status" FontSize="12" Foreground="#888" Margin="0,0,0,4"/>
+                                 <TextBlock Text="{Binding HealthStatus}" FontSize="28" FontWeight="Bold" Foreground="{Binding HealthStatusColor}"/>
+
+                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                     <TextBlock Text="Latency:" FontWeight="SemiBold" Foreground="#555" Margin="0,0,8,0"/>
+                                     <TextBlock Text="{Binding HealthLatency}" Foreground="#333"/>
+                                 </StackPanel>
+                                 
+                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                     <TextBlock Text="Last Checked:" FontWeight="SemiBold" Foreground="#555" Margin="0,0,8,0"/>
+                                     <TextBlock Text="{Binding HealthLastChecked}" Foreground="#333"/>
+                                 </StackPanel>
+                             </StackPanel>
+                             
+                             <Button Grid.Column="1" Command="{Binding CheckHealthCommand}" Content="⟳ Refresh" 
+                                     VerticalAlignment="Top"
+                                     Style="{StaticResource PillButtonStyle}" Background="#2196F3" Width="120" Height="38"/>
+                         </Grid>
+                     </Border>
+                     
+                     <!-- Camera Info Card -->
+                     <Border Background="White" Padding="25" CornerRadius="8" BorderBrush="#EEE" BorderThickness="1">
+                         <StackPanel>
+                             <TextBlock Text="Camera Details" FontSize="14" FontWeight="Bold" Margin="0,0,0,12" Foreground="#333"/>
+                             
+                             <Grid>
+                                 <Grid.ColumnDefinitions>
+                                     <ColumnDefinition Width="130"/>
+                                     <ColumnDefinition Width="*"/>
+                                 </Grid.ColumnDefinitions>
+                                 <Grid.RowDefinitions>
+                                     <RowDefinition Height="30"/>
+                                     <RowDefinition Height="30"/>
+                                     <RowDefinition Height="30"/>
+                                     <RowDefinition Height="30"/>
+                                 </Grid.RowDefinitions>
+                                 
+                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="IP Address" FontWeight="SemiBold" Foreground="#555" VerticalAlignment="Center"/>
+                                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HealthIpAddress}" VerticalAlignment="Center"/>
+                                 
+                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" FontWeight="SemiBold" Foreground="#555" VerticalAlignment="Center"/>
+                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HealthPort}" VerticalAlignment="Center"/>
+                                 
+                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="RTSP URL" FontWeight="SemiBold" Foreground="#555" VerticalAlignment="Center"/>
+                                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HealthRtspUrl}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                 
+                                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Enabled" FontWeight="SemiBold" Foreground="#555" VerticalAlignment="Center"/>
+                                 <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HealthIsEnabled}" VerticalAlignment="Center"/>
+                             </Grid>
+                         </StackPanel>
+                     </Border>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

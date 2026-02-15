@@ -80,14 +80,14 @@ func (m *MediaModel) UpsertProfile(ctx context.Context, p *CameraMediaProfile) e
 	).Scan(&p.ID)
 }
 
-func (m *MediaModel) ListProfiles(ctx context.Context, cameraID uuid.UUID) ([]*CameraMediaProfile, error) {
+func (m *MediaModel) ListProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*CameraMediaProfile, error) {
 	query := `
 		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, 
 		       width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
 		FROM camera_media_profiles 
-		WHERE camera_id = $1
+		WHERE tenant_id = $1 AND camera_id = $2
 	`
-	rows, err := m.DB.QueryContext(ctx, query, cameraID)
+	rows, err := m.DB.QueryContext(ctx, query, tenantID, cameraID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,15 +107,15 @@ func (m *MediaModel) ListProfiles(ctx context.Context, cameraID uuid.UUID) ([]*C
 	return list, nil
 }
 
-func (m *MediaModel) GetProfile(ctx context.Context, cameraID uuid.UUID, token string) (*CameraMediaProfile, error) {
+func (m *MediaModel) GetProfile(ctx context.Context, tenantID, cameraID uuid.UUID, token string) (*CameraMediaProfile, error) {
 	query := `
 		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, 
 		       width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
 		FROM camera_media_profiles 
-		WHERE camera_id = $1 AND profile_token = $2
+		WHERE tenant_id = $1 AND camera_id = $2 AND profile_token = $3
 	`
 	p := &CameraMediaProfile{}
-	err := m.DB.QueryRowContext(ctx, query, cameraID, token).Scan(
+	err := m.DB.QueryRowContext(ctx, query, tenantID, cameraID, token).Scan(
 		&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec,
 		&p.Width, &p.Height, &p.FPS, &p.BitrateKbps, &p.RTSPURLSanitized, &p.UpdatedAt,
 	)
@@ -152,18 +152,18 @@ func (m *MediaModel) UpsertSelection(ctx context.Context, s *CameraStreamSelecti
 	).Scan(&s.ID)
 }
 
-func (m *MediaModel) GetSelection(ctx context.Context, cameraID uuid.UUID) (*CameraStreamSelection, error) {
+func (m *MediaModel) GetSelection(ctx context.Context, tenantID, cameraID uuid.UUID) (*CameraStreamSelection, error) {
 	query := `
 		SELECT id, tenant_id, camera_id, 
 		       main_profile_token, main_rtsp_url_sanitized, main_supported,
 		       sub_profile_token, sub_rtsp_url_sanitized, sub_supported, sub_is_same_as_main,
 		       updated_at
-		FROM camera_stream_selections WHERE camera_id = $1
+		FROM camera_stream_selections WHERE tenant_id = $1 AND camera_id = $2
 	`
 	s := &CameraStreamSelection{}
 	var mainToken, mainRTSP, subToken, subRTSP sql.NullString
 
-	err := m.DB.QueryRowContext(ctx, query, cameraID).Scan(
+	err := m.DB.QueryRowContext(ctx, query, tenantID, cameraID).Scan(
 		&s.ID, &s.TenantID, &s.CameraID,
 		&mainToken, &mainRTSP, &s.MainSupported,
 		&subToken, &subRTSP, &s.SubSupported, &s.SubIsSameAsMain,
@@ -206,12 +206,12 @@ func (m *MediaModel) UpsertValidationResult(ctx context.Context, r *RTSPValidati
 	).Scan(&r.ID, &r.ValidatedAt)
 }
 
-func (m *MediaModel) GetValidationResults(ctx context.Context, cameraID uuid.UUID) ([]*RTSPValidationResult, error) {
+func (m *MediaModel) GetValidationResults(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*RTSPValidationResult, error) {
 	query := `
 		SELECT id, tenant_id, camera_id, variant, status, last_error_code, rtt_ms, attempt_count, validated_at
-		FROM rtsp_validation_results WHERE camera_id = $1
+		FROM rtsp_validation_results WHERE tenant_id = $1 AND camera_id = $2
 	`
-	rows, err := m.DB.QueryContext(ctx, query, cameraID)
+	rows, err := m.DB.QueryContext(ctx, query, tenantID, cameraID)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,9 @@ func (m *MediaModel) GetValidationResults(ctx context.Context, cameraID uuid.UUI
 	var list []*RTSPValidationResult
 	for rows.Next() {
 		r := &RTSPValidationResult{}
-		rows.Scan(&r.ID, &r.TenantID, &r.CameraID, &r.Variant, &r.Status, &r.LastErrorCode, &r.RTT, &r.AttemptCount, &r.ValidatedAt)
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.CameraID, &r.Variant, &r.Status, &r.LastErrorCode, &r.RTT, &r.AttemptCount, &r.ValidatedAt); err != nil {
+			return nil, err
+		}
 		list = append(list, r)
 	}
 	return list, nil

@@ -18,7 +18,15 @@
         <DataTemplate DataType="{x:Type vm:LiveViewModel}"><views:LiveView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:CamerasViewModel}"><views:CamerasView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:AuditViewModel}"><views:AuditView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:LicenseViewModel}"><views:LicenseView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:UsersViewModel}"><views:UsersView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SupervisorViewModel}"><views:SupervisorView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:OnvifDiscoveryViewModel}"><views:OnvifDiscoveryView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CameraDetailsViewModel}"><views:CameraDetailsView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:NvrsViewModel}"><views:NvrsView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:NvrDetailsViewModel}"><views:NvrDetailsView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:WindowsDiscoveryViewModel}"><views:WindowsDiscoveryView/></DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -154,13 +162,49 @@
                                     </Button>
                                     
                                     <Button Content="Playback" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8"/>
-                                    <Button Content="Events" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8"/>
                                     
+                                    <Button Content="Audit Log" Command="{Binding NavigateToAuditCommand}" 
+                                            Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Audit Log">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
                                     <Button Content="Cameras" Command="{Binding NavigateToCamerasCommand}">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding CurrentPage}" Value="Cameras">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <Button Content="NVRs" Command="{Binding NavigateToNvrsCommand}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="NVRs">
                                                         <Setter Property="Background" Value="White"/>
                                                         <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
                                                         <Setter Property="FontWeight" Value="Bold"/>
@@ -194,12 +238,12 @@
                                         </Button.Style>
                                     </Button>
                                     
-                                    <Button Content="Audit Logs" Command="{Binding NavigateToAuditCommand}" 
-                                            Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Button Content="Users" Command="{Binding NavigateToUsersCommand}" 
+                                            Visibility="{Binding CanViewUsers, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Audit">
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Users">
                                                         <Setter Property="Background" Value="White"/>
                                                         <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
                                                         <Setter Property="FontWeight" Value="Bold"/>
@@ -212,6 +256,45 @@
                                             </Style>
                                         </Button.Style>
                                     </Button>
+
+                                    <Button Content="License" Command="{Binding NavigateToLicenseCommand}" 
+                                            Visibility="{Binding CanViewLicense, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="License">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <Button Content="Supervisor" Command="{Binding NavigateToSupervisorCommand}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Supervisor">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <Button Content="Win Helper" Command="{Binding NavigateToWinDiscoveryCommand}" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8"/>
                                     
                                     <Button Content="Settings" Command="{Binding NavigateToSettingsCommand}">
                                         <Button.Style>

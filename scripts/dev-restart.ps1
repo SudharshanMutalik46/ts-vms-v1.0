@@ -11,7 +11,7 @@ if (!(Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Nul
 
 # DB Config
 $env:DB_HOST = "localhost"
-$env:DB_PORT = "5433"
+$env:DB_PORT = "5432"
 $env:DB_USER = "postgres"
 $env:DB_PASSWORD = "ts1234"
 $env:DB_NAME = "ts_vms"
@@ -35,20 +35,18 @@ Start-Process "$Root\src\vms-ai\nats-server.exe" -WindowStyle Minimized
 
 Start-Sleep -Seconds 2
 
-Write-Host "Starting Control Plane..." -ForegroundColor Cyan
-# Always rebuild to ensure fresh code
-Write-Host "Rebuilding Control Plane..." -ForegroundColor DarkGray
-if (Test-Path "$Root\bin\vms-control.exe") { Remove-Item "$Root\bin\vms-control.exe" -Force }
+Write-Host "Rebuilding Backend Server (Phase 2)..." -ForegroundColor DarkGray
+if (Test-Path "$Root\server.exe") { Remove-Item "$Root\server.exe" -Force }
 pushd $Root
-go build -o bin/vms-control.exe ./cmd/server
+go build -o server.exe ./cmd/server
 popd
 
-if (Test-Path "$Root\bin\vms-control.exe") {
+if (Test-Path "$Root\server.exe") {
     $env:PORT = "8080"
-    Start-Process "$Root\bin\vms-control.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\control.log" -RedirectStandardError "$LogDir\control_err.log"
+    Start-Process "$Root\server.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\server.log" -RedirectStandardError "$LogDir\server_err.log"
 }
 else {
-    Write-Error "Failed to build vms-control.exe"
+    Write-Error "Failed to build server.exe"
 }
 
 Start-Sleep -Seconds 2
@@ -86,4 +84,4 @@ else {
 }
 
 Write-Host "All Services Restarted." -ForegroundColor Green
-Get-Process -Name "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+Get-Process -Name "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime

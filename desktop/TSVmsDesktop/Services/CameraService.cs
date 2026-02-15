@@ -1,7 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using TSVmsDesktop.Models;
 
@@ -9,111 +11,109 @@ namespace TSVmsDesktop.Services
 {
     public class CameraService
     {
-        private readonly string _filePath;
         private readonly ApiClient _api;
-        private System.Timers.Timer _refreshTimer;
 
         public ObservableCollection<CameraModel> AllCameras { get; private set; } = new();
 
         public CameraService(ApiClient api)
         {
             _api = api;
-            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TS-VMS");
-            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-            _filePath = Path.Combine(folder, "cameras.json");
-
-            _ = LoadCamerasAsync();
-
-            // Setup Timer to refresh health every 30 seconds
-            _refreshTimer = new System.Timers.Timer(30000); 
-            _refreshTimer.Elapsed += async (s, e) => await CheckServerHealthAsync();
-            _refreshTimer.AutoReset = true;
-            _refreshTimer.Enabled = true;
-        }
-
-        public async void AddCamera(CameraModel cam)
-        {
-            try { await _api.PostAsync("/api/v1/cameras", cam); } catch { }
-            AllCameras.Add(cam);
-            SaveCameras();
-        }
-
-        public void RemoveCamera(CameraModel cam)
-        {
-            if (AllCameras.Contains(cam)) { AllCameras.Remove(cam); SaveCameras(); }
-        }
-
-        private void SaveCameras()
-        {
-            try {
-                string json = JsonSerializer.Serialize(AllCameras, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_filePath, json);
-            } catch { }
         }
 
         public async Task LoadCamerasAsync()
         {
-            try
+            // GET /api/v1/cameras -> Returns { "data": [...], "meta": ... }
+            var result = await _api.GetAsync<PaginatedResponse<CameraModel>>("/api/v1/cameras");
+            
+            System.Windows.Application.Current.Dispatcher.Invoke(() => 
             {
-                var root = await _api.GetAsync<JsonElement>("/api/v1/cameras");
-                JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                ObservableCollection<CameraModel>? remoteCameras = null;
-
-                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var dataProp))
-                    remoteCameras = JsonSerializer.Deserialize<ObservableCollection<CameraModel>>(dataProp.GetRawText(), options);
-                else if (root.ValueKind == JsonValueKind.Array)
-                    remoteCameras = JsonSerializer.Deserialize<ObservableCollection<CameraModel>>(root.GetRawText(), options);
-
-                if (remoteCameras != null)
+                AllCameras.Clear();
+                if (result != null && result.Data != null)
                 {
-                    System.Windows.Application.Current.Dispatcher.Invoke(() => {
-                        AllCameras.Clear();
-                        foreach(var c in remoteCameras) 
-                        {
-                            c.Status = "Checking...";
-                            AllCameras.Add(c);
-                        }
-                    });
-                    
-                    await CheckServerHealthAsync();
+                    foreach (var c in result.Data) AllCameras.Add(c);
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Load Error] {ex.Message}");
-            }
+            });
         }
 
-        public Task CheckServerHealthAsync()
+        private class PaginatedResponse<T>
         {
-            // We iterate through all cameras and update their status via the Backend API
-            foreach (var cam in AllCameras)
-            {
-                _ = Task.Run(async () => 
-                {
-                    try
-                    {
-                        // Endpoint recently implemented in Go backend
-                        string url = $"/api/v1/cameras/{cam.Id}/health";
-                        var health = await _api.GetAsync<JsonElement>(url);
-                        
-                        string status = "Offline";
-                        if (health.ValueKind == JsonValueKind.Object && health.TryGetProperty("status", out var s))
-                        {
-                            status = s.ToString();
-                        }
+            [JsonPropertyName("data")]
+            public List<T> Data { get; set; } = new();
+        }
 
-                        System.Windows.Application.Current.Dispatcher.Invoke(() => {
-                            cam.Status = status; 
-                        });
-                    }
-                    catch
-                    {
-                        System.Windows.Application.Current.Dispatcher.Invoke(() => cam.Status = "Offline");
-                    }
-                });
-            }
-            return Task.CompletedTask;
+        public async Task<bool> CreateCameraAsync(CameraModel cam)
+        {
+            // POST /api/v1/cameras
+            var success = await _api.PostAsync("/api/v1/cameras", cam);
+            if (success) await LoadCamerasAsync();
+            return success;
+        }
+
+        public async Task<CameraModel?> GetCameraAsync(string id)
+        {
+            return await _api.GetAsync<CameraModel>($"/api/v1/cameras/{id}");
+        }
+
+        public async Task<bool> UpdateCameraAsync(CameraModel cam)
+        {
+             // PUT /api/v1/cameras/{id}
+             var success = await _api.PutAsync($"/api/v1/cameras/{cam.Id}", cam);
+             if (success) await LoadCamerasAsync();
+             return success;
+        }
+
+        public async Task<bool> DeleteCameraAsync(string id)
+        {
+            var success = await _api.DeleteAsync($"/api/v1/cameras/{id}");
+            if (success) await LoadCamerasAsync();
+            return success;
+        }
+
+        public async Task<bool> EnableCameraAsync(string id) => await _api.PostAsync($"/api/v1/cameras/{id}/enable", new {});
+        public async Task<bool> DisableCameraAsync(string id) => await _api.PostAsync($"/api/v1/cameras/{id}/disable", new {});
+        
+        public async Task<bool> BulkOpAsync(List<string> ids, string operation)
+        {
+            // POST /api/v1/cameras/bulk
+            var payload = new { camera_ids = ids, action = operation };
+            var success = await _api.PostAsync("/api/v1/cameras/bulk", payload);
+            if(success) await LoadCamerasAsync();
+            return success;
+        }
+
+        public async Task<List<CameraGroup>> GetGroupsAsync() => await _api.GetAsync<List<CameraGroup>>("/api/v1/camera-groups") ?? new();
+        
+        public async Task<bool> CreateGroupAsync(string name) 
+        {
+            return await _api.PostAsync("/api/v1/camera-groups", new { name = name });
+        }
+        
+        public async Task<bool> UpdateGroupMembersAsync(string groupId, List<string> memberIds)
+        {
+            // PUT /api/v1/camera-groups/{id}/members
+            return await _api.PutAsync($"/api/v1/camera-groups/{groupId}/members", new { member_ids = memberIds });
+        }
+
+        public async Task CheckServerHealthAsync()
+        {
+             // This might be redundant if we just reload cameras, but keeping for compatibility if needed or logic adjustments
+             // For now, implementing as a no-op or simple reload if really needed, but the original requirement implies
+             // health is part of the camera object now. 
+             // If specific health check endpoint exists, use it. 
+             // Original code had specific /health logic.
+             // For Phase 2, we can just reload cameras to get status.
+             await LoadCamerasAsync(); 
+        }
+
+        // Keep for backward compatibility if ViewModels call it, or update ViewModels
+        public async void AddCamera(CameraModel cam)
+        {
+             await CreateCameraAsync(cam);
+        }
+
+        public async void RemoveCamera(CameraModel cam)
+        {
+             await DeleteCameraAsync(cam.Id);
         }
     }
 }

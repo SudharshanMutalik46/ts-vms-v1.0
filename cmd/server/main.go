@@ -105,7 +105,12 @@ func main() {
 		redisAddr = "localhost:6379"
 	}
 
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" {
+		dbPort = "5432"
+	}
+
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", dbUser, dbPass, dbHost, dbPort, dbName)
 
 	// 2. DB Init
 	db, err := sql.Open("postgres", connStr)
@@ -358,15 +363,18 @@ func main() {
 	// Order: JWT (Auth) -> Audit (Capture) -> Handler
 	// This ensures Audit sees the AuthContext injected by JWT.
 	Protect := func(h http.Handler) http.Handler {
-		return jwtMiddleware.Middleware(auditMiddleware.LogRequest(h))
+		return jwtMiddleware.Middleware(auditMiddleware.LogRequest(permsMiddleware.LoadIdentity(h)))
 	}
 
 	// --- Phase 2.1 Camera Routes ---
 	mux.Handle("POST /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.create", "tenant")(http.HandlerFunc(camHandler.Create))))
-	mux.Handle("GET /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.list", "tenant")(http.HandlerFunc(camHandler.List))))
-	mux.Handle("POST /api/v1/cameras/bulk", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Bulk))))
-	mux.Handle("POST /api/v1/cameras/{id}/enable", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Enable))))
-	mux.Handle("POST /api/v1/cameras/{id}/disable", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Disable))))
+	mux.Handle("GET /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.read", "tenant")(http.HandlerFunc(camHandler.List))))
+	mux.Handle("GET /api/v1/cameras/{id}", Protect(permsMiddleware.RequirePermission("cameras.read", "tenant")(http.HandlerFunc(camHandler.Get))))
+	mux.Handle("DELETE /api/v1/cameras/{id}", Protect(permsMiddleware.RequirePermission("cameras.delete", "tenant")(http.HandlerFunc(camHandler.Delete))))
+	mux.Handle("POST /api/v1/cameras/{id}/enable", Protect(permsMiddleware.RequirePermission("cameras.update", "tenant")(http.HandlerFunc(camHandler.Enable))))
+	mux.Handle("POST /api/v1/cameras/{id}/disable", Protect(permsMiddleware.RequirePermission("cameras.update", "tenant")(http.HandlerFunc(camHandler.Disable))))
+	mux.Handle("POST /api/v1/cameras/bulk", Protect(permsMiddleware.RequirePermission("cameras.update", "tenant")(http.HandlerFunc(camHandler.Bulk))))
+	// --- ONVIF Discovery ---
 
 	// Credentials (Phase 2.2)
 	mux.Handle("PUT /api/v1/cameras/{id}/credentials", Protect(http.HandlerFunc(credHandler.Update)))
@@ -402,15 +410,15 @@ func main() {
 	wsHandler := api.NewSfuWsHandler(tokenMgr)
 	mux.HandleFunc("/api/v1/sfu/ws", wsHandler.ServeWS)
 
-	// SFU Routes (Phase 3.4)
-	mux.Handle("GET /api/v1/sfu/rooms/{id}/rtp-capabilities", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.GetRtpCapabilities))))
-	mux.Handle("POST /api/v1/sfu/rooms/{id}/join", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom))))
-	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.CreateTransport))))
-	mux.Handle("POST /api/v1/sfu/transports/{transportId}/connect", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.ConnectTransport))))
-	mux.Handle("POST /api/v1/sfu/producers", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom)))) // Re-using Join for simpler flow or add explicit?
-	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/consume", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.Consume))))
-	mux.Handle("POST /api/v1/sfu/consumers/{id}/resume", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.Consume)))) // Placeholder
-	mux.Handle("POST /api/v1/sfu/sessions/{id}/leave", Protect(permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(sfuHandler.LeaveRoom))))
+	// SFU Routes (Phase 3.4) - Viewer uses video.view
+	mux.Handle("GET /api/v1/sfu/rooms/{id}/rtp-capabilities", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.GetRtpCapabilities))))
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/join", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom))))
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.CreateTransport))))
+	mux.Handle("POST /api/v1/sfu/transports/{transportId}/connect", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.ConnectTransport))))
+	mux.Handle("POST /api/v1/sfu/producers", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom)))) // Re-using Join for simpler flow or add explicit?
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/consume", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.Consume))))
+	mux.Handle("POST /api/v1/sfu/consumers/{id}/resume", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.Consume)))) // Placeholder
+	mux.Handle("POST /api/v1/sfu/sessions/{id}/leave", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.LeaveRoom))))
 
 	// NVR Routes (Phase 2.6)
 	// CRUD
@@ -453,16 +461,17 @@ func main() {
 
 	// NVR Health API
 	mux.Handle("GET /api/v1/health/nvrs/summary", Protect(permsMiddleware.RequirePermission("nvr.health.read", "tenant")(http.HandlerFunc(nvrHandler.GetNVRHealthSummary))))
+	mux.Handle("GET /api/v1/nvrs/{id}/health", Protect(permsMiddleware.RequirePermission("nvr.health.read", "tenant")(http.HandlerFunc(nvrHandler.GetNVRHealth))))
 	mux.Handle("GET /api/v1/health/nvrs/{id}/channels", Protect(permsMiddleware.RequirePermission("nvr.health.read", "tenant")(http.HandlerFunc(nvrHandler.GetNVRChannelHealth))))
 
 	// Groups
 	mux.Handle("POST /api/v1/camera-groups", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.CreateGroup))))
-	mux.Handle("GET /api/v1/camera-groups", Protect(permsMiddleware.RequirePermission("cameras.list", "tenant")(http.HandlerFunc(camHandler.ListGroups))))
+	mux.Handle("GET /api/v1/camera-groups", Protect(permsMiddleware.RequirePermission("cameras.read", "tenant")(http.HandlerFunc(camHandler.ListGroups))))
 	mux.Handle("DELETE /api/v1/camera-groups/{id}", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.DeleteGroup))))
 	mux.Handle("PUT /api/v1/camera-groups/{id}/members", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.SetGroupMembers))))
 
 	// Re-map existing protected routes manually too to ensure they are at /api/v1/...
-	mux.Handle("GET /api/v1/debug/me", Protect(http.HandlerFunc(api.DebugMeHandler)))
+	mux.Handle("GET /api/v1/debug/me", Protect(http.HandlerFunc(userHandler.GetMe)))
 
 	mux.Handle("GET /api/v1/audit/events", Protect(permsMiddleware.RequirePermission("audit.read", "tenant")(http.HandlerFunc(auditHandler.GetEvents))))
 	mux.Handle("POST /api/v1/audit/exports", Protect(permsMiddleware.RequirePermission("audit.export", "tenant")(http.HandlerFunc(auditHandler.ExportEvents))))
@@ -470,17 +479,23 @@ func main() {
 	mux.Handle("GET /api/v1/license/status", Protect(permsMiddleware.RequirePermission("license.read", "tenant")(http.HandlerFunc(licenseHandler.GetStatus))))
 	mux.Handle("POST /api/v1/license/reload", Protect(permsMiddleware.RequirePermission("license.manage", "tenant")(http.HandlerFunc(licenseHandler.Reload))))
 
-	mux.Handle("GET /api/v1/users/{id}", Protect(permsMiddleware.RequirePermission("user.read", "tenant")(http.HandlerFunc(userHandler.GetUser))))
+	mux.Handle("GET /api/v1/users", Protect(http.HandlerFunc(userHandler.ListUsers)))
+	mux.Handle("GET /api/v1/users/{id}", Protect(http.HandlerFunc(userHandler.GetUser)))
 	mux.Handle("POST /api/v1/users", Protect(permsMiddleware.RequirePermission("user.create", "tenant")(http.HandlerFunc(userHandler.CreateUser))))
 	mux.Handle("POST /api/v1/users/{id}/disable", Protect(permsMiddleware.RequirePermission("user.disable", "tenant")(http.HandlerFunc(userHandler.DisableUser))))
+	mux.Handle("POST /api/v1/users/{id}/enable", Protect(permsMiddleware.RequirePermission("user.disable", "tenant")(http.HandlerFunc(userHandler.EnableUser))))
 	mux.Handle("POST /api/v1/users/{id}/reset-password", Protect(permsMiddleware.RequirePermission("user.password.reset", "tenant")(http.HandlerFunc(userHandler.ResetPassword))))
+	mux.Handle("DELETE /api/v1/users/{id}", Protect(permsMiddleware.RequirePermission("user.delete", "tenant")(http.HandlerFunc(userHandler.DeleteUser))))
+	mux.Handle("PUT /api/v1/users/{id}", Protect(permsMiddleware.RequirePermission("user.update", "tenant")(http.HandlerFunc(userHandler.UpdateUser))))
 	mux.Handle("PUT /api/v1/users/{id}/roles", Protect(permsMiddleware.RequirePermission("user.role.assign", "tenant")(http.HandlerFunc(userHandler.AssignRole))))
+	mux.Handle("POST /api/v1/users/{id}/password", Protect(permsMiddleware.RequirePermission("user.update", "tenant")(http.HandlerFunc(userHandler.SetPassword))))
 
 	// Windows-Specific (Phase 2.11)
 	mux.Handle("POST /api/v1/windows/discovery:scan", Protect(permsMiddleware.RequirePermission("admin.discovery.run", "tenant")(http.HandlerFunc(winHandler.WindowsDiscoveryHandler))))
 
 	// Auth Logout - Now Protected for Auditing
 	mux.Handle("/api/v1/auth/logout", Protect(http.HandlerFunc(authHandler.Logout)))
+	mux.Handle("/api/v1/auth/change-password", Protect(http.HandlerFunc(authHandler.ChangePassword)))
 
 	// Health Check (Safeguard #3)
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -492,7 +507,7 @@ func main() {
 	// Metrics (Phase 3.5)
 	internalHandler := api.NewInternalHandler(liveService)
 	// Routes
-	mux.Handle("POST /api/v1/cameras/{id}/live/start", Protect(http.HandlerFunc(liveHandler.StartSession)))
+	mux.Handle("POST /api/v1/cameras/{id}/live/start", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(liveHandler.StartSession))))
 	mux.Handle("POST /api/v1/live/events", Protect(http.HandlerFunc(liveHandler.RecordEvent)))
 
 	// Phase 3.8: Overlay & Polling

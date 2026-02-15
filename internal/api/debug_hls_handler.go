@@ -61,7 +61,7 @@ func (h *HlsDebugHandler) GetHlsDebug(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Media Selection?
-	sel, err := h.MediaRepo.GetSelection(r.Context(), cameraID)
+	sel, err := h.MediaRepo.GetSelection(r.Context(), tenantID, cameraID)
 	if err != nil && err != sql.ErrNoRows {
 		resp["media_selection_error"] = err.Error()
 	}

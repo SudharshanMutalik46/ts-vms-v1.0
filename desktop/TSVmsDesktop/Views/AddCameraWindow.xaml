@@ -1,8 +1,8 @@
 <Window x:Class="TSVmsDesktop.Views.AddCameraWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Add New Camera" Height="450" Width="400"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="Add New Camera" Height="650" Width="400"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
         Background="#F5F7FA">
 
     <Border Padding="25">
@@ -21,6 +21,14 @@
 
             <TextBlock Text="IP Address (Optional)" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
             <TextBox x:Name="TxtIp" Height="40" Padding="10,0" FontSize="14" VerticalContentAlignment="Center"
+                     BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,20"/>
+
+            <TextBlock Text="Username (Optional)" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
+            <TextBox x:Name="TxtUsername" Height="40" Padding="10,0" FontSize="14" VerticalContentAlignment="Center"
+                     BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,15"/>
+
+            <TextBlock Text="Password (Optional)" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
+            <PasswordBox x:Name="TxtPassword" Height="40" Padding="10,0" FontSize="14" VerticalContentAlignment="Center"
                      BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,30"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

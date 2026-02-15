@@ -15,6 +15,7 @@ namespace TSVmsDesktop.Services
         Task LogoutAsync(ApiClient apiClient); // New
         void Clear();
         string TenantId { get; }
+        bool IsLoggedIn { get; }
     }
 
     public class SessionService : ISessionService
@@ -26,6 +27,7 @@ namespace TSVmsDesktop.Services
         public string? RefreshToken => _refreshToken;
         public UserIdentity? CurrentUser { get; private set; }
         public string TenantId => CurrentUser?.TenantId ?? "00000000-0000-0000-0000-000000000001";
+        public bool IsLoggedIn => CurrentUser != null && !string.IsNullOrEmpty(_accessToken);
 
         public void SetTokens(string access, string refresh)
         {
@@ -42,8 +44,14 @@ namespace TSVmsDesktop.Services
         public bool HasPermission(string permission)
         {
             if (CurrentUser == null) return false;
-            if (CurrentUser.Roles.Contains("admin")) return true;
-            return CurrentUser.Permissions.Contains(permission);
+            // Short-circuit for Admin and Operator roles (Case-Insensitive)
+            if (CurrentUser.Roles != null && CurrentUser.Roles.Any(r => 
+                r.Equals("admin", StringComparison.OrdinalIgnoreCase) || 
+                r.Equals("operator", StringComparison.OrdinalIgnoreCase))) 
+            {
+                return true;
+            }
+            return CurrentUser.Permissions != null && CurrentUser.Permissions.Contains(permission);
         }
         
         // ... (existing properties)

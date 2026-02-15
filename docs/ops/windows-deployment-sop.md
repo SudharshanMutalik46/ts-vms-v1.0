@@ -172,3 +172,5 @@ The application uses standard Windows paths:
 *   **GStreamer Plugin Missing**: Ensure `d3d11` and `openh264` are present in `gst-inspect-1.0`. Only MSVC builds of GStreamer are supported.
 *   **SFU Connection Refused**: Ensure `sfu` service is running (`npm start`) and listening on 8085. Check `logs/sfu.log`.
 *   **Database Connectivity**: Verify PostgreSQL service is running and `DB_PASSWORD` matches `dev-restart.ps1` settings.
+*   **NVR Creation Failed (500)**: Check `C:\Users\sudha\Desktop\api_debug_log.txt`. Common causes include legacy "adapter_type" field usage (should be "vendor") or missing Default Site in multi-tenant environments.
+

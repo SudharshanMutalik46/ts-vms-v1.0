@@ -29,6 +29,9 @@ func (m *mockRepo) List(ctx context.Context, tid uuid.UUID, f data.NVRFilter, l,
 	return nil, 0, nil
 }
 func (m *mockRepo) ListAllNVRs(ctx context.Context) ([]*data.NVR, error) { return nil, nil }
+func (m *mockRepo) GetDefaultSite(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
 func (m *mockRepo) UpsertLink(ctx context.Context, l *data.NVRLink) error {
 	m.links[l.CameraID] = l
 	return nil

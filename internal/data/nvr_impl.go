@@ -753,3 +753,24 @@ func (m NVRModel) GetEventPollState(ctx context.Context, nvrID uuid.UUID) (*NVRE
 	}
 	return &s, nil
 }
+
+func (m NVRModel) GetDefaultSite(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error) {
+	// 1. Try to find existing
+	var id uuid.UUID
+	query := `SELECT id FROM sites WHERE tenant_id = $1 LIMIT 1`
+	err := m.DB.QueryRowContext(ctx, query, tenantID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return uuid.Nil, err
+	}
+
+	// 2. Create if not found
+	insertQuery := `INSERT INTO sites (tenant_id, name) VALUES ($1, 'Main Site') RETURNING id`
+	err = m.DB.QueryRowContext(ctx, insertQuery, tenantID).Scan(&id)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}

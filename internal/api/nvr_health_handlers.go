@@ -39,6 +39,55 @@ func (h *NVRHandler) GetNVRHealthSummary(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, summary)
 }
 
+// GetNVRHealth returns health for a specific NVR.
+// Permissions: nvr.health.read
+func (h *NVRHandler) GetNVRHealth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	nvrID, err := uuid.Parse(id)
+	if err != nil {
+		http.Error(w, "Invalid NVR ID", http.StatusBadRequest)
+		return
+	}
+
+	ac, _ := middleware.GetAuthContext(r.Context())
+	tid := uuid.MustParse(ac.TenantID)
+
+	nvr, err := h.Service.GetNVR(r.Context(), nvrID)
+	if err != nil {
+		http.Error(w, "NVR not found", http.StatusNotFound)
+		return
+	}
+	// Enforce Tenant
+	if nvr.TenantID != tid {
+		http.Error(w, "NVR not found", http.StatusNotFound)
+		return
+	}
+
+	lastCheck := time.Time{}
+	if nvr.LastStatusAt != nil {
+		lastCheck = *nvr.LastStatusAt
+	}
+
+	// Construct Health Object
+	health := struct {
+		NvrID         uuid.UUID `json:"nvr_id"`
+		Name          string    `json:"name"`
+		Status        string    `json:"status"`
+		LatencyMs     int       `json:"latency_ms"`
+		UptimeSeconds int       `json:"uptime_seconds"`
+		LastCheck     time.Time `json:"last_check"`
+	}{
+		NvrID:         nvr.ID,
+		Name:          nvr.Name,
+		Status:        nvr.Status,
+		LatencyMs:     0, // Placeholder
+		UptimeSeconds: 0, // Placeholder
+		LastCheck:     lastCheck,
+	}
+
+	respondJSON(w, http.StatusOK, health)
+}
+
 // GetNVRChannelHealth lists channels with Effective Status.
 func (h *NVRHandler) GetNVRChannelHealth(w http.ResponseWriter, r *http.Request) {
 	nvrIDStr := r.PathValue("id")
@@ -48,9 +97,16 @@ func (h *NVRHandler) GetNVRChannelHealth(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ac, _ := middleware.GetAuthContext(r.Context())
+	tid := uuid.MustParse(ac.TenantID)
+
 	// Get NVR to check status for Cascade Logic
 	nvr, err := h.Service.GetNVR(r.Context(), nvrID) // Fixed args
 	if err != nil {
+		http.Error(w, "NVR not found", http.StatusNotFound)
+		return
+	}
+	if nvr.TenantID != tid {
 		http.Error(w, "NVR not found", http.StatusNotFound)
 		return
 	}
