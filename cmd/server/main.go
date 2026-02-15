@@ -199,7 +199,7 @@ func main() {
 	// Health Components (Phase 2.5)
 	healthRepo := &data.HealthModel{DB: db}
 	healthProber := health.NewRTSPProber(credService)
-	healthService := health.NewService(healthRepo, &nvrRepo, healthProber)
+	healthService := health.NewService(healthRepo, &nvrRepo, healthProber, &camRepo)
 	healthHandler := api.NewHealthHandler(healthService)
 
 	healthScheduler := health.NewScheduler(health.SchedulerConfig{}, healthService)
@@ -322,6 +322,7 @@ func main() {
 		Tokens:  tokenMgr,
 		Session: sessionMgr,
 		Hasher:  auth.DefaultParams,
+		Audit:   auditService,
 	}
 
 	// Audit API Handler
@@ -349,106 +350,18 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Public Routes
-	mux.HandleFunc("/api/v1/auth/login", authHandler.Login)
-	mux.HandleFunc("/api/v1/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("/api/v1/auth/logout", authHandler.Logout)
-	mux.HandleFunc("/api/v1/auth/complete-reset", userHandler.CompleteReset)
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
+	mux.HandleFunc("POST /api/v1/auth/complete-reset", userHandler.CompleteReset)
 
-	// Protected Routes Mux
-	protectedMux := http.NewServeMux()
+	// FIX: We manually wrap the Protected Handlers with BOTH JWT and Audit
+	// Order: JWT (Auth) -> Audit (Capture) -> Handler
+	// This ensures Audit sees the AuthContext injected by JWT.
+	Protect := func(h http.Handler) http.Handler {
+		return jwtMiddleware.Middleware(auditMiddleware.LogRequest(h))
+	}
 
 	// --- Phase 2.1 Camera Routes ---
-	// CRUD
-	// POST /cameras -> cameras.create (Site Scope needed in Body? Or Tenant Wide?)
-	// Let's require "cameras.create" (tenant scope or site scope if supported later).
-	// For now "tenant".
-	protectedMux.Handle("POST /api/v1/cameras",
-		permsMiddleware.RequirePermission("cameras.create", "tenant")(http.HandlerFunc(camHandler.Create)))
-
-	protectedMux.Handle("GET /api/v1/cameras",
-		permsMiddleware.RequirePermission("cameras.list", "tenant")(http.HandlerFunc(camHandler.List)))
-
-	protectedMux.Handle("POST /api/v1/cameras/bulk",
-		permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Bulk)))
-
-	// Enable/Disable
-	protectedMux.Handle("POST /api/v1/cameras/{id}/enable",
-		permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Enable)))
-	protectedMux.Handle("POST /api/v1/cameras/{id}/disable",
-		permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Disable)))
-
-	// --- Existing Routes ---
-
-	// Debug
-	debugHandler := permsMiddleware.RequirePermission("debug.view", "tenant")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ac, _ := middleware.GetAuthContext(r.Context())
-		fmt.Fprintf(w, "Hello Tenant:%s User:%s", ac.TenantID, ac.UserID)
-	}))
-	protectedMux.Handle("GET /api/v1/debug/me", debugHandler)
-
-	liveDebugHandler := api.NewDebugHandler(sfuService, mediaClient)
-	protectedMux.Handle("GET /api/v1/debug/live/{id}", permsMiddleware.RequirePermission("camera.view", "tenant")(http.HandlerFunc(liveDebugHandler.GetLiveDebug)))
-
-	// Task C: Debug HLS Endpoint
-	hlsDebugHandler := api.NewHlsDebugHandler(mediaClient, &camRepo, mediaRepo)
-	protectedMux.Handle("GET /api/v1/debug/hls/{id}", permsMiddleware.RequirePermission("admin.debug.view", "tenant")(http.HandlerFunc(hlsDebugHandler.GetHlsDebug)))
-
-	// Audit
-	protectedMux.Handle("GET /api/v1/audit/events",
-		permsMiddleware.RequirePermission("audit.read", "tenant")(http.HandlerFunc(auditHandler.GetEvents)))
-	protectedMux.Handle("POST /api/v1/audit/exports",
-		permsMiddleware.RequirePermission("audit.export", "tenant")(http.HandlerFunc(auditHandler.ExportEvents)))
-
-	// License
-	protectedMux.Handle("GET /api/v1/license/status",
-		permsMiddleware.RequirePermission("license.read", "tenant")(http.HandlerFunc(licenseHandler.GetStatus)))
-	protectedMux.Handle("POST /api/v1/license/reload",
-		permsMiddleware.RequirePermission("license.manage", "tenant")(http.HandlerFunc(licenseHandler.Reload)))
-
-	// Users
-	protectedMux.Handle("GET /api/v1/users/{id}",
-		permsMiddleware.RequirePermission("user.read", "tenant")(http.HandlerFunc(userHandler.GetUser)))
-	protectedMux.Handle("POST /api/v1/users",
-		permsMiddleware.RequirePermission("user.create", "tenant")(http.HandlerFunc(userHandler.CreateUser)))
-	protectedMux.Handle("POST /api/v1/users/{id}/disable",
-		permsMiddleware.RequirePermission("user.disable", "tenant")(http.HandlerFunc(userHandler.DisableUser)))
-	protectedMux.Handle("POST /api/v1/users/{id}/reset-password",
-		permsMiddleware.RequirePermission("user.password.reset", "tenant")(http.HandlerFunc(userHandler.ResetPassword)))
-	protectedMux.Handle("PUT /api/v1/users/{id}/roles",
-		permsMiddleware.RequirePermission("user.role.assign", "tenant")(http.HandlerFunc(userHandler.AssignRole)))
-
-	// Mount Protected
-	mux.Handle("/api/v1/", jwtMiddleware.Middleware(protectedMux)) // Mounts all protected at /api/v1/ (path matching handles specific)
-	// Note: Standard Mux prefix matching.
-	// If we mount /api/v1/protected/..., we need strip prefix.
-	// But our routes above are full paths `/api/v1/...`.
-	// So we mount "/" ?? No, that would intercept public.
-	// We can't easily mix public/private under same /api/v1 prefix with standard mux if we want ONE middleware wrapping some.
-	// We have to explicitly wrap handlers or use subroutines.
-	// The pattern used previously was `mux.Handle("/api/v1/protected/", ...)`
-	// But our routes are `/api/v1/cameras`.
-	// Let's wrap the Mux itself?
-	// `jwtMiddleware.Middleware(protectedMux)` returns a Handler.
-	// But `protectedMux` has routes `/api/v1/cameras`.
-	// If we mount that at `/`, it works.
-	// EXCEPT public routes are also on `mux`.
-	// `mux` is the root.
-	// `mux.Handle("/api/v1/cameras", jwtMiddleware.Middleware(cameraHandler))`?
-	// Too tedious.
-	// Let's make `HandlerFromMux` approach.
-	// We'll trust the previous pattern or fix it.
-	// Previous: `mux.Handle("/api/v1/protected/", ...)`
-	// This implies an explicit URL structure.
-	// But requirements usually say `/api/v1/cameras`.
-	// So we should wrap INDIVIDUAL routes or Groups.
-
-	// FIX: We can't mount specific paths easily behind middleware in one block in StdLib without sub-tree.
-	// Sub-tree `/api/v1/` would cover everything including Auth.
-	// So we manually wrap the Protected Handlers?
-	// Or we use a helper `Protect(h)`.
-	// Let's use a helper for cleaner Main.
-	Protect := func(h http.Handler) http.Handler { return jwtMiddleware.Middleware(h) }
-
 	mux.Handle("POST /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.create", "tenant")(http.HandlerFunc(camHandler.Create))))
 	mux.Handle("GET /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.list", "tenant")(http.HandlerFunc(camHandler.List))))
 	mux.Handle("POST /api/v1/cameras/bulk", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.Bulk))))
@@ -549,7 +462,7 @@ func main() {
 	mux.Handle("PUT /api/v1/camera-groups/{id}/members", Protect(permsMiddleware.RequirePermission("cameras.manage", "tenant")(http.HandlerFunc(camHandler.SetGroupMembers))))
 
 	// Re-map existing protected routes manually too to ensure they are at /api/v1/...
-	mux.Handle("GET /api/v1/debug/me", Protect(debugHandler))
+	mux.Handle("GET /api/v1/debug/me", Protect(http.HandlerFunc(api.DebugMeHandler)))
 
 	mux.Handle("GET /api/v1/audit/events", Protect(permsMiddleware.RequirePermission("audit.read", "tenant")(http.HandlerFunc(auditHandler.GetEvents))))
 	mux.Handle("POST /api/v1/audit/exports", Protect(permsMiddleware.RequirePermission("audit.export", "tenant")(http.HandlerFunc(auditHandler.ExportEvents))))
@@ -565,6 +478,9 @@ func main() {
 
 	// Windows-Specific (Phase 2.11)
 	mux.Handle("POST /api/v1/windows/discovery:scan", Protect(permsMiddleware.RequirePermission("admin.discovery.run", "tenant")(http.HandlerFunc(winHandler.WindowsDiscoveryHandler))))
+
+	// Auth Logout - Now Protected for Auditing
+	mux.Handle("/api/v1/auth/logout", Protect(http.HandlerFunc(authHandler.Logout)))
 
 	// Health Check (Safeguard #3)
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -612,9 +528,10 @@ func main() {
 
 	// Wrap TOP Level Mux with Global Rate Limiter -> Audit Logger -> RequestLogger
 
-	// CORS -> RequestLogger -> RateLimit -> Audit -> Mux
-	auditWrappedMux := auditMiddleware.LogRequest(mux)
-	rlWrappedMux := rlMiddleware.GlobalLimiter(auditWrappedMux)
+	// CORS -> RequestLogger -> RateLimit -> Mux (Individual routes have Audit/JWT)
+	// We no longer wrap the whole Mux with Audit logging because it wouldn't have Tenant context.
+	// We handle it per-route in Protect() or manually in Login.
+	rlWrappedMux := rlMiddleware.GlobalLimiter(mux)
 	// A1: Add Request Logger
 	loggingWrappedMux := middleware.RequestLogger(rlWrappedMux)
 	finalHandler := middleware.CORS(loggingWrappedMux)

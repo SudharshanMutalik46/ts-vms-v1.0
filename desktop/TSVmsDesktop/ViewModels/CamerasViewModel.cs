@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.Threading.Tasks;
 using System.Windows; 
 using TSVmsDesktop.Models;
 using TSVmsDesktop.Services;
@@ -34,9 +35,6 @@ namespace TSVmsDesktop.ViewModels
             if (result == true && dialog.CreatedCamera != null)
             {
                 _cameraService.AddCamera(dialog.CreatedCamera);
-                
-                // Optional: Provide feedback
-                // System.Windows.MessageBox.Show($"Camera '{dialog.CreatedCamera.Name}' added successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -51,6 +49,22 @@ namespace TSVmsDesktop.ViewModels
             {
                 _cameraService.RemoveCamera(cam);
             }
+        }
+
+        [RelayCommand]
+        public async Task RefreshHealth()
+        {
+            // If the list is empty, try to reload the whole list first
+            if (_cameraService.AllCameras.Count == 0)
+            {
+                await _cameraService.LoadCamerasAsync();
+            }
+            else
+            {
+                // Otherwise, just update the status of existing cameras
+                await _cameraService.CheckServerHealthAsync();
+            }
+            System.Diagnostics.Debug.WriteLine("[TS-VMS] Manual Health Refresh Requested.");
         }
     }
 }

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/technosupport/ts-vms/internal/auth"
+
 	_ "github.com/lib/pq"
 )
 
@@ -87,10 +89,18 @@ func main() {
 	}
 
 	// 2. Upsert User
+	passwordHash, err := auth.HashPassword("admin123")
+	if err != nil {
+		log.Fatalf("Password Hash Failed: %v", err)
+	}
+
 	_, err = db.Exec(`
 		INSERT INTO users (id, tenant_id, email, display_name, password_hash, created_at, updated_at)
-		VALUES ($1, $2, 'admin@example.com', 'System Admin', 'hash_placeholder', NOW(), NOW())
-		ON CONFLICT (id) DO NOTHING`, userID, tenantID)
+		VALUES ($1, $2, 'admin@technosupport.com', 'System Admin', $3, NOW(), NOW())
+		ON CONFLICT (id) DO UPDATE SET
+			email = EXCLUDED.email,
+			password_hash = EXCLUDED.password_hash,
+			updated_at = NOW()`, userID, tenantID, passwordHash)
 	if err != nil {
 		log.Fatalf("User Insert Failed: %v", err)
 	}
@@ -130,7 +140,7 @@ func main() {
 		"cameras.list", "cameras.create", "cameras.manage", "camera.view",
 		"camera.media.read", "camera.health.read",
 		"nvr.discovery.read", "cameras.read", "nvr.read", "nvr.channel.write",
-		"audit.read", "license.read", "user.read",
+		"audit.read", "audit.export", "license.read", "user.read",
 	}
 
 	for _, p := range perms {

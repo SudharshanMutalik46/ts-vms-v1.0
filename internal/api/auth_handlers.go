@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/technosupport/ts-vms/internal/audit"
 	"github.com/technosupport/ts-vms/internal/auth"
 	"github.com/technosupport/ts-vms/internal/data"
+	"github.com/technosupport/ts-vms/internal/middleware"
 	"github.com/technosupport/ts-vms/internal/session"
 	"github.com/technosupport/ts-vms/internal/tokens"
 )
@@ -19,6 +22,7 @@ type AuthHandler struct {
 	Tokens  *tokens.Manager
 	Session *session.Manager
 	Hasher  *auth.Params
+	Audit   *audit.Service
 }
 
 type LoginRequest struct {
@@ -150,6 +154,32 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit Log
+	go func() {
+		ip := r.Header.Get("X-Forwarded-For")
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+
+		evt := audit.AuditEvent{
+			EventID:     uuid.New(),
+			TenantID:    tID,
+			ActorUserID: &user.ID,
+			Action:      "USER_LOGIN",
+			TargetType:  "auth",
+			TargetID:    "login",
+			Result:      "success",
+			ClientIP:    ip,
+			UserAgent:   r.UserAgent(),
+			CreatedAt:   time.Now(),
+		}
+
+		// Use a detached background context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		h.Audit.WriteEvent(ctx, evt)
+	}()
+
 	json.NewEncoder(w).Encode(TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -236,7 +266,42 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	// ... Logic ...
+	// 1. Audit Log (Async)
+	// Try to get user from context (requires auth middleware)
+	user, err := middleware.GetUserFromContext(r.Context())
+	if err == nil {
+		// Capture values for async goroutine
+		uid := user.ID
+		tid := user.TenantID
+		ip := r.RemoteAddr
+		agent := r.UserAgent()
+
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			h.Audit.WriteEvent(ctx, audit.AuditEvent{
+				EventID:     uuid.New(),
+				TenantID:    tid,
+				ActorUserID: &uid,
+				Action:      "USER_LOGOUT",
+				TargetType:  "auth",
+				TargetID:    "logout",
+				Result:      "success",
+				ClientIP:    ip,
+				UserAgent:   agent,
+				CreatedAt:   time.Now(),
+			})
+		}()
+	}
+
+	// 2. Clear Session
+	// Ideally we blacklist the token or remove it from Redis.
+	// For now, client-side discard is sufficient for Phase 1, but let's try to be clean.
+	// TODO: Add TokenRevocation check in middleware if not present.
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"logged_out"}`))
 }
 
 func (h *AuthHandler) genericError(w http.ResponseWriter) {
@@ -245,5 +310,29 @@ func (h *AuthHandler) genericError(w http.ResponseWriter) {
 
 func (h *AuthHandler) failWithLockout(w http.ResponseWriter, r *http.Request, tenantID, email string) {
 	h.Session.RecordFailedAttempt(r.Context(), tenantID, email)
+
+	// Audit Failure
+	go func() {
+		tid, _ := uuid.Parse(tenantID)
+		ip := r.Header.Get("X-Forwarded-For")
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		h.Audit.WriteEvent(ctx, audit.AuditEvent{
+			EventID:    uuid.New(),
+			TenantID:   tid,
+			Action:     "USER_LOGIN",
+			TargetType: "auth",
+			TargetID:   "login",
+			Result:     "failure",
+			ReasonCode: "invalid_credentials",
+			ClientIP:   ip,
+			UserAgent:  r.UserAgent(),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
 	h.genericError(w)
 }

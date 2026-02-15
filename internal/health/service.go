@@ -3,28 +3,80 @@ package health
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/data"
 )
 
-type Service struct {
-	Repo    data.HealthRepository
-	NVRRepo data.NVRRepository
-	Prober  Prober
-	History *HistoryManager
-	Alerts  *AlertManager
+// CameraLookup is a minimal interface to fetch camera details for health checks.
+// Using a small interface avoids importing the full cameras package.
+type CameraLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*data.Camera, error)
 }
 
-func NewService(repo data.HealthRepository, nvrRepo data.NVRRepository, prober Prober) *Service {
+// CameraStatusResponse is the JSON response for a live health check.
+type CameraStatusResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Online bool   `json:"online"`
+}
+
+type Service struct {
+	Repo      data.HealthRepository
+	NVRRepo   data.NVRRepository
+	Prober    Prober
+	History   *HistoryManager
+	Alerts    *AlertManager
+	CamLookup CameraLookup // injected camera repository for live checks
+}
+
+func NewService(repo data.HealthRepository, nvrRepo data.NVRRepository, prober Prober, camLookup CameraLookup) *Service {
 	return &Service{
-		Repo:    repo,
-		NVRRepo: nvrRepo,
-		Prober:  prober,
-		History: NewHistoryManager(repo),
-		Alerts:  NewAlertManager(repo),
+		Repo:      repo,
+		NVRRepo:   nvrRepo,
+		Prober:    prober,
+		History:   NewHistoryManager(repo),
+		Alerts:    NewAlertManager(repo),
+		CamLookup: camLookup,
 	}
+}
+
+// CheckLiveStatus performs a real-time TCP ping to determine camera reachability.
+func (s *Service) CheckLiveStatus(ctx context.Context, cameraID uuid.UUID) (*CameraStatusResponse, error) {
+	// 1. Get Camera from DB
+	camera, err := s.CamLookup.GetByID(ctx, cameraID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Prepare Target (default RTSP port 554)
+	port := camera.Port
+	if port == 0 {
+		port = 554
+	}
+	target := fmt.Sprintf("%s:%d", camera.IPAddress, port)
+
+	// 3. TCP Ping with 2-second timeout
+	timeout := 2 * time.Second
+	conn, err := net.DialTimeout("tcp", target, timeout)
+
+	status := "Offline"
+	isOnline := false
+
+	if err == nil {
+		conn.Close()
+		status = "Online"
+		isOnline = true
+	}
+
+	// 4. Return typed response
+	return &CameraStatusResponse{
+		ID:     camera.ID.String(),
+		Status: status,
+		Online: isOnline,
+	}, nil
 }
 
 // ... unchanged ListTargets ...

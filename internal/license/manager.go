@@ -45,6 +45,7 @@ func (m *Manager) Reload() {
 		TargetType: "license",
 		TargetID:   m.path,
 		CreatedAt:  time.Now(),
+		Result:     "failure", // Default to failure, update on success
 		// TenantID? License reload is system-wide usually, or default tenant?
 		// Audit requires TenantID. Use Null/System UUID or default.
 		// Let's assume system level 0000...

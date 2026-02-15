@@ -36,23 +36,19 @@ Start-Process "$Root\src\vms-ai\nats-server.exe" -WindowStyle Minimized
 Start-Sleep -Seconds 2
 
 Write-Host "Starting Control Plane..." -ForegroundColor Cyan
-# Build server if needed, or just run. Let's assume go run is slow, so we build.
-# pushd $Root
-# go build -o vms-control.exe ./cmd/server
-# popd
-# Assuming vms-control.exe exists or we use go run.
-# Let's use go run for dev iteration if exe missing.
+# Always rebuild to ensure fresh code
+Write-Host "Rebuilding Control Plane..." -ForegroundColor DarkGray
+if (Test-Path "$Root\bin\vms-control.exe") { Remove-Item "$Root\bin\vms-control.exe" -Force }
+pushd $Root
+go build -o bin/vms-control.exe ./cmd/server
+popd
+
 if (Test-Path "$Root\bin\vms-control.exe") {
     $env:PORT = "8080"
     Start-Process "$Root\bin\vms-control.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\control.log" -RedirectStandardError "$LogDir\control_err.log"
 }
 else {
-    Write-Host "Rebuilding Control Plane..."
-    pushd $Root
-    go build -o bin/vms-control.exe ./cmd/server
-    popd
-    $env:PORT = "8080"
-    Start-Process "$Root\bin\vms-control.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\control.log" -RedirectStandardError "$LogDir\control_err.log"
+    Write-Error "Failed to build vms-control.exe"
 }
 
 Start-Sleep -Seconds 2
@@ -76,15 +72,17 @@ Write-Host "Starting AI Service (Go Mock)..." -ForegroundColor Cyan
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0'; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"
 
 Write-Host "Starting HLSD..." -ForegroundColor Cyan
+Write-Host "Rebuilding HLSD..." -ForegroundColor DarkGray
+if (Test-Path "$Root\bin\vms-hlsd.exe") { Remove-Item "$Root\bin\vms-hlsd.exe" -Force }
+pushd $Root
+go build -o bin/vms-hlsd.exe ./cmd/hlsd
+popd
+
 if (Test-Path "$Root\bin\vms-hlsd.exe") {
     Start-Process "$Root\bin\vms-hlsd.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\hlsd.log" -RedirectStandardError "$LogDir\hlsd_err.log"
 }
 else {
-    Write-Host "Rebuilding HLSD..."
-    pushd $Root
-    go build -o bin/vms-hlsd.exe ./cmd/hlsd
-    popd
-    Start-Process "$Root\bin\vms-hlsd.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\hlsd.log" -RedirectStandardError "$LogDir\hlsd_err.log"
+    Write-Error "Failed to build vms-hlsd.exe"
 }
 
 Write-Host "All Services Restarted." -ForegroundColor Green

@@ -77,5 +77,52 @@ func (h *DebugHandler) GetLiveDebug(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// IdentityResponse matches the desktop's UserIdentity model
+type IdentityResponse struct {
+	ID          string   `json:"id"`
+	Username    string   `json:"username"`
+	TenantID    string   `json:"tenant_id"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+}
+
+func DebugMeHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. In production, extract these from the JWT context middleware
+	// For now, using the IDs from your previous raw response
+	userID := "00000000-0000-0000-0000-000000000002"
+	tenantID := "00000000-0000-0000-0000-000000000001"
+
+	// 2. Define the response with explicit permissions required for Phase 1.5
+	resp := IdentityResponse{
+		ID:       userID,
+		Username: "admin@technosupport.com",
+		TenantID: tenantID,
+		Roles:    []string{"admin"},
+		Permissions: []string{
+			"audit.read",   // Enables Audit Logs Button
+			"audit.export", // Enables Export functionality
+			"user.read",    // Enables User Management view
+			"camera.view",  // Enables Live Dashboard
+			"license.read", // Enables License view
+			"cameras.list", // Fix: Needed for loading cameras
+			"cameras.manage",
+			"cameras.create",
+			"nvr.read",
+			"nvr.write",
+			"admin.access",
+		},
+	}
+
+	// 3. Set production headers
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	// 4. Use Encoder for efficiency
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }

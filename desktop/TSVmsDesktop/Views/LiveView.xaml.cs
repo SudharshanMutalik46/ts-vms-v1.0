@@ -10,9 +10,35 @@ namespace TSVmsDesktop.Views
 {
     public partial class LiveView : System.Windows.Controls.UserControl
     {
+        private IntPtr _fullScreenPipeline = IntPtr.Zero;
+
         public LiveView()
         {
             InitializeComponent();
+            this.DataContextChanged += OnDataContextChanged;
+        }
+
+        private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (DataContext is LiveViewModel vm)
+            {
+                vm.PropertyChanged += Vm_PropertyChanged;
+            }
+        }
+
+        // Listen for Full Screen state changes
+        private void Vm_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "IsFullScreen")
+            {
+                var vm = (LiveViewModel)DataContext;
+                if (!vm.IsFullScreen)
+                {
+                    // STOP FULL SCREEN
+                    StopFullScreenStream();
+                }
+                // START is handled by FullScreenPlayer_IsVisibleChanged
+            }
         }
 
         // 1. This runs when the tile becomes Visible (IsConnected = true)
@@ -22,10 +48,8 @@ namespace TSVmsDesktop.Views
             {
                 if (canvas.Visibility == Visibility.Visible)
                 {
-                    // Ensure the visual is fully loaded to get a valid Handle
                     if (!canvas.IsLoaded)
                     {
-                        // If not loaded yet, wait for the Loaded event instead
                         canvas.Loaded -= VideoSurface_Loaded; 
                         canvas.Loaded += VideoSurface_Loaded;
                         return;
@@ -41,12 +65,12 @@ namespace TSVmsDesktop.Views
         {
             if (sender is VideoCanvas canvas)
             {
-                canvas.Loaded -= VideoSurface_Loaded; // Remove handler so it doesn't fire twice
+                canvas.Loaded -= VideoSurface_Loaded;
                 StartVideo(canvas);
             }
         }
 
-        // 3. The Actual Logic to Start the Stream
+        // 3. The Actual Logic to Start the Stream (Grid tiles)
         private void StartVideo(VideoCanvas canvas)
         {
             if (canvas.Handle == IntPtr.Zero) return;
@@ -56,27 +80,89 @@ namespace TSVmsDesktop.Views
                 // Prevent duplicate streams
                 if (slot.PipelineHandle != IntPtr.Zero) return;
 
-                // FIX: Use 'Services' as defined in App.xaml.cs
                 var videoService = App.Current.Services.GetRequiredService<VideoService>();
                 
                 // Fallback to "test" if URL is empty
                 string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
 
-                // Log to Debug Output
                 System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
 
                 slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay);
             }
         }
 
-        // 4. Cleanup when leaving the view
+        private void FullScreenPlayer_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (sender is VideoCanvas canvas && canvas.Visibility == Visibility.Visible)
+            {
+                // Ensure the view has focus so the ESC key works immediately
+                this.Focus();
+
+                if (!canvas.IsLoaded)
+                {
+                    canvas.Loaded += FullScreenPlayer_Loaded;
+                    return;
+                }
+                StartFullScreenStream(canvas);
+            }
+        }
+
+        private void FullScreenPlayer_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is VideoCanvas canvas)
+            {
+                canvas.Loaded -= FullScreenPlayer_Loaded;
+                StartFullScreenStream(canvas);
+            }
+        }
+
+        private void StartFullScreenStream(VideoCanvas canvas)
+        {
+            if (canvas.Handle == IntPtr.Zero) return;
+            if (_fullScreenPipeline != IntPtr.Zero) return; // Already playing
+
+            var vm = DataContext as LiveViewModel;
+            if (vm == null || string.IsNullOrEmpty(vm.FullScreenUrl)) return;
+
+            var videoService = App.Current.Services.GetRequiredService<VideoService>();
+            
+            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
+            _fullScreenPipeline = videoService.StartStream(canvas.Handle, vm.FullScreenUrl);
+        }
+
+        private void StopFullScreenStream()
+        {
+            if (_fullScreenPipeline != IntPtr.Zero)
+            {
+                var app = (App)System.Windows.Application.Current;
+                if (app?.Services == null) return;
+
+                var videoService = app.Services.GetRequiredService<VideoService>();
+                videoService.StopStream(_fullScreenPipeline);
+                _fullScreenPipeline = IntPtr.Zero;
+                
+                System.Diagnostics.Debug.WriteLine("[TS-VMS] Full Screen Stream Stopped.");
+            }
+        }
+
+        // 5. Cleanup when leaving the view
         private void UserControl_Unloaded(object sender, RoutedEventArgs e)
         {
             var app = (App)System.Windows.Application.Current;
-            if (app?.Services == null) return; // Safety check during shutdown
+            if (app?.Services == null) return;
 
             var videoService = app.Services.GetRequiredService<VideoService>();
             
+            // Reset Full Screen State to close Popup
+            if (this.DataContext is LiveViewModel currentVm)
+            {
+                currentVm.IsFullScreen = false;
+            }
+
+            // Stop full screen if active
+            StopFullScreenStream();
+
+            // Stop all grid streams
             if (this.DataContext is LiveViewModel vm)
             {
                 foreach (var slot in vm.CameraGrid)

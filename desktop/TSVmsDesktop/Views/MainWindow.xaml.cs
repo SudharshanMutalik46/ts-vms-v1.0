@@ -12,6 +12,32 @@ namespace TSVmsDesktop.Views
             // CRITICAL: Links to MainWindow.xaml
             InitializeComponent();
             DataContext = App.Current.Services.GetRequiredService<MainViewModel>();
+            if (DataContext is MainViewModel vm)
+            {
+                vm.PropertyChanged += OnViewModelPropertyChanged;
+            }
+        }
+
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsKioskMode))
+            {
+                var vm = (MainViewModel)sender!;
+                if (vm.IsKioskMode)
+                {
+                    this.WindowStyle = WindowStyle.SingleBorderWindow; // Keep Title Bar
+                    this.WindowState = WindowState.Maximized;
+                    this.ResizeMode = ResizeMode.CanResize;
+
+                    this.Topmost = false; // Optional, usually true for real kiosk but let's be nice
+                }
+                else
+                {
+                    this.WindowStyle = WindowStyle.SingleBorderWindow;
+                    this.WindowState = WindowState.Normal;
+                    this.ResizeMode = ResizeMode.CanResize;
+                }
+            }
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)

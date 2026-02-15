@@ -47,20 +47,26 @@ func (m *AuditMiddleware) LogRequest(next http.Handler) http.Handler {
 			TargetType: "http_route",
 			TargetID:   truncate(r.URL.Path, 100),
 			Result:     "success",
-			RequestID:  truncate(r.Header.Get("X-Request-ID"), 100),
 			ClientIP:   truncate(extractIP(r), 50),
 			UserAgent:  truncate(r.UserAgent(), 255),
 			CreatedAt:  time.Now(),
 		}
 
-		// Add Latency to Metadata
-		duration := time.Since(start)
-		evt.Metadata = json.RawMessage(fmt.Sprintf(`{"latency_ms": %d}`, duration.Milliseconds()))
+		// RequestID: Use provided or generate
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = uuid.New().String()
+		}
+		evt.RequestID = truncate(reqID, 100)
 
 		if ww.status >= 400 {
 			evt.Result = "failure"
 			evt.ReasonCode = truncate(fmt.Sprintf("http_%d", ww.status), 50)
 		}
+
+		// Add Latency to Metadata
+		duration := time.Since(start)
+		evt.Metadata = json.RawMessage(fmt.Sprintf(`{"latency_ms": %d}`, duration.Milliseconds()))
 
 		// Auth Context
 		if ac, ok := GetAuthContext(r.Context()); ok {
@@ -70,6 +76,13 @@ func (m *AuditMiddleware) LogRequest(next http.Handler) http.Handler {
 			if uid, err := uuid.Parse(ac.UserID); err == nil {
 				evt.ActorUserID = &uid
 			}
+		}
+
+		// CRITICAL: Database requires TenantID (NOT NULL).
+		// If we don't have it (e.g. public route mutate attempt), we can't store it in audit_logs table.
+		// We skip logging it to DB to avoid error, as manual auditing usually handles Login.
+		if evt.TenantID == uuid.Nil {
+			return
 		}
 
 		// Async Write

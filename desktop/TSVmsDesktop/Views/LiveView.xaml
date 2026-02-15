@@ -2,102 +2,347 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:TSVmsDesktop.Controls"
-             Unloaded="UserControl_Unloaded">
+             xmlns:converters="clr-namespace:TSVmsDesktop.Converters"
+             Unloaded="UserControl_Unloaded"
+             Focusable="True">
     
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisConverter"/>
+        
+        <DropShadowEffect x:Key="SoftShadow" Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.08"/>
+
+        <Style x:Key="EnterpriseCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="BorderBrush" Value="#E5E9F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="Effect" Value="{StaticResource SoftShadow}"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource TechnoOrange}"/>
+                    <Trigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.01" Duration="0:0:0.2"/>
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.01" Duration="0:0:0.2"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.2"/>
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.2"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="PulsingStatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="Fill" Value="{Binding StatusColor}"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <BlurEffect Radius="2"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1.0" To="0.4" Duration="0:0:1" AutoReverse="True"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1.0" Duration="0:0:0.1"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-        
-        <!-- Header Section -->
-        <Grid Grid.Row="0" Margin="0,0,10,15">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0">
-                <TextBlock Text="Total Cameras: " Foreground="Gray" FontSize="14"/>
-                <TextBlock Text="{Binding CameraGrid.Count}" Foreground="{StaticResource TechnoOrange}" FontWeight="Bold" FontSize="14"/>
-            </StackPanel>
+    <UserControl.InputBindings>
+        <KeyBinding Key="Esc" Command="{Binding ExitFullScreenCommand}"/>
+    </UserControl.InputBindings>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="↻" Width="30" Height="30" Background="Transparent" BorderThickness="0" Foreground="#AAA" FontSize="20" Margin="0,0,10,0" Cursor="Hand"/>
+    <Grid Background="#F8FAFC">
+        
+        <Grid Visibility="{Binding IsFullScreen, Converter={StaticResource InverseBoolToVisConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> 
+                <RowDefinition Height="*"/>   
+            </Grid.RowDefinitions>
+            
+            <!-- HEADER -->
+            <Grid Grid.Row="0" Margin="25,25,25,20">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Live Dashboard" FontSize="26" FontWeight="Bold" Foreground="#1E293B"/>
+                    <Border Background="#F0F9FF" CornerRadius="12" Padding="12,4" Margin="15,0,0,0" BorderThickness="1" BorderBrush="#BAE6FD">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6" Height="6" Fill="#0EA5E9" Margin="0,0,6,0"/>
+                            <TextBlock Text="{Binding ActiveStreamCount, StringFormat='{}{0} ONLINE'}" 
+                                       Foreground="#0369A1" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                     <Button Content="↻" Width="40" Height="40" Background="#FFFFFF" BorderThickness="1" BorderBrush="#E2E8F0" 
+                             Foreground="#64748B" FontSize="18" Margin="0,0,12,0" Cursor="Hand" ToolTip="Sync Status">
+                         <Button.Resources>
+                             <Style TargetType="Border">
+                                 <Setter Property="CornerRadius" Value="8"/>
+                             </Style>
+                         </Button.Resources>
+                     </Button>
+
+                    <Button Command="{Binding ConnectDemoCommand}" Cursor="Hand">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{StaticResource TechnoOrange}" CornerRadius="8" Padding="20,10">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="#E65100" BlurRadius="15" Opacity="0.4" ShadowDepth="0"/>
+                                    </Border.Effect>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="▶" Foreground="White" FontSize="10" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Start All Streams" Foreground="White" FontSize="13" FontWeight="Bold"/>
+                                    </StackPanel>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- CAMERA GRID -->
+            <ItemsControl Grid.Row="1" ItemsSource="{Binding CameraGrid}" Margin="15,0,15,15">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="4" Rows="3"/> 
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 
-                <Button Command="{Binding ConnectDemoCommand}" Cursor="Hand">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{StaticResource TechnoOrange}" CornerRadius="15" Padding="20,6">
-                                <TextBlock Text="View All" Foreground="White" FontSize="12" FontWeight="Bold"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="8" CornerRadius="12" Background="White" ClipToBounds="True">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                                    <Setter Property="BorderThickness" Value="1"/>
+                                    <Setter Property="Effect">
+                                        <Setter.Value>
+                                            <DropShadowEffect Color="#94A3B8" BlurRadius="12" Opacity="0.15" ShadowDepth="4"/>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="BorderBrush" Value="#F97316"/> <!-- TechnoOrange -->
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                     <DropShadowEffect Color="#F97316" BlurRadius="15" Opacity="0.4" ShadowDepth="0"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>   <!-- Video Area -->
+                                    <RowDefinition Height="65"/>  <!-- Info Area -->
+                                </Grid.RowDefinitions>
+
+                                <!-- 1. VIDEO LAYER (Row 0) -->
+                                <Grid Grid.Row="0" Background="#F1F5F9" ClipToBounds="True">
+                                    
+                                    <!-- No Signal Placeholder (Light Theme) -->
+                                    <Grid x:Name="NoSignalOverlay" Visibility="{Binding IsConnected, Converter={StaticResource InverseBoolToVisConverter}}">
+                                        <Grid Background="#F8FAFC">
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.7">
+                                                <Path Data="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95A5.99 5.99 0 0 1 12 6c2.62 0 4.88 1.86 5.81 4.43l.48 1.34 1.37.27c2.09.41 3.23 2.65 2.22 4.63-.49.97-1.5 1.33-2.88 1.33z" 
+                                                      Fill="#CBD5E1" Stretch="Uniform" Width="48" Height="48" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="NO SIGNAL" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,15,0,5" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            
+                                            <!-- Offline Badge -->
+                                            <Border Background="#E2E8F0" CornerRadius="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10" Padding="8,4">
+                                                <TextBlock Text="OFFLINE" Foreground="#64748B" FontSize="10" FontWeight="Bold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Grid>
+
+                                    <!-- Video Surface -->
+                                    <controls:VideoCanvas x:Name="VideoSurface" 
+                                                          DataContext="{Binding}"
+                                                          Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                          IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
+
+                                    <!-- TOP BADGES -->
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10"
+                                                Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Border Background="#10B981" CornerRadius="4" Padding="6,2" Margin="0,0,6,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Ellipse Width="4" Height="4" Fill="White" Margin="0,0,4,0"/>
+                                                <TextBlock Text="REC" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Background="#3B82F6" CornerRadius="4" Padding="6,2">
+                                            <TextBlock Text="LIVE" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                        </Border>
+                                    </StackPanel>
+
+
+                                </Grid>
+
+                                <!-- 2. INFO LAYER (Row 1) - White -->
+                                <Grid Grid.Row="1" Background="White" Margin="16,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/> <!-- Added for Full Window Button -->
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <!-- Status Dot (Pulsing) -->
+                                    <Ellipse Grid.Column="0" Margin="0,2,12,0" Style="{StaticResource PulsingStatusDot}"/>
+                                    
+                                    <!-- Text Info -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding CameraName}" Foreground="#1E293B" FontWeight="Bold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Foreground="#94A3B8" FontSize="11" Margin="0,2,0,0">
+                                            <Run Text="{Binding OverlayText, Mode=OneWay}"/>
+                                            <Run Text=" • "/>
+                                            <Run Text="{Binding IpAddress, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <!-- Full Window Button -->
+                                    <Button Grid.Column="2" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,4,0"
+                                            Command="{Binding DataContext.EnterFullScreenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                            CommandParameter="{Binding RtspUrl}"
+                                            ToolTip="Full Window">
+                                        <Path Data="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" 
+                                              Fill="#94A3B8" Stretch="Uniform" Width="14" Height="14"/>
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                 <Setter Property="Template">
+                                                     <Setter.Value>
+                                                         <ControlTemplate TargetType="Button">
+                                                             <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                             </Border> 
+                                                         </ControlTemplate>
+                                                     </Setter.Value> 
+                                                 </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#F1F5F9"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/> <!-- Use in Path binding if needed, or simple trigger -->
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+
+                                    <!-- Menu Button -->
+                                    <Button Grid.Column="3" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,-4,0"
+                                            ToolTip="More Options">
+                                        <Path Data="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" 
+                                              Fill="#CBD5E1" Stretch="Uniform" Width="4" Height="16"/>
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                 <Setter Property="Template">
+                                                     <Setter.Value>
+                                                         <ControlTemplate TargetType="Button">
+                                                             <Border Background="{TemplateBinding Background}" CornerRadius="14">
+                                                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                             </Border> 
+                                                         </ControlTemplate>
+                                                     </Setter.Value> 
+                                                 </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#F1F5F9"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Grid>
+
+
+        <Grid Visibility="{Binding IsFullScreen, Converter={StaticResource BooleanToVisibilityConverter}}" 
+              Background="Black" x:Name="FullScreenGrid">
+            
+            <controls:VideoCanvas x:Name="FullScreenPlayer" 
+                                  IsVisibleChanged="FullScreenPlayer_IsVisibleChanged"/>
+
+            <!-- Traditional Close Button (Top-Left) -->
+            <!-- Using Popup to bypass 'Airspace' issue with native VideoCanvas -->
+            <Popup IsOpen="{Binding IsFullScreen}" 
+                   PlacementTarget="{Binding ElementName=FullScreenGrid}"
+                   Placement="Relative" 
+                   HorizontalOffset="40"
+                   VerticalOffset="80"
+                   AllowsTransparency="True"
+                   PopupAnimation="Fade">
+                <Button Command="{Binding ExitFullScreenCommand}" 
+                        Width="48" Height="48"
+                        Cursor="Hand"
+                        ToolTip="Close Full Screen (Esc)">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="24"/>
+                        </Style>
+                    </Button.Resources>
                     <Button.Style>
                         <Style TargetType="Button">
+                            <Setter Property="Background" Value="#EF4444"/> <!-- Red Dot Color -->
+                            <Setter Property="Foreground" Value="White"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="24">
+                                            <TextBlock Text="✖" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Opacity" Value="0.9"/>
+                                    <Setter Property="Background" Value="#DC2626"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
                 </Button>
-            </StackPanel>
+            </Popup>
         </Grid>
 
-        <!-- Camera Grid -->
-        <ItemsControl Grid.Row="1" ItemsSource="{Binding CameraGrid}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <UniformGrid Columns="4" Rows="3"/> 
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Border Background="{StaticResource VideoTileGray}" CornerRadius="12" Margin="6" ClipToBounds="True">
-                        <Grid>
-                            <!-- No Signal Overlay -->
-                            <Grid x:Name="NoSignalOverlay">
-                                <Grid.Style>
-                                    <Style TargetType="Grid">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Grid.Style>
-                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.4">
-                                    <TextBlock Text="NO SIGNAL" Foreground="#999" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="camera disconnected" Foreground="#AAA" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </Grid>
-
-                            <!-- Video Canvas -->
-                            <controls:VideoCanvas x:Name="VideoSurface" 
-                                                  DataContext="{Binding}"
-                                                  Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                  IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
-
-                            <!-- Overlays (Text & REC) -->
-                            <Grid Margin="10" Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <TextBlock Text="{Binding OverlayText}" Foreground="LimeGreen" FontWeight="SemiBold" FontSize="12"
-                                           HorizontalAlignment="Left" VerticalAlignment="Bottom">
-                                     <TextBlock.Effect>
-                                        <DropShadowEffect Color="Black" BlurRadius="2" ShadowDepth="1"/>
-                                    </TextBlock.Effect>
-                                </TextBlock>
-                                
-                                <Border Background="Red" CornerRadius="3" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="6,2">
-                                    <TextBlock Text="REC" Foreground="White" FontSize="9" FontWeight="Bold"/>
-                                </Border>
-                            </Grid>
-                        </Grid>
-                    </Border>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
     </Grid>
 </UserControl>

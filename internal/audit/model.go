@@ -11,20 +11,21 @@ import (
 
 // AuditEvent represents a single audit log entry
 type AuditEvent struct {
-	ID          uuid.UUID       `json:"id"`       // DB Primary Key
-	EventID     uuid.UUID       `json:"event_id"` // Idempotency Key
-	TenantID    uuid.UUID       `json:"tenant_id"`
-	ActorUserID *uuid.UUID      `json:"actor_user_id,omitempty"`
-	Action      string          `json:"action"`
-	TargetType  string          `json:"target_type,omitempty"`
-	TargetID    string          `json:"target_id,omitempty"`
-	Result      string          `json:"result"` // success/failure
-	ReasonCode  string          `json:"reason_code,omitempty"`
-	RequestID   string          `json:"request_id,omitempty"`
-	ClientIP    string          `json:"client_ip,omitempty"` // Hashed ideally, or raw if policy allows (Hashed required by 1.4, here we store what passed)
-	UserAgent   string          `json:"user_agent,omitempty"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID               uuid.UUID       `json:"id"`       // DB Primary Key
+	EventID          uuid.UUID       `json:"event_id"` // Idempotency Key
+	TenantID         uuid.UUID       `json:"tenant_id"`
+	ActorUserID      *uuid.UUID      `json:"actor_user_id,omitempty"`
+	ActorDisplayName string          `json:"actor_display_name,omitempty"` // Transient field (populated on read)
+	Action           string          `json:"action"`
+	TargetType       string          `json:"target_type,omitempty"`
+	TargetID         string          `json:"target_id,omitempty"`
+	Result           string          `json:"result"` // success/failure
+	ReasonCode       string          `json:"reason_code,omitempty"`
+	RequestID        string          `json:"request_id,omitempty"`
+	ClientIP         string          `json:"client_ip,omitempty"` // Hashed ideally, or raw if policy allows (Hashed required by 1.4, here we store what passed)
+	UserAgent        string          `json:"user_agent,omitempty"`
+	Metadata         json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // FailoverEvent wrapper for JSONL spooling

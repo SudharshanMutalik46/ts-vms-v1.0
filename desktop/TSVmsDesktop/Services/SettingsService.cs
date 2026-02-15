@@ -10,7 +10,10 @@ namespace TSVmsDesktop.Services
         public bool EnableGpu { get; set; } = true;
         public string LogLevel { get; set; } = "Info";
         public string NasPath { get; set; } = "";
+        public string BaseUrl { get; set; } = "http://127.0.0.1:8080";
         public string AuthTokenEncrypted { get; set; } = ""; // Stored securely
+        public string SavedUsername { get; set; } = "";
+        public string SavedPasswordEncrypted { get; set; } = ""; 
     }
 
     public class SettingsService

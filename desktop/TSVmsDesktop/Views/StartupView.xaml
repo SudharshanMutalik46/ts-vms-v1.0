@@ -1,0 +1,32 @@
+<UserControl x:Class="TSVmsDesktop.Views.StartupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#E0E7EF">
+        <Border Background="White" Width="400" Height="300" CornerRadius="15">
+            <Border.Effect>
+                <DropShadowEffect Color="#AAA" BlurRadius="20" Opacity="0.4"/>
+            </Border.Effect>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="20">
+                <Image Source="/Images/logo.png" Height="50" Margin="0,0,0,20"/>
+                
+                <TextBlock Text="{Binding StatusText}" FontSize="16" FontWeight="SemiBold" 
+                           Foreground="#333" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                
+                <TextBlock Text="{Binding Details}" FontSize="11" Foreground="#999" 
+                           Margin="0,10,0,20" TextTrimming="CharacterEllipsis" MaxHeight="40" HorizontalAlignment="Center"/>
+
+                <ProgressBar IsIndeterminate="True" Width="200" Height="4" Margin="0,0,0,20"
+                             Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                <Button Content="Retry Connection" Command="{Binding RetryCommand}" 
+                        Style="{StaticResource PillButtonStyle}" Width="150" Height="40"
+                        Visibility="{Binding IsRetryVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                
+                <Button Content="Copy Diagnostics" Command="{Binding CopyDiagnosticsCommand}"
+                        Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#CCC"
+                        Margin="0,10,0,0" Width="150" Height="30" FontSize="11"
+                        Visibility="{Binding IsRetryVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

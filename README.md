@@ -96,6 +96,7 @@ We have successfully completed the foundation and security layer of the VMS:
     - **System Health Supervisor (3.9)**: Management dashboard for restarting core services.
     - **Settings Persistence (3.9)**: Local JSON configuration in `%AppData%`.
     - **Camera Management (3.9)**: Real-time Camera Management UI with auto-save and persistence.
+    - **Audit Log (3.9)**: Comprehensive audit trail viewer with filtering, CSV export, and tamper-evident logging.
 
 - **Phase 3.9 Verification Suite**: Automated gatekeeper script (`verify-phase-3.9.ps1`) for build and security validation.
 

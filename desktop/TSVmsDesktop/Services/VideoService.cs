@@ -42,18 +42,21 @@ namespace TSVmsDesktop.Services
         {
             if (!_isInitialized) Initialize();
 
+            Log($"[TS-VMS] Attempting to play URL: '{rtspUrl}'");
+
             string pipelineStr;
 
             if (rtspUrl == "test")
             {
-                // FORCE d3d11videosink. Do NOT use autovideosink.
                 pipelineStr = "videotestsrc pattern=ball ! videoconvert ! d3d11videosink name=mysink";
             }
             else
             {
-                // REAL RTSP PIPELINE
-                // Using d3d11videosink ensures we can attach the Window Handle
-                pipelineStr = $"rtspsrc location={rtspUrl} latency=0 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! d3d11videosink name=mysink";
+                // HIGH PERFORMANCE PIPELINE
+                // 1. latency=500: Increases buffer to 0.5s. Reduces "panic" buffering drops.
+                // 2. queue: Adds Multithreading! Separates network, decoding, and rendering.
+                // 3. sync=false: Ensures we display frames as fast as they arrive.
+                pipelineStr = $"rtspsrc location={rtspUrl} latency=500 protocols=tcp ! queue max-size-buffers=3 ! rtph264depay ! h264parse ! decodebin ! queue max-size-buffers=3 ! videoconvert ! queue min-threshold-buffers=1 ! d3d11videosink name=mysink sync=false";
             }
 
             IntPtr error = IntPtr.Zero;
@@ -61,13 +64,13 @@ namespace TSVmsDesktop.Services
 
             if (pipeline == IntPtr.Zero || error != IntPtr.Zero)
             {
-                System.Diagnostics.Debug.WriteLine($"[TS-VMS] Failed to create pipeline for {rtspUrl}");
+                if (error != IntPtr.Zero)
+                     Log($"[TS-VMS] Pipeline Error: Check logs for details.");
+                else 
+                     Log($"[TS-VMS] Pipeline Creation Failed for {rtspUrl}");
                 return IntPtr.Zero;
             }
 
-            // Bind to Window
-            // Since we are using d3d11videosink directly, this 'get_by_name' will return the actual sink
-            // which supports the Overlay interface. The crash will stop.
             IntPtr overlayElement = GstNative.gst_bin_get_by_name(pipeline, "mysink");
             
             if (overlayElement != IntPtr.Zero)
@@ -77,7 +80,7 @@ namespace TSVmsDesktop.Services
             }
             else 
             {
-                 System.Diagnostics.Debug.WriteLine("[TS-VMS] CRITICAL: 'mysink' element not found.");
+                Log("[TS-VMS] CRITICAL: 'mysink' element not found.");
             }
 
             GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);

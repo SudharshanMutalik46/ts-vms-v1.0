@@ -48,18 +48,15 @@ func (h *HealthHandler) GetCameraHealth(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, err := h.Service.GetStatus(r.Context(), cameraID)
+	// Perform a live TCP ping check
+	result, err := h.Service.CheckLiveStatus(r.Context(), cameraID)
 	if err != nil {
-		http.Error(w, "failed to get status", http.StatusInternalServerError)
-		return
-	}
-	if status == nil {
-		http.Error(w, "status not found", http.StatusNotFound)
+		http.Error(w, "camera not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *HealthHandler) GetHistory(w http.ResponseWriter, r *http.Request) {

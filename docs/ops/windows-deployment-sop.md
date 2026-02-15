@@ -139,6 +139,11 @@ For permanent deployment, install the components as Windows Services.
 ### 4.1 Verification Checklist
 Ensure all the following are active for a fully functional system:
 
+**Audit & License Check:**
+*   [ ] **Audit Logs**: Navigate to `Audit Logs` in Desktop Client > verify data loads > Export CSV.
+*   [ ] **License**: Navigate to `Settings` > verify License Status is `Active` (Trial/Pro).
+*   [ ] **Login**: Verify `admin@technosupport.com` login success.
+
 1.  **Infrastructure Services** (Must start first):
     *   [ ] **PostgreSQL** (Port 5432)
     *   [ ] **Redis** (Port 6379)

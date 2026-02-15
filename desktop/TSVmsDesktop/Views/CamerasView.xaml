@@ -13,27 +13,51 @@
                         <TextBlock Text="Add, edit, and configure video sources" FontSize="14" Foreground="#999" Margin="0,5,0,0"/>
                     </StackPanel>
 
-                    <Button Command="{Binding AddCameraCommand}" 
-                            HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="Hand">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="btnBorder" Background="{StaticResource TechnoOrange}" CornerRadius="20" Padding="20,10">
-                                    <Border.Effect>
-                                        <DropShadowEffect Color="#E65100" BlurRadius="10" ShadowDepth="3" Opacity="0.3"/>
-                                    </Border.Effect>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="+" Foreground="White" FontWeight="Bold" Margin="0,0,8,0" FontSize="16"/>
-                                        <TextBlock Text="Add Camera" Foreground="White" FontWeight="Bold" FontSize="13"/>
-                                    </StackPanel>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="btnBorder" Property="Background" Value="#CC4600"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                        <!-- Refresh Status Button -->
+                        <Button Command="{Binding RefreshHealthCommand}" Cursor="Hand" Margin="0,0,10,0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="btnBorder" Background="#4CAF50" CornerRadius="20" Padding="20,10">
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="#388E3C" BlurRadius="10" ShadowDepth="3" Opacity="0.3"/>
+                                        </Border.Effect>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="🔄" Foreground="White" Margin="0,0,8,0" FontSize="14"/>
+                                            <TextBlock Text="Refresh Status" Foreground="White" FontWeight="Bold" FontSize="13"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="btnBorder" Property="Background" Value="#388E3C"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
+                        <!-- Add Camera Button -->
+                        <Button Command="{Binding AddCameraCommand}" Cursor="Hand">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="btnBorder" Background="{StaticResource TechnoOrange}" CornerRadius="20" Padding="20,10">
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="#E65100" BlurRadius="10" ShadowDepth="3" Opacity="0.3"/>
+                                        </Border.Effect>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="+" Foreground="White" FontWeight="Bold" Margin="0,0,8,0" FontSize="16"/>
+                                            <TextBlock Text="Add Camera" Foreground="White" FontWeight="Bold" FontSize="13"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="btnBorder" Property="Background" Value="#CC4600"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <ItemsControl ItemsSource="{Binding Cameras}">

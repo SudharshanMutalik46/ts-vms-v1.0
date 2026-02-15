@@ -21,16 +21,22 @@ namespace TSVmsDesktop
             var services = new ServiceCollection();
 
             services.AddSingleton<IConfigService, ConfigService>();
-            services.AddSingleton<Services.VideoService>();
-            services.AddSingleton<Services.CameraService>();
             services.AddSingleton<ISecureStorageService, SecureStorageService>();
             services.AddSingleton<Services.SettingsService>();
+            services.AddSingleton<Services.SessionService>();
+            services.AddSingleton<Services.ISessionService>(p => p.GetRequiredService<Services.SessionService>());
+            services.AddSingleton<Services.ApiClient>();
+            services.AddSingleton<Services.VideoService>();
+            services.AddSingleton<Services.CameraService>();
             services.AddHttpClient<IHealthService, HealthService>();
+            services.AddSingleton<Services.AuditService>(); // New
 
             services.AddSingleton<MainViewModel>();
+            services.AddTransient<StartupViewModel>(); // New
             services.AddTransient<LoginViewModel>();
             services.AddTransient<LiveViewModel>();
             services.AddTransient<CamerasViewModel>();
+            services.AddTransient<AuditViewModel>(); // New
             services.AddTransient<HealthViewModel>();
             services.AddTransient<SystemHealthViewModel>();
             services.AddTransient<SettingsViewModel>();
@@ -49,7 +55,7 @@ namespace TSVmsDesktop
             {
                 Console.WriteLine("DEBUG: Resolving MainViewModel...");
                 var mainVm = Services.GetRequiredService<MainViewModel>();
-                mainVm.CheckForSavedSession(); // Perform initial navigation here
+                // mainVm.CheckForSavedSession(); // logic moved to MainViewModel constructor / StartupViewModel
                 
                 Console.WriteLine("DEBUG: Resolving MainWindow...");
                 var mainWindow = Services.GetRequiredService<MainWindow>();

@@ -10,6 +10,7 @@ import (
 	"github.com/technosupport/ts-vms/internal/audit"
 	"github.com/technosupport/ts-vms/internal/data"
 	"github.com/technosupport/ts-vms/internal/license"
+	"github.com/technosupport/ts-vms/internal/middleware"
 )
 
 var (
@@ -58,23 +59,11 @@ func NewService(repo Repository, lic LicenseChecker, aud Auditor) *Service {
 
 // Helpers
 func (s *Service) actorFromContext(ctx context.Context) *uuid.UUID {
-	// TODO: Import middleware to get context?
-	// We avoid checking "middleware" package explicitly to avoid cyclic deps if service used by middleware?
-	// But Service -> Middleware is usually OK if Middleware -> Service is avoided.
-	// Actually Middleware depends on Data/Service usually.
-	// Let's assume we can't import `middleware` easily if it causes cycle.
-	// But we need the UserID.
-	// Let's use a Value check or assume caller passes it?
-	// But signature is `ctx`.
-	// Let's try to look for standard Context key.
-	// Or just use `audit.ActorFromContext` if I can find it? I couldn't.
-	// I'll implement a safe lookup if I knew the key.
-	// Re-reading: `middleware.AuthContext` is stored.
-	// Better: Pass userID explicit where possible?
-	// No, Context is standard.
-	// I will just return nil for now or fix imports later.
-	// Wait, I can import `middleware`. `service` package is `internal/cameras`. `middleware` is `internal/middleware`.
-	// `middleware` imports `data`, `tokens`, `auth`. It does NOT import `cameras`. So safe.
+	if ac, ok := middleware.GetAuthContext(ctx); ok {
+		if uid, err := uuid.Parse(ac.UserID); err == nil {
+			return &uid
+		}
+	}
 	return nil
 }
 
