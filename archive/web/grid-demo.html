@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Phase 3.8: AI Overlay Grid Test</title>
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            font-family: sans-serif;
+            margin: 0;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+            padding: 10px;
+        }
+
+        .tile {
+            position: relative;
+            aspect-ratio: 16/9;
+            background: #222;
+            border: 1px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .status {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 2px 5px;
+            font-size: 10px;
+        }
+
+        .error {
+            color: #f55;
+        }
+
+        .controls {
+            padding: 10px;
+            background: #222;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        button {
+            background: #444;
+            color: #fff;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        .alert-banner {
+            position: fixed;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(90deg, #FF0000, #CC0000);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+            display: none;
+            animation: pulse 0.5s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from {
+                box-shadow: 0 0 10px #FF0000;
+            }
+
+            to {
+                box-shadow: 0 0 20px #FF0000;
+            }
+        }
+
+        .alert-banner.show {
+            display: block;
+        }
+
+        .weapon-btn {
+            background: #663300;
+        }
+
+        .weapon-btn.enabled {
+            background: #FF3300;
+        }
+    </style>
+</head>
+
+<div id="weaponAlert" class="alert-banner">
+    ⚠️ WEAPON DETECTED - ALERT!
+    <button onclick="dismissWeaponAlert()" style="margin-left: 20px;">✕ Dismiss</button>
+</div>
+
+<div class="controls">
+    <h3>Phase 3.8: AI Overlay Grid Test</h3>
+    <button onclick="initGrid()">Initialize 16 Tiles</button>
+    <button onclick="stopAll()">Stop All</button>
+    <button id="btnOverlay" onclick="toggleOverlays()">Enable Overlays</button>
+    <button id="btnWeapon" class="weapon-btn" onclick="toggleWeaponOverlay()">Weapon AI: OFF</button>
+    <span id="activeCount">Active: 0</span>
+    <span id="queueCount">Queue: 0</span>
+</div>
+<div class="grid" id="gridContainer"></div>
+
+<!-- Dependencies -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="/web/mediasoup-client.min.js"></script> <!-- Mock or real? -->
+
+<!-- App Logic -->
+<script type="module">
+    import './player_controller.js'; 
+</script>
+<script src="./player_controller.js"></script>
+<script src="./grid_controller.js"></script>
+<script src="./overlay_controller.js"></script>
+
+<script>
+    // Mock Config
+    const CONFIG = {
+        token: "mock_jwt_token", // In real app, this comes from Auth
+        mediasoupClient: window.mediasoupClient || { Device: class { load() { } createRecvTransport() { return { on: () => { } } } } }, // Mock if missing
+        hlsCtor: window.Hls
+    };
+
+    let gridCtrl;
+
+    function initGrid() {
+        if (gridCtrl) return;
+
+        gridCtrl = new GridController({
+            maxActiveTiles: 16,
+            maxConcurrentStarts: 4
+        });
+
+        const container = document.getElementById('gridContainer');
+        container.innerHTML = '';
+
+        // Create 16 Tiles
+        for (let i = 0; i < 16; i++) {
+            const id = `cam_${i}`;
+            const div = document.createElement('div');
+            div.className = 'tile';
+            div.dataset.tileId = id;
+
+            const video = document.createElement('video');
+            video.muted = true;
+            video.playsInline = true;
+
+            const status = document.createElement('div');
+            status.className = 'status';
+            status.innerText = 'IDLE';
+
+            div.appendChild(video);
+            div.appendChild(status);
+            container.appendChild(div);
+
+            // Create Overlay (Pre-instantiate)
+            const overlay = new OverlayController(video, "/api/v1", CONFIG.token);
+            overlay.setWeaponAlertCallback(showWeaponAlert);
+
+            // Create Player
+            const player = new TechnoPlayer({
+                videoElement: video,
+                mediasoupClient: CONFIG.mediasoupClient,
+                hlsCtor: CONFIG.hlsCtor,
+                token: CONFIG.token,
+                onStateChange: (s) => {
+                    status.innerText = s;
+                    // Auto-enable/disable overlay based on player state (T14, T15)
+                    if (s.includes("PLAYING")) {
+                        if (window.overlaysEnabled && player.session) {
+                            // Extract real camera ID from room_id or param
+                            const camId = player.session.webrtc ? player.session.webrtc.room_id : id;
+                            overlay.enable(player.session.viewer_session_id, camId, { weapon: window.weaponEnabled });
+                        }
+                    } else if (s === 'STOPPED' || s === 'IDLE') {
+                        overlay.disable();
+                    }
+                }
+            });
+
+            // Attach overlay to player for access
+            player.overlay = overlay;
+
+            gridCtrl.registerTile(id, div, player);
+        }
+
+        // Status Loop
+        setInterval(() => {
+            document.getElementById('activeCount').innerText = `Active Starts: ${gridCtrl.activeStarts}`;
+            document.getElementById('queueCount').innerText = `Queue: ${gridCtrl.startQueue.length}`;
+        }, 500);
+    }
+
+    function stopAll() {
+        if (gridCtrl) {
+            for (const [id, t] of gridCtrl.tiles) {
+                gridCtrl.stopTile(id);
+                if (t.controller.overlay) t.controller.overlay.disable();
+            }
+        }
+    }
+
+    async function toggleOverlays() {
+        if (!gridCtrl) return;
+
+        // Toggle Global State
+        window.overlaysEnabled = !window.overlaysEnabled;
+        document.getElementById('btnOverlay').innerText = window.overlaysEnabled ? "Disable Overlays" : "Enable Overlays";
+
+        for (const [id, t] of gridCtrl.tiles) {
+            const player = t.controller; // GridController stores 'controller'
+            const overlay = player.overlay;
+
+            // Only enable if playing and has session
+            if (player && player.state.includes("PLAYING") && player.session) {
+                if (window.overlaysEnabled) {
+                    const camId = player.session.webrtc ? player.session.webrtc.room_id : id;
+                    await overlay.enable(player.session.viewer_session_id, camId, { weapon: window.weaponEnabled });
+                } else {
+                    await overlay.disable();
+                }
+            }
+        }
+    }
+
+    function toggleWeaponOverlay() {
+        if (!gridCtrl) return;
+
+        window.weaponEnabled = !window.weaponEnabled;
+        const btn = document.getElementById('btnWeapon');
+        btn.innerText = window.weaponEnabled ? "Weapon AI: ON" : "Weapon AI: OFF";
+        btn.classList.toggle('enabled', window.weaponEnabled);
+
+        // Update all active overlays
+        for (const [id, t] of gridCtrl.tiles) {
+            const overlay = t.controller.overlay;
+            if (overlay) {
+                overlay.weaponEnabled = window.weaponEnabled;
+                // If currently enabled, re-enabling might be needed to trigger new poll params immediately, 
+                // but OverlayController handles param updates on next poll usually.
+                // Actually overlay.weaponEnabled property update is enough for next poll cycle.
+            }
+        }
+    }
+
+    function showWeaponAlert(payload) {
+        const alert = document.getElementById('weaponAlert');
+        alert.classList.add('show');
+        console.warn('[WEAPON ALERT]', payload);
+    }
+
+    function dismissWeaponAlert() {
+        const alert = document.getElementById('weaponAlert');
+        alert.classList.remove('show');
+    }
+
+    // Setup weapon callback when creating overlays
+    function setupOverlayWithWeaponCallback(overlay) {
+        overlay.setWeaponAlertCallback(showWeaponAlert);
+        return overlay;
+    }
+
+    window.initGrid = initGrid;
+    window.stopAll = stopAll;
+    window.toggleOverlays = toggleOverlays;
+    window.toggleWeaponOverlay = toggleWeaponOverlay;
+    window.dismissWeaponAlert = dismissWeaponAlert;
+    window.overlaysEnabled = false;
+    window.weaponEnabled = false;
+</script>
+</body>
+
+</html>
