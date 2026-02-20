@@ -103,30 +103,44 @@ We have successfully completed the foundation and security layer of the VMS:
 
 ---
 
-## 🚀 Quick Start (Windows Native)
+## 🚀 Quick Start (Clone & Run)
 
-1.  **Prerequisites**: Install Go, Node.js, CMake, Visual Studio 2022, GStreamer (MSVC), PostgreSQL, and Redis.
-2.  **Setup DB**: `.\migrator.exe -up`
-3.  **Build All**:
-    *   **Control**: `go build -o bin/vms-control.exe ./cmd/server`
-    *   **SFU**: `cd sfu; npm install; npm run build; cd ..`
-    *   **Media**: (See [SOP](docs/ops/windows-deployment-sop.md) for CMake steps)
-    *   **Desktop Client**: `cd desktop/TSVmsDesktop; dotnet build; cd ../..`
-4.  **Run (Dev)**: `.\scripts\dev-restart.ps1`
-5.  **Run (Prod)**: `.\scripts\service-manager.ps1 -Action Install` (Admin)
+If you are a new developer or just cloned this repository, follow our **action-oriented** guide to get up and running in minutes:
 
-For detailed build and deployment instructions, see the **[Windows Deployment SOP](docs/ops/windows-deployment-sop.md)**.
+👉 **[Quick Start: Clone & Run SOP](docs/ops/clone-and-run-sop.md)**
 
-## 🛠️ Tech Stack & Tools
+### Short Summary:
+1.  **Prerequisites**: Install Go, Node.js, .NET 8 SDK, GStreamer (MSVC), PostgreSQL, and Redis.
+2.  **DB Setup**: Create `ts_vms` database and run `.\migrator.exe -up`.
+3.  **Build**: Use `go build` for backend, `npm run build` for SFU, and `dotnet build` for the Desktop app.
+4.  **Run**: Execute `.\scripts\dev-restart.ps1` to start the engine.
+5.  **Desktop**: `cd desktop/TSVmsDesktop; dotnet run`.
+
+---
+
+## 📂 Repository Organization
+
+To maintain a professional and clean environment, we use a specific folder logic:
+
+*   **`bin/`**: Compiled service binaries.
+*   **`desktop/`**: Source code for the WPF Desktop Client.
+*   **`docs/`**: Technical documentation, including [SOPs](docs/ops/).
+*   **`scripts/`**: Primary automation and maintenance tools.
+*   **`src/`**: Core engine source code (Go, C++, Rust).
+*   **`archive/`**: **IMPORTANT**. Contains legacy logs, experimental test scripts, and temporary debug assets to keep the main workspace clean.
+
+---
+
+## 🛠️ Tech Stack & Features
 
 | Component | Technology | Responsibility |
 |-----------|------------|----------------|
 | **Control Plane** | Go 1.25+ | API, Auth, Orchestration (Windows Service) |
-| **Media Plane** | C++ (MSVC) | GStreamer-based RTSP Ingest & Transcoding (D3D11) |
-| **SFU** | Node.js (TypeScript) | WebRTC Signal & Routing (Mediasoup) |
-| **HLS Daemon** | Go | HLS Segment Serving |
-| **Desktop Client** | WPF / .NET 8 | Native Windows Management Interface (MVVM) |
-| **Database** | PostgreSQL 14+ | Relational Data & Compliance Logs |
+| **Media Plane** | C++ (MSVC) | **Zero-Latency** RTSP Ingest & Decoding (D3D11) |
+| **Desktop Client** | WPF / .NET 8 | **Seamless Fullscreen** Management Interface |
+| **SFU** | Node.js | WebRTC Selective Forwarding Engine |
+
+---
 
 ## 🧩 Service Checklist (What Must Be Running)
 
@@ -137,8 +151,5 @@ For detailed build and deployment instructions, see the **[Windows Deployment SO
 | **NATS** | `nats-server.exe` | `4222` | Real-time Messaging Broker |
 | **Control Plane** | `vms-control.exe` | `8080` | Core API & Orchestrator |
 | **Media Plane** | `vms-media.exe` | `50051` | RTSP Ingest & GStreamer Bridge |
-| **SFU Service** | `node.exe` (sfu) | `8085` | WebRTC Selective Forwarding Unit |
-| **HLS Daemon** | `vms-hlsd.exe` | `N/A` | HLS Segment Server |
-| **AI Service** | `vms-ai-mock.exe` | `N/A` | Object Detection (Consumer) |
-
-
+| **SFU Service** | `node.exe` (sfu) | `8085` | WebRTC Routing Unit |
+| **AI Service** | `vms-ai-mock.exe` | `N/A` | Object Detection (Event Stream) |
