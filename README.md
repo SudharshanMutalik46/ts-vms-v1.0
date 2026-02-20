@@ -4,11 +4,11 @@ A professional, high-performance Video Management System designed for native Win
 
 ## 🏗️ Architecture Overview
 
-The system follows a distributed microservices-inspired architecture, orchestrated natively on Windows.
+The system is a high-performance, distributed monitoring solution architected specifically for **Native Windows** environments.
 
 ```mermaid
 graph TD
-    Client["🌐 Web/Mobile Client"] 
+    Client["🖥️ Native Desktop Client (WPF)"] 
     
     subgraph "Control Layer (Go)"
         Control["Control Plane (TS-VMS-Control)"]
@@ -16,30 +16,30 @@ graph TD
         Redis[("⚡ Redis (Session/RL/Cache)")]
     end
 
-    subgraph "Media Layer"
+    subgraph "Media Layer (C++/Rust)"
         Media["Media Plane (C++)"]
         SFU["WebRTC SFU (Node.js)"]
         Recorder["Recorder (Rust)"]
     end
 
-    subgraph "AI Analytics"
-        AI["AI Engine (Python/C++)"]
+    subgraph "AI Analytics (C++/Python)"
+        AI["AI Engine (Object Detection)"]
     end
 
-    Client -->|HTTPS/REST| Control
-    Client -->|WebRTC| SFU
+    Client -->|HTTPS/gRPC| Control
+    Client -->|RTSP/WebRTC| SFU
+    Client -->|Direct Media| Media
     
     Control --- DB
     Control --- Redis
     
-    Media -->|RTSP| Camera["🎥 IP Cameras"]
-    Media -->|RTP| SFU
-    Media -->|RTP| Recorder
-    Media -->|Frames| AI
+    Media -->|RTSP Ingest| Camera["🎥 IP Cameras"]
+    Media -->|RTP Stream| SFU
+    Media -->|Buffered Feed| Recorder
+    Media -->|Frame Stream| AI
     
-    AI -->|Metadata| Control
+    AI -->|Event Metadata| Control
     Control -.->|Orchestration| Media
-    Control -.->|Orchestration| Recorder
 ```
 
 ---
