@@ -14,11 +14,15 @@ namespace TSVmsDesktop.ViewModels
         private readonly ISecureStorageService _secureStorageService;
         private readonly ISessionService _session;
 
+        // Exposed for persistent binding in MainWindow
+        public LiveViewModel LiveVM { get; }
+
         [ObservableProperty] private object? _currentView;
         [ObservableProperty] private bool _isLoggedIn = false;
         [ObservableProperty] private string _windowTitle = "TS-VMS Enterprise v1.0";
         [ObservableProperty] private bool _isKioskMode = false;
-        [ObservableProperty] private string _currentPage = "Live";
+        // Default to "Startup" so LiveView is hidden initially
+        [ObservableProperty] private string _currentPage = "Startup";
 
         // RBAC Properties
         public bool CanViewAudit 
@@ -34,12 +38,13 @@ namespace TSVmsDesktop.ViewModels
         public bool CanViewUsers => _session.IsLoggedIn;
         public bool CanViewLicense => _session.HasPermission("license.read");
 
-        public MainViewModel(IServiceProvider serviceProvider, IConfigService configService, ISecureStorageService secureStorageService, ISessionService session)
+        public MainViewModel(IServiceProvider serviceProvider, IConfigService configService, ISecureStorageService secureStorageService, ISessionService session, LiveViewModel liveVm)
         {
             _serviceProvider = serviceProvider;
             _configService = configService;
             _secureStorageService = secureStorageService;
             _session = session;
+            LiveVM = liveVm; // Injected Singleton
             
             _configService.Load();
             
@@ -126,8 +131,13 @@ namespace TSVmsDesktop.ViewModels
         }
 
         // --- NAVIGATION COMMANDS ---
-
-        [RelayCommand] public void NavigateToLogin() => CurrentView = _serviceProvider.GetRequiredService<LoginViewModel>();
+        
+        [RelayCommand] 
+        public void NavigateToLogin() 
+        {
+            CurrentView = _serviceProvider.GetRequiredService<LoginViewModel>();
+            CurrentPage = "Login"; // Ensure LiveView overlay is hidden
+        }
 
         [RelayCommand]
         public void ToggleKioskMode() => IsKioskMode = !IsKioskMode;
@@ -136,8 +146,11 @@ namespace TSVmsDesktop.ViewModels
         public void NavigateToLive() 
         { 
             if(IsLoggedIn) {
-                CurrentView = _serviceProvider.GetRequiredService<LiveViewModel>();
+                // Set CurrentView to null to hide ContentControl. 
+                // The persistent LiveView in MainWindow.xaml will become visible due to CurrentPage="Live" binding.
+                CurrentView = null;
                 CurrentPage = "Live"; 
+                _ = LiveVM.OnViewActivated(); // Refresh cameras if empty 
             }
         }
 

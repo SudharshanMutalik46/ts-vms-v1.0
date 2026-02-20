@@ -14,6 +14,7 @@ namespace TSVmsDesktop.ViewModels
         private readonly OnvifService _service;
         private readonly CameraService _camService; // To adopt
         private readonly MainViewModel _mainViewModel;
+        private const string DEFAULT_SITE_ID = "00000000-0000-0000-0000-000000000001";
 
         [ObservableProperty] private string _discoveryStatus = "Ready to Scan";
         [ObservableProperty] private bool _isScanning;
@@ -33,33 +34,104 @@ namespace TSVmsDesktop.ViewModels
             DiscoveryStatus = "Starting initial probe...";
             Devices.Clear();
 
-            var runId = await _service.StartDiscoveryAsync();
-            
-            if(runId != null)
+            try
             {
-                // Poll for a few seconds (Simplified logic, better to have a real job status check)
-                // In a real app we might poll /api/v1/onvif/discovery-runs/{id}
-                for(int i=0; i<5; i++)
-                {
-                    await Task.Delay(1000);
-                    DiscoveryStatus = $"Scanning network... ({i+1}s)";
-                }
-                DiscoveryStatus = "Retrieving results...";
+                Console.WriteLine("[DEBUG] Starting discovery run...");
+                var runId = await _service.StartDiscoveryAsync();
+                Console.WriteLine($"[DEBUG] Discovery Run ID: {runId ?? "NULL"}");
                 
-                var results = await _service.GetDiscoveredDevicesAsync(runId);
-                
-                if (results.Count == 0)
+                if(runId != null)
                 {
-                     DiscoveryStatus = "No devices found.";
+                    // Poll run status until completed
+                    bool isComplete = false;
+                    for (int i = 0; i < 30; i++) // Poll for up to 30 seconds
+                    {
+                        await Task.Delay(1000);
+                        var runStatus = await _service.GetRunStatusAsync(runId);
+                        if (runStatus != null && (runStatus.Status == "completed" || runStatus.Status == "failed"))
+                        {
+                            isComplete = true;
+                            break;
+                        }
+                        DiscoveryStatus = $"Scanning network... {i + 1}s";
+                        System.Diagnostics.Debug.WriteLine($"[Discovery] Run {runId} status: {runStatus?.Status ?? "unknown"}");
+                    }
+                    
+                    if (!isComplete)
+                    {
+                         DiscoveryStatus = "Scan timed out (Backend still running).";
+                    }
+                    else
+                    {
+                        DiscoveryStatus = "Retrieving results...";
+                        var results = await _service.GetDiscoveredDevicesAsync(runId);
+                        Console.WriteLine($"[DEBUG] Found {results.Count} devices.");
+
+                        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => 
+                        {
+                            Devices.Clear();
+                            if (results.Count == 0)
+                            {
+                                 DiscoveryStatus = "No devices found.";
+                            }
+                            else
+                            {
+                                foreach (var d in results) Devices.Add(d);
+                                DiscoveryStatus = $"Found {results.Count} devices. Probing details...";
+                            }
+                        });
+                        
+                        if(results.Count > 0)
+                        {
+                            // AUTO-PROBE LOGIC (Temporary for Phase 2.3 verification)
+                            try 
+                            {
+                                // 1. Create Bootstrap Credential (Hardcoded for typical ONVIF)
+                                var credId = await _service.SetOnvifCredentialsAsync("admin", "123456");
+                                if (!string.IsNullOrEmpty(credId))
+                                {
+                                    int probedCount = 0;
+                                    foreach(var d in results)
+                                    {
+                                        bool success = await _service.ProbeDeviceAsync(d.Id, credId);
+                                        if(success) probedCount++;
+                                    }
+                                    
+                                    // 2. Refresh results to get the RTSP URIs populated by the probe
+                                    if (probedCount > 0)
+                                    {
+                                        results = await _service.GetDiscoveredDevicesAsync(runId);
+                                        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => 
+                                        {
+                                            Devices.Clear();
+                                            foreach (var d in results) Devices.Add(d);
+                                            DiscoveryStatus = $"Scan complete. Found {results.Count} devices ({probedCount} probed).";
+                                        });
+                                    }
+                                }
+                            }
+                            catch (Exception probEx)
+                            {
+                                 System.Diagnostics.Debug.WriteLine($"[Probe] Auto-probe failed: {probEx.Message}");
+                                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => DiscoveryStatus = $"Scan complete. Found {results.Count} devices (Probe failed).");
+                            }
+                        }
+                    }
                 }
                 else
                 {
-                    DiscoveryStatus = $"Scan complete. Found {results.Count} devices.";
+                    DiscoveryStatus = "Failed to start discovery run.";
                 }
-
-                foreach(var d in results) Devices.Add(d);
             }
-            IsScanning = false;
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DEBUG] Discovery Exception: {ex.Message}");
+                DiscoveryStatus = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                IsScanning = false;
+            }
         }
 
         [RelayCommand]
@@ -67,17 +139,33 @@ namespace TSVmsDesktop.ViewModels
         {
             if (device == null || device.IsClaimed) return;
 
-            // Convert DiscoveredDevice to CameraModel and POST
-            // We assume default credentials or prompt?
-            // For now, simpler implementation: Create camera with "Unknown" credentials waiting for update
-            
+            // Debug Logging
+            if (device.RtspUris != null)
+            {
+                Console.WriteLine($"[DEBUG] Adopting {device.IpAddress}. Raw URIs: {string.Join(", ", device.RtspUris)}");
+            }
+            else
+            {
+                Console.WriteLine($"[DEBUG] Adopting {device.IpAddress}. No URIs found.");
+            }
+
+            var parsedUrl = ParseRtspUrl(device.RtspUris);
+            Console.WriteLine($"[DEBUG] Parsed URL: {parsedUrl}");
+
+            var fallbackUrl = GetFallbackUrl(device);
+            Console.WriteLine($"[DEBUG] Fallback URL: {fallbackUrl}");
+
+            var finalUrl = !string.IsNullOrEmpty(parsedUrl) ? parsedUrl : fallbackUrl;
+            Console.WriteLine($"[DEBUG] Final URL to use: {finalUrl}");
+
             var cam = new CameraModel
             {
                 Name = !string.IsNullOrWhiteSpace(device.Manufacturer) ? $"{device.Manufacturer} {device.Model}" : "New ONVIF Camera",
                 IpAddress = device.IpAddress,
                 Model = device.Model,
-                Status = "Online",
-                RtspUrl = !string.IsNullOrWhiteSpace(device.XAddr) ? device.XAddr : "" // Approximate
+                RtspUrl = finalUrl, 
+                SiteId = DEFAULT_SITE_ID,
+                IsEnabled = true
             };
             
             // We might need to handle credentials if the discovery service didn't have them
@@ -94,7 +182,7 @@ namespace TSVmsDesktop.ViewModels
                 {
                     Devices[index] = device; // Trigger change
                 }
-                System.Windows.MessageBox.Show("Device added to inventory.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                // System.Windows.MessageBox.Show("Device added to inventory.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
@@ -106,6 +194,41 @@ namespace TSVmsDesktop.ViewModels
         public void Close()
         {
             _mainViewModel.NavigateToCameras();
+        }
+
+        private string ParseRtspUrl(System.Collections.Generic.IList<string>? uris)
+        {
+            if (uris == null || uris.Count == 0) return "";
+            
+            // Try to find ANY valid RTSP url
+            foreach(var raw in uris)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                
+                // If contains pipe, split
+                if (raw.Contains("|"))
+                {
+                    var parts = raw.Split('|');
+                    if (parts.Length > 1 && parts[1].StartsWith("rtsp", System.StringComparison.OrdinalIgnoreCase)) 
+                        return parts[1];
+                }
+                // If matches rtsp://
+                if (raw.StartsWith("rtsp", System.StringComparison.OrdinalIgnoreCase))
+                    return raw;
+            }
+            return "";
+        }
+
+        private string GetFallbackUrl(DiscoveredDevice device)
+        {
+            var ip = device.IpAddress;
+            if (string.IsNullOrEmpty(ip)) return "";
+            
+            // Manual overrides for known tricky brands
+            // But since backend has a fuzzer, we should trust backend results first.
+            // If we are here, backend returned NO URIs.
+            
+            return $"rtsp://{ip}:554/stream"; // Default to generic /stream if unknown
         }
     }
 }

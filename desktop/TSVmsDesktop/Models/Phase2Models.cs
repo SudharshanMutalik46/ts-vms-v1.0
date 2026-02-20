@@ -28,7 +28,8 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("manufacturer")] public string Manufacturer { get; set; } = "";
         [JsonPropertyName("model")] public string Model { get; set; } = "";
         [JsonPropertyName("is_claimed")] public bool IsClaimed { get; set; }
-        [JsonPropertyName("xaddr")] public string XAddr { get; set; } = ""; // Service URI
+        [JsonPropertyName("xaddrs")] public List<string> XAddrs { get; set; } = new(); // Service URIs
+        [JsonPropertyName("rtsp_uris")] public List<string> RtspUris { get; set; } = new(); // Discovered RTSP Endpoints
     }
 
     // --- Phase 2.4: Media ---

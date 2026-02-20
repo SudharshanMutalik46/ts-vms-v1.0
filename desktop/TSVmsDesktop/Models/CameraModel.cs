@@ -36,22 +36,45 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("rtsp_url")]
         public string RtspUrl { get; set; } = "";
 
+        [JsonIgnore]
+        public string Username { get; set; } = "";
+
+        [JsonIgnore]
+        public string Password { get; set; } = "";
+
         /// <summary>
         /// Returns the explicit RtspUrl if set, otherwise constructs one from IpAddress and Port.
-        /// This is needed because the backend only stores ip_address and port, not a full RTSP URL.
+        /// Injects credentials if available.
         /// </summary>
         [JsonIgnore]
         public string EffectiveRtspUrl
         {
             get
             {
-                if (!string.IsNullOrWhiteSpace(RtspUrl)) return RtspUrl;
-                if (!string.IsNullOrWhiteSpace(IpAddress) && IpAddress != "127.0.0.1")
+                string url = !string.IsNullOrWhiteSpace(RtspUrl) ? RtspUrl : "";
+                
+                if (string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(IpAddress) && IpAddress != "127.0.0.1")
                 {
                     int rtspPort = Port > 0 ? Port : 554;
-                    return $"rtsp://{IpAddress}:{rtspPort}/live/0/MAIN";
+                    url = $"rtsp://{IpAddress}:{rtspPort}/live/0/MAIN";
                 }
-                return "";
+
+                if (string.IsNullOrWhiteSpace(url)) return "";
+
+                // Inject credentials if we have them and they aren't already in the URL
+                if (!string.IsNullOrWhiteSpace(Username) && !url.Contains("@"))
+                {
+                    try
+                    {
+                        if (url.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return $"rtsp://{Username}:{Password}@{url.Substring(7)}";
+                        }
+                    }
+                    catch { }
+                }
+
+                return url;
             }
         }
         

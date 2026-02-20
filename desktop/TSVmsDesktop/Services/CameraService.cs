@@ -41,6 +41,80 @@ namespace TSVmsDesktop.Services
             public List<T> Data { get; set; } = new();
         }
 
+        public class HealthStatusDto 
+        {
+            [JsonPropertyName("camera_id")]
+            public string CameraId { get; set; } = "";
+            
+            [JsonPropertyName("status")]
+            public string Status { get; set; } = "OFFLINE";
+
+            [JsonPropertyName("last_checked_at")]
+            public DateTime LastCheckedAt { get; set; }
+        }
+
+        public async Task LoadHealthAsync()
+        {
+             // GET /api/v1/cameras/health -> Returns List<HealthStatusDto> directly
+             try 
+             {
+                 var healthData = await _api.GetAsync<List<HealthStatusDto>>("/api/v1/cameras/health");
+                 
+                 // Handle null response (e.g. backend returns null for empty list)
+                 if (healthData == null)
+                 {
+                     // Console.WriteLine("[CameraService] Health data was null (treating as empty).");
+                     healthData = new List<HealthStatusDto>();
+                 }
+
+                 if (healthData != null)
+                 {
+                     // Console.WriteLine($"[CameraService] Received health data for {healthData.Count} cameras.");
+                     System.Windows.Application.Current.Dispatcher.Invoke(() => 
+                     {
+                         foreach (var h in healthData)
+                         {
+                             var cam = AllCameras.FirstOrDefault(c => c.Id == h.CameraId);
+                             if (cam != null)
+                             {
+                                 string oldStatus = cam.Status;
+                                 string newVal = h.Status?.ToUpper() ?? "OFFLINE";
+                                 
+                                 // Console.WriteLine($"[CameraService] Cam {cam.Name} ({cam.Id}) Status: {h.Status} -> {newVal}");
+
+                                 switch (newVal)
+                                 {
+                                     case "ONLINE":
+                                         cam.Status = "Online";
+                                         break;
+                                     default:
+                                         cam.Status = "Offline"; 
+                                         break;
+                                 }
+                                 
+                                 if (oldStatus != cam.Status)
+                                 {
+                                     Console.WriteLine($"[CameraService] Updated {cam.Name} status to {cam.Status}");
+                                 }
+                             }
+                             else
+                             {
+                                 Console.WriteLine($"[CameraService] Warning: Health record for unknown camera ID: {h.CameraId}");
+                             }
+                         }
+                     });
+                 }
+                 else
+                 {
+                     Console.WriteLine("[CameraService] Health data was null.");
+                 }
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"[CameraService] LoadHealthAsync Error: {ex.Message}");
+             }
+        }
+
         public async Task<bool> CreateCameraAsync(CameraModel cam)
         {
             // POST /api/v1/cameras

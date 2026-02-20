@@ -20,6 +20,7 @@ type Camera struct {
 	Name         string     `json:"name"`
 	IPAddress    net.IP     `json:"ip_address"`
 	Port         int        `json:"port"`
+	RtspUrl      string     `json:"rtsp_url,omitempty"`
 	Manufacturer string     `json:"manufacturer,omitempty"`
 	Model        string     `json:"model,omitempty"`
 	SerialNumber string     `json:"serial_number,omitempty"`
@@ -49,17 +50,17 @@ type CameraModel struct {
 func (m CameraModel) Create(ctx context.Context, c *Camera) error {
 	query := `
 		INSERT INTO cameras (
-			tenant_id, site_id, name, ip_address, port, 
+			tenant_id, site_id, name, ip_address, port, rtsp_url,
 			manufacturer, model, serial_number, mac_address, 
 			is_enabled, tags
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at`
 
 	// Safe cast IP to string for pq driver auto-handling or pass as string if driver requires
 	// lib/pq usually handles net.IP correctly as INET
 	err := m.DB.QueryRowContext(ctx, query,
-		c.TenantID, c.SiteID, c.Name, c.IPAddress.String(), c.Port,
+		c.TenantID, c.SiteID, c.Name, c.IPAddress.String(), c.Port, c.RtspUrl,
 		c.Manufacturer, c.Model, c.SerialNumber, c.MacAddress,
 		c.IsEnabled, pq.Array(c.Tags),
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
@@ -71,7 +72,7 @@ func (m CameraModel) Create(ctx context.Context, c *Camera) error {
 // Note: We scan tenant_id so caller can verify RBAC
 func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error) {
 	query := `
-		SELECT id, tenant_id, site_id, name, ip_address, port, 
+		SELECT id, tenant_id, site_id, name, ip_address, port, rtsp_url,
 		       manufacturer, model, serial_number, mac_address, 
 		       is_enabled, tags, created_at, updated_at, deleted_at
 		FROM cameras
@@ -80,10 +81,10 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	var c Camera
 	var ipStr string
 	var tags []string
-	var manufacturer, model, serialNumber, macAddress sql.NullString
+	var manufacturer, model, serialNumber, macAddress, rtspUrl sql.NullString
 
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port,
+		&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &rtspUrl,
 		&manufacturer, &model, &serialNumber, &macAddress,
 		&c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
 	)
@@ -96,6 +97,7 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	}
 	c.IPAddress = net.ParseIP(ipStr)
 	c.Tags = tags
+	c.RtspUrl = rtspUrl.String
 	c.Manufacturer = manufacturer.String
 	c.Model = model.String
 	c.SerialNumber = serialNumber.String
@@ -108,14 +110,14 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 func (m CameraModel) Update(ctx context.Context, c *Camera) error {
 	query := `
 		UPDATE cameras
-		SET name = $1, ip_address = $2, port = $3,
-		    manufacturer = $4, model = $5, serial_number = $6, mac_address = $7,
-		    tags = $8, updated_at = NOW()
-		WHERE id = $9 AND tenant_id = $10 AND deleted_at IS NULL
+		SET name = $1, ip_address = $2, port = $3, rtsp_url = $4,
+		    manufacturer = $5, model = $6, serial_number = $7, mac_address = $8,
+		    tags = $9, updated_at = NOW()
+		WHERE id = $10 AND tenant_id = $11 AND deleted_at IS NULL
 		RETURNING updated_at`
 
 	err := m.DB.QueryRowContext(ctx, query,
-		c.Name, c.IPAddress.String(), c.Port,
+		c.Name, c.IPAddress.String(), c.Port, c.RtspUrl,
 		c.Manufacturer, c.Model, c.SerialNumber, c.MacAddress,
 		pq.Array(c.Tags), c.ID, c.TenantID,
 	).Scan(&c.UpdatedAt)
@@ -184,7 +186,7 @@ func (m CameraModel) List(ctx context.Context, tenantID uuid.UUID, filter Camera
 		// Plan said "search by name and ip". Trigram works well with LIKE %q% logic too if index supports it.
 		// "search_text gin_trgm_ops" supports ILIKE or %.
 		// Let's use ILIKE for partial match which trigram indexes accelerate.
-		// Actually, `search_text ILIKE '%' || $N || '%'` is standard for "contains".
+		// Actually, `search_text ILIKE '%%' || $N || '%'` is standard for "contains".
 		where += fmt.Sprintf(" AND search_text ILIKE '%%' || $%d || '%%'", nextArg)
 		args = append(args, filter.Query)
 		nextArg++
@@ -201,7 +203,7 @@ func (m CameraModel) List(ctx context.Context, tenantID uuid.UUID, filter Camera
 
 	// 3. Select Data
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, site_id, name, ip_address, port, is_enabled, tags, created_at, updated_at 
+		SELECT id, tenant_id, site_id, name, ip_address, port, rtsp_url, is_enabled, tags, created_at, updated_at 
 		FROM cameras 
 		%s
 		ORDER BY created_at DESC
@@ -220,11 +222,13 @@ func (m CameraModel) List(ctx context.Context, tenantID uuid.UUID, filter Camera
 		var c Camera
 		var ipStr string
 		var tags []string
-		if err := rows.Scan(&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var rtspUrl sql.NullString
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &rtspUrl, &c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		c.IPAddress = net.ParseIP(ipStr)
 		c.Tags = tags
+		c.RtspUrl = rtspUrl.String
 		cameras = append(cameras, &c)
 	}
 

@@ -39,11 +39,12 @@ namespace TSVmsDesktop
             services.AddSingleton<Services.SupervisorService>();
             services.AddSingleton<Services.NvrService>();
             services.AddSingleton<Services.WindowsService>();
+            services.AddSingleton<Services.SiteService>();
 
             services.AddSingleton<MainViewModel>();
             services.AddTransient<StartupViewModel>(); // New
             services.AddTransient<LoginViewModel>();
-            services.AddTransient<LiveViewModel>();
+            services.AddSingleton<LiveViewModel>(); // Changed to Singleton to persist state/video
             services.AddTransient<CamerasViewModel>();
             services.AddTransient<CameraDetailsViewModel>();
             services.AddTransient<OnvifDiscoveryViewModel>();

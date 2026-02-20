@@ -40,12 +40,13 @@ namespace TSVmsDesktop.Controls
             }
 
             // 2. CREATE WINDOW
+            // Use 0,0,1,1 as initial size; WPF will resize it via OnWindowPositionChanged
             Handle = CreateWindowEx(
                 0, 
                 className, 
                 "",
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 
-                0, 0, (int)Width, (int)Height,
+                WS_CHILD | WS_CLIPSIBLINGS, // Removed WS_VISIBLE to prevent flash-before-ui
+                0, 0, 100, 100,
                 hwndParent.Handle,
                 IntPtr.Zero,
                 Marshal.GetHINSTANCE(typeof(VideoCanvas).Module),
@@ -98,5 +99,62 @@ namespace TSVmsDesktop.Controls
 
         [DllImport("user32.dll", EntryPoint = "DestroyWindow", CharSet = CharSet.Unicode)]
         internal static extern bool DestroyWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll")]
+        static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        private const int SW_SHOW = 5;
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_LAYERED = 0x80000;
+        private const int LWA_ALPHA = 0x2;
+
+        public VideoCanvas()
+        {
+            this.IsVisibleChanged += VideoCanvas_IsVisibleChanged;
+        }
+
+        private async void VideoCanvas_IsVisibleChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
+        {
+            if ((bool)e.NewValue) // Becoming Visible
+            {
+                if (Handle == IntPtr.Zero) return;
+
+                // 1. Prepare for Layering (Opacity control)
+                int style = GetWindowLong(Handle, GWL_EXSTYLE);
+                SetWindowLong(Handle, GWL_EXSTYLE, style | WS_EX_LAYERED);
+                SetLayeredWindowAttributes(Handle, 0, 0, LWA_ALPHA); // Start at 0% opacity
+
+                // 2. Hide HWND initially to ensure WPF renders background first
+                ShowWindow(Handle, 0); // SW_HIDE
+
+                // 3. Ultra-short synchronization delay (Reduced from 50)
+                await System.Threading.Tasks.Task.Delay(20);
+
+                if (!this.IsVisible) return;
+
+                // 4. Show at 0 opacity
+                ShowWindow(Handle, SW_SHOW);
+
+                // 5. Fast Fade In Animation (approx 80-100ms)
+                for (int i = 0; i <= 255; i += 85) // 3 steps
+                {
+                    if (!this.IsVisible) break;
+                    SetLayeredWindowAttributes(Handle, 0, (byte)i, LWA_ALPHA);
+                    await System.Threading.Tasks.Task.Delay(15);
+                }
+
+                // Ensure final state is fully opaque
+                if (this.IsVisible) SetLayeredWindowAttributes(Handle, 0, 255, LWA_ALPHA);
+            }
+        }
     }
 }

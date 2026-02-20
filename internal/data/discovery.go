@@ -32,6 +32,7 @@ type DiscoveredDevice struct {
 	DiscoveryRunID  uuid.UUID `json:"discovery_run_id"`
 	IPAddress       string    `json:"ip_address"`
 	EndpointRef     string    `json:"endpoint_ref,omitempty"`
+	XAddrs          []string  `json:"xaddrs,omitempty"`
 	Manufacturer    string    `json:"manufacturer,omitempty"`
 	Model           string    `json:"model,omitempty"`
 	FirmwareVersion string    `json:"firmware_version,omitempty"`
@@ -93,51 +94,52 @@ func (m *DiscoveryModel) GetRun(ctx context.Context, id uuid.UUID) (*DiscoveryRu
 
 // Devices
 func (m *DiscoveryModel) UpsertDevice(ctx context.Context, d *DiscoveredDevice) error {
-	// De-dupe on RunID + IP: Usually we probe once per run, OR we want latest for that run.
-	// Actually schema doesn't have unique constraint on (discovery_run_id, ip_address), only index.
-	// But logically we should update if exists in THIS run?
-	// Or just INSERT?
-	// Recommendation: Upsert to avoid dupes if scan finds same device multiple times (e.g. multiple XAddrs).
-	// But `onvif_discovered_devices` primary key is ID.
-	// We'll rely on service to check existence or just INSERT new.
-	// Let's implement Upsert based on DiscoveryRunID + IP.
-	// If schema lacks unique constraint, ON CONFLICT won't work well without it.
-	// We'll trust the User requirement "De-dupe by endpoint reference OR IP".
-	// The service layer handles de-dupe memory-side per scan.
-	// So DB can just INSERT.
+	// Serialize XAddrs to JSON
+	xaddrsJSON, err := json.Marshal(d.XAddrs)
+	if err != nil {
+		return err
+	}
+	if len(d.XAddrs) == 0 {
+		xaddrsJSON = []byte("[]")
+	}
 
 	query := `
-		INSERT INTO onvif_discovered_devices (
-			tenant_id, discovery_run_id, ip_address, endpoint_ref,
-			manufacturer, model, firmware_version, serial_number,
-			supports_profile_s, supports_profile_t, supports_profile_g,
-			capabilities, media_profiles, rtsp_uris,
-			last_probe_at, last_error_code
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		RETURNING id, created_at, updated_at
-	`
+			INSERT INTO onvif_discovered_devices (
+				tenant_id, discovery_run_id, ip_address, endpoint_ref,
+				manufacturer, model, firmware_version, serial_number,
+				supports_profile_s, supports_profile_t, supports_profile_g,
+				capabilities, media_profiles, rtsp_uris, xaddrs,
+				last_probe_at, last_error_code
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			RETURNING id, created_at, updated_at
+		`
 	return m.DB.QueryRowContext(ctx, query,
 		d.TenantID, d.DiscoveryRunID, d.IPAddress, d.EndpointRef,
 		d.Manufacturer, d.Model, d.FirmwareVersion, d.SerialNumber,
 		d.SupportsProfileS, d.SupportsProfileT, d.SupportsProfileG,
-		d.Capabilities, d.MediaProfiles, d.RTSP_URIs,
+		d.Capabilities, d.MediaProfiles, d.RTSP_URIs, string(xaddrsJSON),
 		d.LastProbeAt, d.LastErrorCode,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
 func (m *DiscoveryModel) UpdateDeviceProbe(ctx context.Context, d *DiscoveredDevice) error {
+	xaddrsJSON, err := json.Marshal(d.XAddrs)
+	if err != nil {
+		return err
+	}
+
 	query := `
-		UPDATE onvif_discovered_devices
-		SET manufacturer=$2, model=$3, firmware_version=$4, serial_number=$5,
-		    supports_profile_s=$6, supports_profile_t=$7, supports_profile_g=$8,
-		    capabilities=$9, media_profiles=$10, rtsp_uris=$11,
-		    last_probe_at=$12, last_error_code=$13, updated_at=NOW()
-		WHERE id=$1
-	`
+			UPDATE onvif_discovered_devices
+			SET manufacturer=$2, model=$3, firmware_version=$4, serial_number=$5,
+			    supports_profile_s=$6, supports_profile_t=$7, supports_profile_g=$8,
+			    capabilities=$9, media_profiles=$10, rtsp_uris=$11, xaddrs=$12,
+			    last_probe_at=$13, last_error_code=$14, updated_at=NOW()
+			WHERE id=$1
+		`
 	res, err := m.DB.ExecContext(ctx, query,
 		d.ID, d.Manufacturer, d.Model, d.FirmwareVersion, d.SerialNumber,
 		d.SupportsProfileS, d.SupportsProfileT, d.SupportsProfileG,
-		d.Capabilities, d.MediaProfiles, d.RTSP_URIs,
+		d.Capabilities, d.MediaProfiles, d.RTSP_URIs, string(xaddrsJSON),
 		d.LastProbeAt, d.LastErrorCode,
 	)
 	if err != nil {
@@ -151,27 +153,33 @@ func (m *DiscoveryModel) UpdateDeviceProbe(ctx context.Context, d *DiscoveredDev
 
 func (m *DiscoveryModel) GetDevice(ctx context.Context, id uuid.UUID) (*DiscoveredDevice, error) {
 	query := `
-		SELECT id, tenant_id, discovery_run_id, ip_address, endpoint_ref,
-		       manufacturer, model, firmware_version, serial_number,
-		       supports_profile_s, supports_profile_t, supports_profile_g,
-		       capabilities, media_profiles, rtsp_uris,
-		       last_probe_at, last_error_code, created_at, updated_at
-		FROM onvif_discovered_devices WHERE id = $1
-	`
+			SELECT id, tenant_id, discovery_run_id, ip_address, endpoint_ref,
+			       manufacturer, model, firmware_version, serial_number,
+			       supports_profile_s, supports_profile_t, supports_profile_g,
+			       capabilities, media_profiles, rtsp_uris, xaddrs,
+			       last_probe_at, last_error_code, created_at, updated_at
+			FROM onvif_discovered_devices WHERE id = $1
+		`
 	var d DiscoveredDevice
-	// Need to handle nulls if we use them
-	// Start with simple scan
+	var xaddrsJSON []byte
+
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&d.ID, &d.TenantID, &d.DiscoveryRunID, &d.IPAddress, &d.EndpointRef,
 		&d.Manufacturer, &d.Model, &d.FirmwareVersion, &d.SerialNumber,
 		&d.SupportsProfileS, &d.SupportsProfileT, &d.SupportsProfileG,
-		&d.Capabilities, &d.MediaProfiles, &d.RTSP_URIs,
+		&d.Capabilities, &d.MediaProfiles, &d.RTSP_URIs, &xaddrsJSON,
 		&d.LastProbeAt, &d.LastErrorCode, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrDeviceNotFound
 	}
-	return &d, err
+	if err != nil {
+		return nil, err
+	}
+	if len(xaddrsJSON) > 0 {
+		_ = json.Unmarshal(xaddrsJSON, &d.XAddrs)
+	}
+	return &d, nil
 }
 
 func (m *DiscoveryModel) ListDevices(ctx context.Context, runID uuid.UUID, limit, offset int) ([]*DiscoveredDevice, error) {
@@ -179,7 +187,7 @@ func (m *DiscoveryModel) ListDevices(ctx context.Context, runID uuid.UUID, limit
 		SELECT id, tenant_id, discovery_run_id, ip_address, endpoint_ref,
 		       manufacturer, model,
 		       supports_profile_s, supports_profile_t, supports_profile_g,
-		       last_error_code
+		       last_error_code, xaddrs, rtsp_uris
 		FROM onvif_discovered_devices
 		WHERE discovery_run_id = $1
 		ORDER BY ip_address
@@ -191,20 +199,27 @@ func (m *DiscoveryModel) ListDevices(ctx context.Context, runID uuid.UUID, limit
 	}
 	defer rows.Close()
 
-	var devs []*DiscoveredDevice
+	var devices []*DiscoveredDevice
 	for rows.Next() {
-		d := &DiscoveredDevice{}
+		var d DiscoveredDevice
+		var xaddrsJSON []byte
 		if err := rows.Scan(
 			&d.ID, &d.TenantID, &d.DiscoveryRunID, &d.IPAddress, &d.EndpointRef,
 			&d.Manufacturer, &d.Model,
 			&d.SupportsProfileS, &d.SupportsProfileT, &d.SupportsProfileG,
-			&d.LastErrorCode,
+			&d.LastErrorCode, &xaddrsJSON, &d.RTSP_URIs,
 		); err != nil {
 			return nil, err
 		}
-		devs = append(devs, d)
+		if len(xaddrsJSON) > 0 {
+			_ = json.Unmarshal(xaddrsJSON, &d.XAddrs)
+		}
+		devices = append(devices, &d)
 	}
-	return devs, nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return devices, nil
 }
 
 // Bootstrap Creds (Option A)

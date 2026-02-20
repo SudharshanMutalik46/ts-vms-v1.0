@@ -77,11 +77,15 @@ namespace TSVmsDesktop.Views
 
             if (canvas.DataContext is CameraSlot slot)
             {
-                // Prevent duplicate streams
-                if (slot.PipelineHandle != IntPtr.Zero) return;
-
                 var videoService = App.Current.Services.GetRequiredService<VideoService>();
                 
+                // Prevent duplicate streams, but RE-ATTACH if the window changed
+                if (slot.PipelineHandle != IntPtr.Zero) 
+                {
+                    videoService.Reattach(slot.PipelineHandle, canvas.Handle);
+                    return;
+                }
+
                 // Fallback to "test" if URL is empty
                 string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
 

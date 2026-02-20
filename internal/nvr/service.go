@@ -243,7 +243,7 @@ func (s *Service) GetCredentials(ctx context.Context, nvrID, tenantID uuid.UUID)
 	// 2. Unwrap DEK
 	dek, err := s.keyring.UnwrapDEK(cred.MasterKID, cred.DekNonce, cred.DekCiphertext, cred.DekTag, aad)
 	if err != nil {
-		s.audit(ctx, "nvr.credential.read", tenantID, nvrID.String(), "fail", nil)
+		s.audit(ctx, "nvr.credential.read", tenantID, nvrID.String(), "failure", nil)
 		return "", "", errors.New("decryption failed")
 	}
 

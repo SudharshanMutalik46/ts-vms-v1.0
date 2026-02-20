@@ -114,7 +114,11 @@ func (s *Service) runScan(ctx context.Context, runID, tenantID uuid.UUID) {
 			SupportsProfileS: dev.SupportsProfileS,
 			SupportsProfileT: dev.SupportsProfileT,
 			SupportsProfileG: dev.SupportsProfileG,
-			// Others empty until probed
+			XAddrs:           dev.XAddrs,
+			// Initialize JSON fields to valid empty values to avoid 22P02 DB error
+			Capabilities:  json.RawMessage("{}"),
+			MediaProfiles: json.RawMessage("[]"),
+			RTSP_URIs:     json.RawMessage("[]"),
 		}
 
 		if err := s.Repo.UpsertDevice(ctx, dbDev); err != nil {

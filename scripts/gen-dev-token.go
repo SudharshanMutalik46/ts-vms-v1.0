@@ -60,6 +60,3 @@ func main() {
 		fmt.Printf("Body: %s\n", string(buf[:n]))
 	}
 }
-//go:build ignore
-
-

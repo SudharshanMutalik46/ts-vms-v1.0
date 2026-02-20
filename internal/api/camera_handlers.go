@@ -45,7 +45,8 @@ func (h *CameraHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name      string   `json:"name"`
 		IPAddress string   `json:"ip_address"`
 		Port      int      `json:"port"`
-		IsEnabled bool     `json:"is_enabled,omitempty"` // Default true
+		RtspUrl   string   `json:"rtsp_url"`
+		IsEnabled *bool    `json:"is_enabled,omitempty"` // Pointer to distinguish omitted
 		Tags      []string `json:"tags"`
 		// Metadata... omitted for brevity but should map
 	}
@@ -88,12 +89,14 @@ func (h *CameraHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:      req.Name,
 		IPAddress: ip,
 		Port:      req.Port,
+		RtspUrl:   req.RtspUrl,
 		IsEnabled: true, // Default enabled? Or based on req?
 		Tags:      req.Tags,
 	}
 	// Explicit enabled override
-	if !req.IsEnabled {
-		c.IsEnabled = false
+	// Explicit enabled override
+	if req.IsEnabled != nil {
+		c.IsEnabled = *req.IsEnabled
 	} else {
 		c.IsEnabled = true // Default true
 	}

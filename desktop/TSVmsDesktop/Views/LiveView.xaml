@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:TSVmsDesktop.Controls"
              xmlns:converters="clr-namespace:TSVmsDesktop.Converters"
+             xmlns:System="clr-namespace:System;assembly=mscorlib"
              Unloaded="UserControl_Unloaded"
              Focusable="True">
     
@@ -193,6 +194,8 @@
                                     <!-- Video Surface -->
                                     <controls:VideoCanvas x:Name="VideoSurface" 
                                                           DataContext="{Binding}"
+                                                          HorizontalAlignment="Stretch"
+                                                          VerticalAlignment="Stretch"
                                                           Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                           IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
 
@@ -229,7 +232,7 @@
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding CameraName}" Foreground="#1E293B" FontWeight="Bold" FontSize="13" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Foreground="#94A3B8" FontSize="11" Margin="0,2,0,0">
-                                            <Run Text="{Binding OverlayText, Mode=OneWay}"/>
+                                            <Run Text="{Binding StatusText, Mode=OneWay}" Foreground="{Binding StatusColor, Mode=OneWay}" FontWeight="SemiBold"/>
                                             <Run Text=" • "/>
                                             <Run Text="{Binding IpAddress, Mode=OneWay}"/>
                                         </TextBlock>
@@ -238,7 +241,7 @@
                                     <!-- Full Window Button -->
                                     <Button Grid.Column="2" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,4,0"
                                             Command="{Binding DataContext.EnterFullScreenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
-                                            CommandParameter="{Binding RtspUrl}"
+                                            CommandParameter="{Binding}"
                                             ToolTip="Full Window">
                                         <Path Data="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" 
                                               Fill="#94A3B8" Stretch="Uniform" Width="14" Height="14"/>
@@ -300,47 +303,80 @@
               Background="Black" x:Name="FullScreenGrid">
             
             <controls:VideoCanvas x:Name="FullScreenPlayer" 
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Stretch"
                                   IsVisibleChanged="FullScreenPlayer_IsVisibleChanged"/>
 
-            <!-- Traditional Close Button (Top-Left) -->
-            <!-- Using Popup to bypass 'Airspace' issue with native VideoCanvas -->
+            <!-- Premium Full Screen Overlay (Top Bar) -->
+            <!-- Positioned absolutely to ensure it stays on top of the native video surface -->
             <Popup IsOpen="{Binding IsFullScreen}" 
-                   PlacementTarget="{Binding ElementName=FullScreenGrid}"
-                   Placement="Relative" 
-                   HorizontalOffset="40"
-                   VerticalOffset="80"
+                   Placement="Absolute" 
+                   HorizontalOffset="0"
+                   VerticalOffset="0"
+                   Width="{Binding ActualWidth, ElementName=FullScreenGrid}"
+                   Height="150"
+                   StaysOpen="True"
                    AllowsTransparency="True"
                    PopupAnimation="Fade">
-                <Button Command="{Binding ExitFullScreenCommand}" 
-                        Width="48" Height="48"
-                        Cursor="Hand"
-                        ToolTip="Close Full Screen (Esc)">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="24"/>
+                <Grid Height="120" VerticalAlignment="Top" x:Name="FullScreenHeader">
+                    <!-- Glassy Background with Gradient -->
+                    <Grid.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#CC000000" Offset="0"/>
+                            <GradientStop Color="#00000000" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Grid.Background>
+
+                    <!-- Auto-Hide Trigger REMOVED for stability -->
+                    <!-- Top bar will remain visible to ensure accessibility -->
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Opacity" Value="1"/> 
                         </Style>
-                    </Button.Resources>
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Background" Value="#EF4444"/> <!-- Red Dot Color -->
-                            <Setter Property="Foreground" Value="White"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" CornerRadius="24">
-                                            <TextBlock Text="✖" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#DC2626"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                    </Grid.Style>
+
+                    <Grid Margin="40,30">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Glassy Exit Button (Left) -->
+                        <Button Grid.Column="0" Command="{Binding ExitFullScreenCommand}" 
+                                Width="48" Height="48" Cursor="Hand"
+                                ToolTip="Exit Full Screen (Esc)">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="ButtonBorder" CornerRadius="24" Background="#66000000" BorderThickness="1.5" BorderBrush="#88FFFFFF">
+                                        <Path Data="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" 
+                                              Fill="White" Stretch="Uniform" Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="ButtonBorder" Property="Background" Value="#EF4444"/>
+                                            <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#EF4444"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
+                        <!-- Camera Metadata (Right) -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="25,0">
+                            <TextBlock Text="{Binding SelectedCameraName}" Foreground="White" FontSize="20" FontWeight="SemiBold">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.5"/>
+                                </TextBlock.Effect>
+                            </TextBlock>
+                            <TextBlock Text="{Binding Source={x:Static System:DateTime.Now}, StringFormat='{}{0:dd MMM yyyy, HH:mm:ss}'}" 
+                                     Foreground="#EEEEEE" FontSize="14" Margin="0,3,0,0">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.5"/>
+                                </TextBlock.Effect>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
             </Popup>
         </Grid>
 

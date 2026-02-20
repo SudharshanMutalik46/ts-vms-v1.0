@@ -78,6 +78,28 @@ namespace TSVmsDesktop.Services
         {
             return await _api.PutAsync($"/api/v1/cameras/{camId}/credentials", new { username, password });
         }
+
+        public async Task<CameraCredentials?> GetCredentialsAsync(string camId)
+        {
+            // GET /api/v1/cameras/{id}/credentials?reveal=true
+            var res = await _api.GetAsync<CredentialResponse>($"/api/v1/cameras/{camId}/credentials?reveal=true");
+            return res?.Data;
+        }
+
+        private class CredentialResponse
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("data")]
+            public CameraCredentials? Data { get; set; }
+        }
+    }
+
+    public class CameraCredentials
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("username")]
+        public string Username { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("password")]
+        public string Password { get; set; } = "";
     }
 
     public class AlertsService
@@ -89,6 +111,17 @@ namespace TSVmsDesktop.Services
         public async Task<List<CameraAlert>> GetAlertsAsync()
         {
             return await _api.GetAsync<List<CameraAlert>>("/api/v1/alerts/cameras") ?? new();
+        }
+    }
+
+    public class SiteService
+    {
+        private readonly ApiClient _api;
+        public SiteService(ApiClient api) => _api = api;
+
+        public async Task<List<Dictionary<string, string>>> GetSitesAsync()
+        {
+            return await _api.GetAsync<List<Dictionary<string, string>>>("/api/v1/sites") ?? new();
         }
     }
 }
