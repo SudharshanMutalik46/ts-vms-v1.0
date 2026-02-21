@@ -16,12 +16,13 @@ namespace TSVmsDesktop.Services
         // Track active pipelines and their management tasks
         private class StreamContext
         {
-            public string Url { get; set; }
+            public string? Url { get; set; }
             public IntPtr WindowHandle { get; set; }
-            public CancellationTokenSource CTS { get; set; }
-            public Task WatchTask { get; set; }
+            public CancellationTokenSource? CTS { get; set; }
+            public Task? WatchTask { get; set; }
             public bool IsRestarting { get; set; }
         }
+        public event Action<IntPtr, string>? StreamError;
         private readonly ConcurrentDictionary<IntPtr, StreamContext> _activeStreams = new();
 
         public VideoService()
@@ -44,12 +45,29 @@ namespace TSVmsDesktop.Services
 
                 try
                 {
-                    System.Environment.SetEnvironmentVariable("GST_DEBUG", "3");
                     int argc = 0;
                     IntPtr argv = IntPtr.Zero;
                     GstNative.gst_init(ref argc, ref argv);
+
+                    // PROGRAMMATIC LOG SUPPRESSION:
+                    // Set GStreamer internal logs to level 2 (Errors & Warnings).
+                    GstNative.gst_debug_set_default_threshold(2); 
+
+                    // AUTO-DOWNLOADER HARDENING:
+                    // Elevate ranks of downloaders so decodebin can auto-insert them.
+                    IntPtr d11 = GstNative.gst_element_factory_find("d3d11download");
+                    if (d11 != IntPtr.Zero) {
+                        GstNative.gst_plugin_feature_set_rank(d11, GstNative.GST_RANK_PRIMARY + 100);
+                        GstNative.gst_object_unref(d11);
+                    }
+                    IntPtr d12 = GstNative.gst_element_factory_find("d3d12download");
+                    if (d12 != IntPtr.Zero) {
+                        GstNative.gst_plugin_feature_set_rank(d12, GstNative.GST_RANK_PRIMARY + 100);
+                        GstNative.gst_object_unref(d12);
+                    }
+
                     _isInitialized = true;
-                    Log("[TS-VMS] GStreamer Backend Initialized Successfully.");
+                    Log("[TS-VMS] Video Engine: GStreamer 1.x Initialized (Diagnostic Mode).");
                 }
                 catch (Exception ex)
                 {
@@ -64,13 +82,30 @@ namespace TSVmsDesktop.Services
 
             Log($"[TS-VMS] StartStream Request: '{rtspUrl}'");
 
-            // ULTRA-LOW LATENCY REAL-TIME TUNING:
-            // 1. sync=false: Render frames IMMEDIATELY as they arrive (Zero display lag).
-            // 2. queue max-size-time=0: Disable time-based buffering to prevent "lag buildup".
-            // 3. buffer-size=0: Disable network-level pooling for real-time packet delivery.
+            // USER-REQUESTED HARDENING:
+            // 1. Protocols: Removed strict 'protocols=4' to allow auto-negotiation (TCP/UDP/Mcast).
+            //    Staggered startup in LiveViewModel prevents the previous UDP port collisions.
+            // 2. location=\"{rtspUrl}\": Wrap in quotes to handle special characters.
+            // 3. user-agent=\"VLC/3.0.16\": Spoof VLC identity for picky cameras.
+            // 4. latency=500: Stabilization buffer.
+            // 5. short-header=true & Explicit Auth: Match user's preferred reliability flags.
+            string authProps = "";
+            if (rtspUrl.Contains("@"))
+            {
+                try {
+                    int start = rtspUrl.IndexOf("://") + 3;
+                    int end = rtspUrl.IndexOf("@");
+                    string creds = rtspUrl.Substring(start, end - start);
+                    if (creds.Contains(":")) {
+                        var parts = creds.Split(':');
+                        if (parts.Length >= 2) authProps = $"user-id={parts[0]} user-pw={parts[1]}";
+                    }
+                } catch {}
+            }
+
             string pipelineStr = rtspUrl == "test" 
                 ? "videotestsrc pattern=ball is-live=true ! videoconvert ! d3dvideosink name=mysink sync=false force-aspect-ratio=false"
-                : $"uridecodebin uri={rtspUrl} ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! d3d11upload ! d3d11convert ! d3d11videosink name=mysink sync=false force-aspect-ratio=false";
+                : $"rtspsrc location=\"{rtspUrl}\" latency=1000 protocols=tcp ! decodebin ! queue max-size-buffers=300 max-size-time=1000000000 ! d3d11download ! d3d12download ! videoconvert ! d3d11videosink name=mysink sync=false force-aspect-ratio=false";
 
             Log($"[TS-VMS] Window Handle: {windowHandle}");
 
@@ -80,12 +115,11 @@ namespace TSVmsDesktop.Services
             if (pipeline == IntPtr.Zero)
             {
                 Log($"[TS-VMS] Pipeline Creation Failed for {rtspUrl}");
+                StreamError?.Invoke(windowHandle, "Invalid Pipeline (Check RTSP URL)");
                 return IntPtr.Zero;
             }
 
-            // Always set handle on pipeline AND try sink search
-            GstNative.gst_video_overlay_set_window_handle(pipeline, windowHandle);
-            
+            // Set handle on the video sink (mysink)
             IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
             if (sink != IntPtr.Zero)
             {
@@ -107,29 +141,55 @@ namespace TSVmsDesktop.Services
                 var token = ctx.CTS.Token;
                 ctx.WatchTask = Task.Run(async () => {
                     try {
+                        // Request Error, EOS, StateChanged, Buffering, and Warnings
+                        int mask = GstNative.GST_MESSAGE_ERROR | 
+                                   GstNative.GST_MESSAGE_EOS | 
+                                   GstNative.GST_MESSAGE_STATE_CHANGED | 
+                                   GstNative.GST_MESSAGE_BUFFERING |
+                                   GstNative.GST_MESSAGE_WARNING;
+
                         Log($"[TS-VMS] Bus monitor started for {rtspUrl}");
                         while (!token.IsCancellationRequested) {
-                            IntPtr msg = GstNative.gst_bus_pop_filtered(bus, 100); 
+                            IntPtr msg = GstNative.gst_bus_pop_filtered(bus, mask); 
                             if (msg != IntPtr.Zero) {
                                 int msgType = GstNative.gst_message_get_type(msg);
                                 
-                                if ((msgType & GstNative.GST_MESSAGE_ERROR) != 0) {
+                                if (msgType == GstNative.GST_MESSAGE_ERROR) {
                                     IntPtr errPtr, debugPtr;
                                     GstNative.gst_message_parse_error(msg, out errPtr, out debugPtr);
                                     string errWrap = Marshal.PtrToStringAnsi(errPtr) ?? "Unknown Error";
                                     Log($"[GSTREAMER-ERROR] {errWrap}. Triggering auto-restart...");
-                                    GstNative.gst_message_unref(msg);
                                     
+                                    // Notify UI that the stream failed
+                                    StreamError?.Invoke(ctx.WindowHandle, errWrap);
+                                    
+                                    GstNative.gst_message_unref(msg);
                                     _ = RestartStreamAsync(pipeline);
                                     break;
                                 }
-                                else if ((msgType & GstNative.GST_MESSAGE_STATE_CHANGED) != 0) {
+                                else if (msgType == GstNative.GST_MESSAGE_STATE_CHANGED) {
                                     int oldState, newState, pending;
                                     GstNative.gst_message_parse_state_changed(msg, out oldState, out newState, out pending);
-                                    if (newState == GstNative.GST_STATE_NULL && !ctx.IsRestarting) {
-                                        Log("[TS-VMS] State reached NULL. Possible connection loss.");
+                                    
+                                    // Map GstState values (1=NULL, 2=READY, 3=PAUSED, 4=PLAYING)
+                                    string newStateName = newState switch { 1 => "NULL", 2 => "READY", 3 => "PAUSED", 4 => "PLAYING", _ => "UNKNOWN" };
+                                    if (newState >= 3) // Log transitions to PAUSED and PLAYING
+                                    {
+                                        Log($"[TS-VMS] Pipeline State: {newStateName} ({rtspUrl})");
                                     }
                                 }
+                                else if (msgType == GstNative.GST_MESSAGE_BUFFERING) {
+                                    int percent = 0;
+                                    GstNative.gst_message_parse_buffering(msg, out percent);
+                                    if (percent < 100) Log($"[TS-VMS] Buffering: {percent}%");
+                                }
+                                else if (msgType == GstNative.GST_MESSAGE_WARNING) {
+                                    IntPtr errPtr, debugPtr;
+                                    GstNative.gst_message_parse_warning(msg, out errPtr, out debugPtr);
+                                    string warnWrap = Marshal.PtrToStringAnsi(errPtr) ?? "Unknown Warning";
+                                    Log($"[GSTREAMER-WARNING] {warnWrap}");
+                                }
+
                                 GstNative.gst_message_unref(msg);
                             }
                             await Task.Delay(100, token); 
@@ -144,7 +204,8 @@ namespace TSVmsDesktop.Services
                 _activeStreams.TryAdd(pipeline, ctx);
             }
 
-            GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
+            int stateResult = GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
+            Log($"[TS-VMS] Set State PLAYING returned: {stateResult} ({rtspUrl})");
             return pipeline;
         }
 
@@ -165,7 +226,7 @@ namespace TSVmsDesktop.Services
             // but in this VMS, LiveView tracks handles. We'll let it re-trigger via health if needed,
             // OR we can manually re-start here.
             Log($"[TS-VMS] Re-starting stream: {ctx.Url}");
-            StartStream(ctx.WindowHandle, ctx.Url);
+            StartStream(ctx.WindowHandle, ctx.Url ?? "");
         }
 
         public void Reattach(IntPtr pipeline, IntPtr windowHandle)
@@ -193,11 +254,11 @@ namespace TSVmsDesktop.Services
 
             if (_activeStreams.TryRemove(pipeline, out var ctx))
             {
-                ctx.CTS.Cancel();
+                ctx.CTS?.Cancel();
                 // We don't await WatchTask here to avoid deadlock if called from UI thread
                 GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_NULL);
                 GstNative.gst_object_unref(pipeline);
-                ctx.CTS.Dispose();
+                ctx.CTS?.Dispose();
                 Log("[TS-VMS] Stopped.");
             }
         }

@@ -5,6 +5,7 @@
              xmlns:converters="clr-namespace:TSVmsDesktop.Converters"
              xmlns:System="clr-namespace:System;assembly=mscorlib"
              Unloaded="UserControl_Unloaded"
+             Loaded="UserControl_Loaded"
              Focusable="True">
     
     <UserControl.Resources>
@@ -105,13 +106,34 @@
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                     <Button Content="↻" Width="40" Height="40" Background="#FFFFFF" BorderThickness="1" BorderBrush="#E2E8F0" 
-                             Foreground="#64748B" FontSize="18" Margin="0,0,12,0" Cursor="Hand" ToolTip="Sync Status">
+                     <Button Command="{Binding SyncCommand}" Width="40" Height="40" Background="#FFFFFF" BorderThickness="1" BorderBrush="#E2E8F0" 
+                             Foreground="#64748B" Margin="0,0,12,0" Cursor="Hand" ToolTip="Sync Status">
                          <Button.Resources>
                              <Style TargetType="Border">
                                  <Setter Property="CornerRadius" Value="8"/>
                              </Style>
                          </Button.Resources>
+                         <TextBlock Text="↻" FontSize="18" RenderTransformOrigin="0.5,0.5">
+                             <TextBlock.RenderTransform>
+                                 <RotateTransform Angle="0"/>
+                             </TextBlock.RenderTransform>
+                             <TextBlock.Style>
+                                 <Style TargetType="TextBlock">
+                                     <Style.Triggers>
+                                         <DataTrigger Binding="{Binding IsSyncing}" Value="True">
+                                             <DataTrigger.EnterActions>
+                                                 <BeginStoryboard>
+                                                     <Storyboard>
+                                                         <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)" 
+                                                                          To="360" Duration="0:0:0.8" RepeatBehavior="Forever"/>
+                                                     </Storyboard>
+                                                 </BeginStoryboard>
+                                             </DataTrigger.EnterActions>
+                                         </DataTrigger>
+                                     </Style.Triggers>
+                                 </Style>
+                             </TextBlock.Style>
+                         </TextBlock>
                      </Button>
 
                     <Button Command="{Binding ConnectDemoCommand}" Cursor="Hand">
@@ -177,16 +199,64 @@
                                     
                                     <!-- No Signal Placeholder (Light Theme) -->
                                     <Grid x:Name="NoSignalOverlay" Visibility="{Binding IsConnected, Converter={StaticResource InverseBoolToVisConverter}}">
-                                        <Grid Background="#F8FAFC">
-                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.7">
-                                                <Path Data="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95A5.99 5.99 0 0 1 12 6c2.62 0 4.88 1.86 5.81 4.43l.48 1.34 1.37.27c2.09.41 3.23 2.65 2.22 4.63-.49.97-1.5 1.33-2.88 1.33z" 
-                                                      Fill="#CBD5E1" Stretch="Uniform" Width="48" Height="48" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="NO SIGNAL" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,15,0,5" HorizontalAlignment="Center"/>
+                                        <Grid Background="#F1F5F9"> <!-- Darkened from F8FAFC to F1F5F9 -->
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.9">
+                                                <Path x:Name="OverlayIcon" Stretch="Uniform" Width="48" Height="48" HorizontalAlignment="Center">
+                                                    <Path.Style>
+                                                        <Style TargetType="Path">
+                                                            <Setter Property="Data" Value="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95A5.99 5.99 0 0 1 12 6c2.62 0 4.88 1.86 5.81 4.43l.48 1.34 1.37.27c2.09.41 3.23 2.65 2.22 4.63-.49.97-1.5 1.33-2.88 1.33z"/>
+                                                            <Setter Property="Fill" Value="#94A3B8"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsStreamFailed}" Value="True">
+                                                                    <Setter Property="Data" Value="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                                                                    <Setter Property="Fill" Value="#EF4444"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Path.Style>
+                                                </Path>
+                                                <TextBlock x:Name="OverlayText" FontSize="11" FontWeight="Bold" Margin="0,15,0,5" HorizontalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="NO SIGNAL"/>
+                                                            <Setter Property="Foreground" Value="#64748B"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsStreamFailed}" Value="True">
+                                                                    <Setter Property="Text" Value="SIGNAL LOST"/>
+                                                                    <Setter Property="Foreground" Value="#EF4444"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                             </StackPanel>
                                             
-                                            <!-- Offline Badge -->
-                                            <Border Background="#E2E8F0" CornerRadius="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10" Padding="8,4">
-                                                <TextBlock Text="OFFLINE" Foreground="#64748B" FontSize="10" FontWeight="Bold"/>
+                                            <!-- Status Badge -->
+                                            <Border x:Name="OverlayBadge" CornerRadius="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10" Padding="8,4">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#E2E8F0"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsStreamFailed}" Value="True">
+                                                                <Setter Property="Background" Value="#FEE2E2"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock x:Name="OverlayBadgeText" FontSize="10" FontWeight="Bold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="OFFLINE"/>
+                                                            <Setter Property="Foreground" Value="#64748B"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsStreamFailed}" Value="True">
+                                                                    <Setter Property="Text" Value="ERROR"/>
+                                                                    <Setter Property="Foreground" Value="#EF4444"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                             </Border>
                                         </Grid>
                                     </Grid>

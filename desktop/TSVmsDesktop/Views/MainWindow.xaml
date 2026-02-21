@@ -334,7 +334,7 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <Grid>
+                        <Grid x:Name="ViewLayoutContainer">
                             <!-- Persistent Live View layer -->
                             <views:LiveView DataContext="{Binding LiveVM}">
                                 <views:LiveView.Style>

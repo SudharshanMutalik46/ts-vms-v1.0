@@ -15,7 +15,7 @@ namespace TSVmsDesktop
 
         public App()
         {
-            Console.WriteLine("DEBUG: App Constructor Started");
+            System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] App Constructor Started");
             InitializeComponent(); // REQUIRED for App.xaml resources
             
             var services = new ServiceCollection();
@@ -61,7 +61,7 @@ namespace TSVmsDesktop
             services.AddTransient<WindowsDiscoveryViewModel>();
 
             Services = services.BuildServiceProvider();
-            Console.WriteLine("DEBUG: Services Built");
+            System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Services Built");
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -71,16 +71,16 @@ namespace TSVmsDesktop
 
             try
             {
-                Console.WriteLine("DEBUG: Resolving MainViewModel...");
+                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Resolving MainViewModel...");
                 var mainVm = Services.GetRequiredService<MainViewModel>();
                 // mainVm.CheckForSavedSession(); // logic moved to MainViewModel constructor / StartupViewModel
                 
-                Console.WriteLine("DEBUG: Resolving MainWindow...");
+                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Resolving MainWindow...");
                 var mainWindow = Services.GetRequiredService<MainWindow>();
                 
-                Console.WriteLine("DEBUG: Showing MainWindow...");
+                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Showing MainWindow...");
                 mainWindow.Show();
-                Console.WriteLine("DEBUG: MainWindow Shown");
+                Console.WriteLine("[BOOTSTRAP] Application Ready (MainWindow Shown)");
             }
             catch (Exception ex)
             {

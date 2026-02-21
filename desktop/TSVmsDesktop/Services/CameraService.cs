@@ -30,7 +30,13 @@ namespace TSVmsDesktop.Services
                 AllCameras.Clear();
                 if (result != null && result.Data != null)
                 {
-                    foreach (var c in result.Data) AllCameras.Add(c);
+                    string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gstreamer_log.txt");
+                    foreach (var c in result.Data) 
+                    {
+                        AllCameras.Add(c);
+                        string logMsg = $"[{DateTime.Now:HH:mm:ss}] [CameraService] Loaded: {c.Name} ({c.IpAddress}) RTSP: {c.RtspUrl} Effective: {c.EffectiveRtspUrl}\n";
+                        File.AppendAllText(logPath, logMsg);
+                    }
                 }
             });
         }
@@ -99,7 +105,11 @@ namespace TSVmsDesktop.Services
                              }
                              else
                              {
-                                 Console.WriteLine($"[CameraService] Warning: Health record for unknown camera ID: {h.CameraId}");
+                                 // Silence during initial load (if AllCameras is empty)
+                                 if (AllCameras.Any())
+                                 {
+                                     System.Diagnostics.Debug.WriteLine($"[CameraService] Warning: Health record for unknown camera ID: {h.CameraId}");
+                                 }
                              }
                          }
                      });

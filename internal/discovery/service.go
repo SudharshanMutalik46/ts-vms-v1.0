@@ -213,8 +213,11 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 
 	cli, err := NewOnvifClient(xaddr, username, password)
 	if err != nil {
+		fmt.Printf("[PROBE] Client Init Failed for %s: %v\n", dev.IPAddress, err)
 		return s.failProbe(ctx, dev, "client_init_error")
 	}
+
+	fmt.Printf("[PROBE] Starting probe for %s (XAddr: %s)\n", dev.IPAddress, xaddr)
 
 	// 4. Execute Calls (Parallel logic omitted for simplicity, sequential is safer for stability)
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
@@ -223,8 +226,11 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 	// A. Device Info
 	info, err := cli.GetDeviceInformation(probeCtx)
 	if err != nil {
+		fmt.Printf("[PROBE] GetDeviceInformation Failed for %s: %v\n", dev.IPAddress, err)
 		return s.failProbe(ctx, dev, "onvif_unauthorized_or_timeout") // simplified
 	}
+
+	fmt.Printf("[PROBE] Detected: %s %s (%s)\n", info.Manufacturer, info.Model, dev.IPAddress)
 
 	dev.Manufacturer = info.Manufacturer
 	dev.Model = info.Model
@@ -234,7 +240,9 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 	// B. Capabilities (Profiles Hint)
 	capsMap, mediaURI, err := cli.GetCapabilities(probeCtx)
 	if err != nil {
-		// Non-fatal?
+		fmt.Printf("[PROBE] GetCapabilities Failed for %s (Non-Fatal): %v\n", dev.IPAddress, err)
+	} else {
+		fmt.Printf("[PROBE] Media URI for %s: %s\n", dev.IPAddress, mediaURI)
 	}
 	dev.Capabilities, _ = json.Marshal(capsMap) // Cap size check needed logically
 
@@ -327,7 +335,7 @@ func (s *Service) failProbe(ctx context.Context, dev *data.DiscoveredDevice, cod
 		Result:     "failure",
 		Metadata:   meta,
 	})
-	return nil
+	return fmt.Errorf("probe failed: %s", code)
 }
 
 // Helpers

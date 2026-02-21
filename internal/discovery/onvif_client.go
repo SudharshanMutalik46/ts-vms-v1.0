@@ -3,6 +3,7 @@ package discovery
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/xml"
@@ -298,24 +299,17 @@ func (c *OnvifClient) generateCnonceHeader() string {
 	if c.Username == "" {
 		return ""
 	}
-	// nonceRaw := make([]byte, 16) // Unused
-	// Rand read suppressed for brevity, use time?
-	// Secure enough for ONVIF basic compliance
-	nonceStr := fmt.Sprintf("%d", time.Now().UnixNano())
-	nonce := base64.StdEncoding.EncodeToString([]byte(nonceStr))
-	created := time.Now().Format(time.RFC3339)
 
-	// Password Digest = Base64(SHA1(nonce_raw + created + password))
-	// Standard mandates raw nonce bytes, not base64 string bytes in hash.
-	// Let's stick to a simpler known pattern for compatibility if possible,
-	// or implement strictly.
-	// For this phase, we'll implement standard UsernameToken digest.
+	nonceRaw := make([]byte, 16)
+	if _, err := rand.Read(nonceRaw); err != nil {
+		// Fallback to time-based if rand fails (extremely rare)
+		copy(nonceRaw, []byte(fmt.Sprintf("%d", time.Now().UnixNano())))
+	}
 
-	// Re-do robustly
-	// nonceBytes -> SHA1...
-	// We'll proceed with simple placeholder if complex crypto needed,
-	// but ONVIF usually requires correct digest.
-	digest := computeSoapDigest(nonceStr, created, c.Password)
+	nonce := base64.StdEncoding.EncodeToString(nonceRaw)
+	created := time.Now().UTC().Format(time.RFC3339Nano) // Use high precision UTC
+
+	digest := computeSoapDigest(nonceRaw, created, c.Password)
 
 	return fmt.Sprintf(`<Security xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
 		<UsernameToken>
@@ -327,12 +321,10 @@ func (c *OnvifClient) generateCnonceHeader() string {
 	</Security>`, c.Username, digest, nonce, created)
 }
 
-func computeSoapDigest(nonce, created, password string) string {
-	// nonce is raw bytes passed as B64 in XML, but used as RAW in SHA1
-	// created is string
-	// password is string
+func computeSoapDigest(nonce []byte, created, password string) string {
+	// Standard UsernameToken profile: Base64(SHA1(rawNonce + created + password))
 	h := sha1.New()
-	h.Write([]byte(nonce))
+	h.Write(nonce)
 	h.Write([]byte(created))
 	h.Write([]byte(password))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))

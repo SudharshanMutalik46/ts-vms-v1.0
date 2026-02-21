@@ -12,10 +12,34 @@ namespace TSVmsDesktop.Views
         {
             // CRITICAL: Links to MainWindow.xaml
             InitializeComponent();
+            
+            // Render-Delay Fix: Prevents visual artifacts when restoring from minimized state
+            this.StateChanged += MainWindow_StateChanged;
+
             DataContext = App.Current.Services.GetRequiredService<MainViewModel>();
             if (DataContext is MainViewModel vm)
             {
                 vm.PropertyChanged += OnViewModelPropertyChanged;
+            }
+        }
+
+        private async void MainWindow_StateChanged(object? sender, EventArgs e)
+        {
+            if (ViewLayoutContainer == null) return;
+
+            if (this.WindowState == WindowState.Minimized)
+            {
+                // Hide video content immediately on minimize
+                ViewLayoutContainer.Visibility = Visibility.Hidden;
+            }
+            else if (this.WindowState == WindowState.Normal || this.WindowState == WindowState.Maximized)
+            {
+                // NUCLEAR OPTION: Wait a full half-second (500ms) to guarantee 
+                // the OS has finished its "restore" animation and WPF has 
+                // repainted the entire 8-slot grid before we reveal video layers.
+                await Task.Delay(500); 
+                
+                ViewLayoutContainer.Visibility = Visibility.Visible;
             }
         }
 

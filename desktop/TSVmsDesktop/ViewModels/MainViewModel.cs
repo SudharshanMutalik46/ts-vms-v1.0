@@ -117,7 +117,7 @@ namespace TSVmsDesktop.ViewModels
             {
                 Console.WriteLine($"[Auth] Critical Error in Restoration: {ex.Message}");
                 // Fail safe
-                System.Windows.Application.Current.Dispatcher.Invoke(() => _ = NavigateToLogout());
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () => await NavigateToLogout());
             }
         }
 

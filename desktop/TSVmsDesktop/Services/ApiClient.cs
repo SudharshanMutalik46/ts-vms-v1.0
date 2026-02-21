@@ -40,7 +40,7 @@ namespace TSVmsDesktop.Services
             EnsureBaseUrl();
 
             // Capture current token before sending
-            string tokenUsed = _session.AccessToken;
+            string? tokenUsed = _session.AccessToken;
             
             if (!string.IsNullOrEmpty(tokenUsed))
             {

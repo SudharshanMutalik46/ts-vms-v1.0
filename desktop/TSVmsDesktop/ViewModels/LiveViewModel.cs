@@ -34,9 +34,12 @@ namespace TSVmsDesktop.ViewModels
         
         [ObservableProperty] private string _ipAddress = "Offline"; // For UI display
 
-        // Added ID to link back to Backend
+        [ObservableProperty] private bool _isStreamFailed = false;
+        [ObservableProperty] private string _streamErrorMessage = "";
+
         public string Id { get; set; } = "";
         public IntPtr PipelineHandle { get; set; } = IntPtr.Zero;
+        public IntPtr WindowHandle { get; set; } = IntPtr.Zero; // Added to match with StreamError
         public string RtspUrl { get; set; } = ""; 
     }
 
@@ -59,6 +62,7 @@ namespace TSVmsDesktop.ViewModels
             _serviceProvider = serviceProvider;
 
             _videoService.Initialize();
+            _videoService.StreamError += OnStreamError;
             
             // Subscribe to camera updates to keep grid in sync (Debounced)
             _cameraService.AllCameras.CollectionChanged += (s, e) => RequestRefresh();
@@ -68,7 +72,7 @@ namespace TSVmsDesktop.ViewModels
         }
 
         private System.Threading.SemaphoreSlim _refreshLock = new(1, 1);
-        private System.Threading.CancellationTokenSource _refreshCts;
+        private System.Threading.CancellationTokenSource? _refreshCts;
 
         private async void RequestRefresh()
         {
@@ -127,6 +131,29 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private string _fullScreenUrl = "";
         [ObservableProperty] private bool _isFullScreen = false;
         [ObservableProperty] private string _selectedCameraName = "";
+        [ObservableProperty] private bool _isSyncing = false;
+
+        [RelayCommand]
+        public async Task Sync()
+        {
+            if (IsSyncing) return;
+            IsSyncing = true;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[LiveVM] Manual sync requested...");
+                await _cameraService.LoadHealthAsync();
+                RequestRefresh();
+                await Task.Delay(800); // Give user some visual feedback of the "thinking" process
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LiveVM] Sync failed: {ex.Message}");
+            }
+            finally
+            {
+                IsSyncing = false;
+            }
+        }
 
         [RelayCommand]
         public async Task ConnectAll()
@@ -166,6 +193,9 @@ namespace TSVmsDesktop.ViewModels
                     // 2. Trigger UI to start GStreamer (Via bindings)
                     slot.IsConnected = true;
                     slot.CameraName = string.IsNullOrEmpty(slot.CameraName) ? "Live Stream" : slot.CameraName;
+
+                    // USER-REQUESTED DELAY: Stagger streams to prevent UDP/TCP setup collisions
+                    await Task.Delay(600);
                 }
             }
             OnPropertyChanged(nameof(ActiveStreamCount));
@@ -179,20 +209,21 @@ namespace TSVmsDesktop.ViewModels
                 var creds = await _credentialService.GetCredentialsAsync(cam.Id);
                 if (creds != null)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Fetched creds for {cam.IpAddress}: {creds.Username} / {creds.Password}");
                     cam.Username = creds.Username;
                     cam.Password = creds.Password;
-                    slot.RtspUrl = cam.EffectiveRtspUrl; // Update slot URL with injected creds
+                    slot.RtspUrl = cam.EffectiveRtspUrl ?? ""; // Update slot URL with injected creds
                 }
                 else 
                 {
-                     // DEBUG: Temporary hardcoded fallback for verified ONVIF cameras
-                     // These are the IPs from the user logs: 64, 46, 3, 188, 18, 181
-                     if(cam.IpAddress.StartsWith("192.168.1."))
+                     System.Diagnostics.Debug.WriteLine($"[DEBUG] FAILED to fetch creds for {cam.IpAddress} ({cam.Id})");
+                     // Safe fallback for the user's specific local subnet
+                     if (cam.IpAddress.StartsWith("192.168.1."))
                      {
                          cam.Username = "admin";
                          cam.Password = "123456";
                          slot.RtspUrl = cam.EffectiveRtspUrl;
-                         System.Diagnostics.Debug.WriteLine($"[DEBUG] Injected default creds for {cam.IpAddress}");
+                         System.Diagnostics.Debug.WriteLine($"[DEBUG] Restored default fallback for {cam.IpAddress}");
                      }
                 }
             }
@@ -233,8 +264,7 @@ namespace TSVmsDesktop.ViewModels
         private async Task RefreshGridInternal()
         {
             var rawCameras = _cameraService.AllCameras.ToList();
-            Console.WriteLine($"[LiveVM] RefreshGrid running. Raw cameras: {rawCameras.Count}");
-            System.Diagnostics.Debug.WriteLine($"[LiveVM] rawCameras count: {rawCameras.Count}");
+            System.Diagnostics.Debug.WriteLine($"[LiveVM] RefreshGrid starting. Raw cameras: {rawCameras.Count}");
 
             // DEDUPLICATION: Group by IP/Host and pick the best one (Online > Checking > Offline)
             var uniqueCameras = rawCameras
@@ -246,7 +276,7 @@ namespace TSVmsDesktop.ViewModels
                     {
                          if (Uri.TryCreate(c.EffectiveRtspUrl, UriKind.Absolute, out var uri)) key = uri.Host;
                     }
-                    Console.WriteLine($"[LiveVM] Camera: {c.Name} | IP: '{c.IpAddress}' | Status: {c.Status} | Key: '{key}'");
+                    System.Diagnostics.Debug.WriteLine($"[LiveVM] Camera: {c.Name} | IP: '{c.IpAddress}' | Status: {c.Status} | Key: '{key}'");
                     return key;
                 })
                 .Select(g => 
@@ -261,15 +291,15 @@ namespace TSVmsDesktop.ViewModels
                 .ThenBy(c => c.Name)
                 .ToList();
             
-            Console.WriteLine($"[LiveVM] Unique (Deduped) cameras: {uniqueCameras.Count}");
-            Console.WriteLine($"[LiveVM] Current Grid Count: {CameraGrid.Count}");
+            Console.WriteLine($"[LiveVM] Grid Refreshed: {uniqueCameras.Count} cameras visible.");
+            System.Diagnostics.Debug.WriteLine($"[LiveVM] Current Grid Count: {CameraGrid.Count}");
 
             // REMOVED FILTER: var onlineCameras = realCameras.Where(c => string.Equals(c.Status, "Online", StringComparison.OrdinalIgnoreCase)).ToList();
 
             // 1. Remove cameras that were deleted or hidden by dedup
             var toRemove = CameraGrid.Where(s => uniqueCameras.All(c => c.Id != s.Id)).ToList();
             
-            Console.WriteLine($"[LiveVM] Cameras to remove: {toRemove.Count}");
+            if (toRemove.Any()) System.Diagnostics.Debug.WriteLine($"[LiveVM] Cameras to remove: {toRemove.Count}");
             foreach (var slot in toRemove)
             {
                 if (slot.PipelineHandle != IntPtr.Zero)
@@ -309,7 +339,7 @@ namespace TSVmsDesktop.ViewModels
                     // IMPORTANT: Use Status (which we now update from Health API)
                     if (existing.BackendStatus != cam.Status) 
                     {
-                        existing.BackendStatus = cam.Status;
+                        existing.BackendStatus = cam.Status ?? "Offline";
 
                         // NEW: If camera goes offline, stop the stream immediately
                         if (string.Equals(cam.Status, "Offline", StringComparison.OrdinalIgnoreCase) && existing.IsConnected)
@@ -334,7 +364,8 @@ namespace TSVmsDesktop.ViewModels
             }
             OnPropertyChanged(nameof(ActiveStreamCount));
             
-            // AUTO-START: Automatically attempt to connect any online cameras
+            // AUTO-START: Detect newly online cameras during polling and connect them.
+            // This is idempotent; it won't restart already-connected slots.
             await ConnectAll();
         }
 
@@ -390,6 +421,22 @@ namespace TSVmsDesktop.ViewModels
             System.Diagnostics.Debug.WriteLine($"[Snapshot] Taking snapshot of {cameraName}");
         }
 
+        private void OnStreamError(IntPtr windowHandle, string message)
+        {
+            // Find the slot that belongs to this window handle
+            var slot = CameraGrid.FirstOrDefault(s => s.WindowHandle == windowHandle);
+            if (slot != null)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LiveVM] Stream Error for {slot.CameraName}: {message}");
+                
+                // Switch back to "No Signal" overlay
+                slot.IsConnected = false;
+                slot.IsStreamFailed = true;
+                slot.StreamErrorMessage = message;
+                
+                OnPropertyChanged(nameof(ActiveStreamCount));
+            }
+        }
 
     }
 }

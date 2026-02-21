@@ -18,6 +18,19 @@ namespace TSVmsDesktop.Views
             this.DataContextChanged += OnDataContextChanged;
         }
 
+        private async void UserControl_Loaded(object sender, RoutedEventArgs e)
+        {
+            // 1. Wait half a second to guarantee WPF has drawn the grid, sidebar, and headers to the screen.
+            // This ensures the gorgeous white and gray grid UI is instantly visible to the user.
+            await System.Threading.Tasks.Task.Delay(500);
+
+            // 2. Now that the UI is fully visible, tell the ViewModel to start connecting the streams.
+            if (this.DataContext is LiveViewModel vm)
+            {
+                await vm.ConnectAll();
+            }
+        }
+
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             if (DataContext is LiveViewModel vm)
@@ -71,27 +84,42 @@ namespace TSVmsDesktop.Views
         }
 
         // 3. The Actual Logic to Start the Stream (Grid tiles)
-        private void StartVideo(VideoCanvas canvas)
+        private async void StartVideo(VideoCanvas canvas)
         {
-            if (canvas.Handle == IntPtr.Zero) return;
+            // ROBUSTNESS: Wait up to 500ms for the Win32 handle to be created by WPF's HwndHost lifecycle.
+            int retries = 50;
+            while (canvas.Handle == IntPtr.Zero && retries-- > 0)
+            {
+                await System.Threading.Tasks.Task.Delay(10);
+            }
 
+            if (canvas.Handle == IntPtr.Zero) return;
+            
             if (canvas.DataContext is CameraSlot slot)
             {
-                var videoService = App.Current.Services.GetRequiredService<VideoService>();
-                
-                // Prevent duplicate streams, but RE-ATTACH if the window changed
-                if (slot.PipelineHandle != IntPtr.Zero) 
+                // CRITICAL FIX: Push the GStreamer initialization to ContextIdle.
+                // This guarantees WPF will completely render the offline grid, borders, 
+                // and text to the screen BEFORE it locks up the CPU to start the streams.
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    videoService.Reattach(slot.PipelineHandle, canvas.Handle);
-                    return;
-                }
+                    var videoService = App.Current.Services.GetRequiredService<VideoService>();
+                    
+                    // Prevent duplicate streams, but RE-ATTACH if the window changed
+                    if (slot.PipelineHandle != IntPtr.Zero) 
+                    {
+                        videoService.Reattach(slot.PipelineHandle, canvas.Handle);
+                        return;
+                    }
 
-                // Fallback to "test" if URL is empty
-                string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
+                    // Fallback to "test" if URL is empty
+                    string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
 
-                System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
+                    System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
 
-                slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay);
+                    slot.WindowHandle = canvas.Handle;
+                    slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay);
+
+                }, System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
         }
 
@@ -120,8 +148,15 @@ namespace TSVmsDesktop.Views
             }
         }
 
-        private void StartFullScreenStream(VideoCanvas canvas)
+        private async void StartFullScreenStream(VideoCanvas canvas)
         {
+            // ROBUSTNESS: Wait for handle
+            int retries = 50;
+            while (canvas.Handle == IntPtr.Zero && retries-- > 0)
+            {
+                await System.Threading.Tasks.Task.Delay(10);
+            }
+
             if (canvas.Handle == IntPtr.Zero) return;
             if (_fullScreenPipeline != IntPtr.Zero) return; // Already playing
 
