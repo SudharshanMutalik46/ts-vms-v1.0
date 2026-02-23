@@ -52,7 +52,6 @@ coverage.out
 *.db
 *.sqlite
 *.rdb
-*.txt
 
 # Ignore OS files
 .DS_Store
