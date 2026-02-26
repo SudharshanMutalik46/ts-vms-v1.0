@@ -1,0 +1,5 @@
+C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/vms-segment-harness.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/vms-prebuffer-harness.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/vms-diskio-harness.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/ALL_BUILD.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/ZERO_CHECK.dir

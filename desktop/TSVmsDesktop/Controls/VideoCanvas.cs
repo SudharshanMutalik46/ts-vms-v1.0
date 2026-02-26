@@ -40,13 +40,14 @@ namespace TSVmsDesktop.Controls
             }
 
             // 2. CREATE WINDOW
-            // Use 0,0,1,1 as initial size; WPF will resize it via OnWindowPositionChanged
+            int style = WS_CHILD | WS_VISIBLE | 0x02000000 | 0x04000000; // WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS
+
             Handle = CreateWindowEx(
                 0, 
                 className, 
                 "",
-                WS_CHILD | WS_CLIPSIBLINGS, // Removed WS_VISIBLE to prevent flash-before-ui
-                0, 0, 100, 100,
+                style,
+                0, 0, (int)this.ActualWidth, (int)this.ActualHeight,
                 hwndParent.Handle,
                 IntPtr.Zero,
                 Marshal.GetHINSTANCE(typeof(VideoCanvas).Module),

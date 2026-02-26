@@ -1,0 +1,10 @@
+^C:\USERS\SUDHA\DESKTOP\TS_VMS_1.0\SRC\RECORDING\CMAKEFILES\698970586CF1E4E809B4EF80343A3EEF\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/sudha/Desktop/ts_vms_1.0/src/recording -BC:/Users/sudha/Desktop/ts_vms_1.0/src/recording --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/vms-recording-harnesses.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

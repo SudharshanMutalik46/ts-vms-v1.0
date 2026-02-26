@@ -1,0 +1,79 @@
+global:
+  segment_duration_sec: 60
+  health_port: 8082
+  api_base_url: "http://localhost:8080"
+  dev_rbac_bypass: true
+
+limits:
+  max_recording_cameras: 2
+
+cameras:
+  - id: "cam_01"
+    rtsp_url: "rtsp://localhost/1"
+    enabled: true
+  - id: "cam_02"
+    rtsp_url: "rtsp://localhost/2"
+    enabled: true
+  - id: "cam_03"
+    rtsp_url: "rtsp://localhost/3"
+    enabled: true
+
+schedules:
+  - camera_id: "cam_01"
+    type: "24x7"
+  - camera_id: "cam_02"
+    type: "time_window"
+    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    start_time: "08:00"
+    end_time: "18:00"
+  - camera_id: "cam_03"
+    type: "event_triggered"
+
+health_monitoring:
+  enabled: true
+  sample_interval_sec: 5
+  frame_drop:
+    enabled: true
+    warn_drop_rate_pct: 1.0        # warning if >1% drops in window
+    crit_drop_rate_pct: 5.0        # critical if >5% drops
+    window_sec: 60
+    method: "discont|pts_gap"      # primary methods
+  disk_write_rate:
+    enabled: true
+    window_sec: 30
+    warn_min_mbps: 2.0             # MB/s (Megabytes per second)
+    crit_min_mbps: 0.5             # MB/s
+  alerts:
+    cooldown_sec: 30
+    sustained_windows_for_critical: 3
+
+failover_recovery:
+  enabled: true
+  restart_backoff_sec: 5
+  db_required_for_ready: true
+  orphan_reconcile_mode: "log_only"
+
+circuit_breaker:
+  enabled: true
+  warn_free_gb: 20
+  crit_free_gb: 10
+  warn_usage_percent: 80
+  crit_usage_percent: 95
+  check_interval_sec: 5
+  cooldown_sec: 30
+
+performance:
+  pipeline:
+    # Keeps memory bounded and prevents OOM if disk stalls
+    queue_max_time_ns: 2000000000 
+    # Fragmented MP4 ensures playable files even if crash, and <2s latency
+    fragment_duration_ms: 1000    
+    # Faststart moves moov to front (only applicable if non-fragmented)
+    faststart: false
+    # RTSP ingest buffer
+    rtspsrc_latency_ms: 200       
+  io:
+    # Batch writes into 4MB chunks to reduce syscalls and maximize NVMe throughput
+    segment_writer_batch_bytes: 4194304 
+    # Avoid file fragmentation by pre-allocating segment size on disk
+    preallocate_files: true       

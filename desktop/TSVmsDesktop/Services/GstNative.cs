@@ -8,9 +8,14 @@ namespace TSVmsDesktop.Services
     {
         private const string DllName = "gstreamer-1.0-0.dll";
         private const string VideoDllName = "gstvideo-1.0-0.dll";
+        private const string GObjectDllName = "gobject-2.0-0.dll";
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_init(ref int argc, ref IntPtr argv);
+
+        [DllImport(GObjectDllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void g_object_set(IntPtr obj, string first_property_name, double value, IntPtr terminating_null);
+
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_debug_set_default_threshold(int level);
@@ -20,6 +25,9 @@ namespace TSVmsDesktop.Services
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int gst_element_set_state(IntPtr element, int state);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int gst_element_get_state(IntPtr element, out int state, out int pending, ulong timeout);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr gst_bin_get_by_name(IntPtr bin, string name);
@@ -65,6 +73,8 @@ namespace TSVmsDesktop.Services
         public const uint GST_RANK_MARGINAL = 64;
         public const uint GST_RANK_SECONDARY = 128;
         public const uint GST_RANK_PRIMARY = 256;
+
+        public const ulong GST_CLOCK_TIME_NONE = unchecked((ulong)-1);
 
         // States: 1=NULL, 2=READY, 3=PAUSED, 4=PLAYING
         public const int GST_STATE_NULL = 1;

@@ -1,0 +1,30 @@
+defaults:
+  days_to_keep: 30
+  max_storage_gb: 1000
+  cleanup_interval_minutes: 60
+  dry_run: false
+  delete_mode: "delete_immediate" # or "trash_then_delete"
+
+scopes:
+  tenants:
+    - tenant_id: "tenant-alpha"
+      days_to_keep: 45
+      max_storage_gb: 2000
+  sites:
+    - tenant_id: "tenant-alpha"
+      site_id: "site-hq"
+      days_to_keep: 60
+      max_storage_gb: 500
+  cameras:
+    - camera_id: "cam-01"
+      days_to_keep: 90
+      max_storage_gb: 100
+
+protection:
+  protect_if_event_linked: true
+  protection_source: "manifest"
+
+safety:
+  never_delete_newer_than_minutes: 15
+  skip_if_locked: true
+  include_sidecars: true

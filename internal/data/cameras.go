@@ -3,6 +3,8 @@ package data
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -12,24 +14,47 @@ import (
 	"github.com/lib/pq"
 )
 
+type CameraCapabilities struct {
+	HasAudio bool `json:"has_audio"`
+	PTZ      bool `json:"ptz"`
+}
+
+func (c *CameraCapabilities) Scan(value interface{}) error {
+	if value == nil {
+		c.HasAudio = false
+		c.PTZ = false
+		return nil
+	}
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed in CameraCapabilities")
+	}
+	return json.Unmarshal(b, &c)
+}
+
+func (c CameraCapabilities) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
 // Camera represents a video capture device
 type Camera struct {
-	ID           uuid.UUID  `json:"id"`
-	TenantID     uuid.UUID  `json:"tenant_id"`
-	SiteID       uuid.UUID  `json:"site_id"`
-	Name         string     `json:"name"`
-	IPAddress    net.IP     `json:"ip_address"`
-	Port         int        `json:"port"`
-	RtspUrl      string     `json:"rtsp_url,omitempty"`
-	Manufacturer string     `json:"manufacturer,omitempty"`
-	Model        string     `json:"model,omitempty"`
-	SerialNumber string     `json:"serial_number,omitempty"`
-	MacAddress   string     `json:"mac_address,omitempty"`
-	IsEnabled    bool       `json:"is_enabled"`
-	Tags         []string   `json:"tags"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+	ID           uuid.UUID          `json:"id"`
+	TenantID     uuid.UUID          `json:"tenant_id"`
+	SiteID       uuid.UUID          `json:"site_id"`
+	Name         string             `json:"name"`
+	IPAddress    net.IP             `json:"ip_address"`
+	Port         int                `json:"port"`
+	RtspUrl      string             `json:"rtsp_url,omitempty"`
+	Manufacturer string             `json:"manufacturer,omitempty"`
+	Model        string             `json:"model,omitempty"`
+	SerialNumber string             `json:"serial_number,omitempty"`
+	MacAddress   string             `json:"mac_address,omitempty"`
+	IsEnabled    bool               `json:"is_enabled"`
+	Tags         []string           `json:"tags"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	Capabilities CameraCapabilities `json:"capabilities"`
+	DeletedAt    *time.Time         `json:"deleted_at,omitempty"`
 }
 
 type CameraGroup struct {
@@ -52,9 +77,9 @@ func (m CameraModel) Create(ctx context.Context, c *Camera) error {
 		INSERT INTO cameras (
 			tenant_id, site_id, name, ip_address, port, rtsp_url,
 			manufacturer, model, serial_number, mac_address, 
-			is_enabled, tags
+			is_enabled, tags, capabilities
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at, updated_at`
 
 	// Safe cast IP to string for pq driver auto-handling or pass as string if driver requires
@@ -62,7 +87,7 @@ func (m CameraModel) Create(ctx context.Context, c *Camera) error {
 	err := m.DB.QueryRowContext(ctx, query,
 		c.TenantID, c.SiteID, c.Name, c.IPAddress.String(), c.Port, c.RtspUrl,
 		c.Manufacturer, c.Model, c.SerialNumber, c.MacAddress,
-		c.IsEnabled, pq.Array(c.Tags),
+		c.IsEnabled, pq.Array(c.Tags), c.Capabilities,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
 
 	return err
@@ -74,7 +99,7 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	query := `
 		SELECT id, tenant_id, site_id, name, ip_address, port, rtsp_url,
 		       manufacturer, model, serial_number, mac_address, 
-		       is_enabled, tags, created_at, updated_at, deleted_at
+		       is_enabled, tags, capabilities, created_at, updated_at, deleted_at
 		FROM cameras
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -86,7 +111,7 @@ func (m CameraModel) GetByID(ctx context.Context, id uuid.UUID) (*Camera, error)
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &rtspUrl,
 		&manufacturer, &model, &serialNumber, &macAddress,
-		&c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
+		&c.IsEnabled, pq.Array(&tags), &c.Capabilities, &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
 	)
 
 	if err != nil {
@@ -112,14 +137,14 @@ func (m CameraModel) Update(ctx context.Context, c *Camera) error {
 		UPDATE cameras
 		SET name = $1, ip_address = $2, port = $3, rtsp_url = $4,
 		    manufacturer = $5, model = $6, serial_number = $7, mac_address = $8,
-		    tags = $9, updated_at = NOW()
-		WHERE id = $10 AND tenant_id = $11 AND deleted_at IS NULL
+		    tags = $9, capabilities = $10, updated_at = NOW()
+		WHERE id = $11 AND tenant_id = $12 AND deleted_at IS NULL
 		RETURNING updated_at`
 
 	err := m.DB.QueryRowContext(ctx, query,
 		c.Name, c.IPAddress.String(), c.Port, c.RtspUrl,
 		c.Manufacturer, c.Model, c.SerialNumber, c.MacAddress,
-		pq.Array(c.Tags), c.ID, c.TenantID,
+		pq.Array(c.Tags), c.Capabilities, c.ID, c.TenantID,
 	).Scan(&c.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -203,7 +228,7 @@ func (m CameraModel) List(ctx context.Context, tenantID uuid.UUID, filter Camera
 
 	// 3. Select Data
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, site_id, name, ip_address, port, rtsp_url, is_enabled, tags, created_at, updated_at 
+		SELECT id, tenant_id, site_id, name, ip_address, port, rtsp_url, is_enabled, tags, capabilities, created_at, updated_at 
 		FROM cameras 
 		%s
 		ORDER BY created_at DESC
@@ -223,7 +248,7 @@ func (m CameraModel) List(ctx context.Context, tenantID uuid.UUID, filter Camera
 		var ipStr string
 		var tags []string
 		var rtspUrl sql.NullString
-		if err := rows.Scan(&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &rtspUrl, &c.IsEnabled, pq.Array(&tags), &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.SiteID, &c.Name, &ipStr, &c.Port, &rtspUrl, &c.IsEnabled, pq.Array(&tags), &c.Capabilities, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		c.IPAddress = net.ParseIP(ipStr)

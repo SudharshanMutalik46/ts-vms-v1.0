@@ -373,5 +373,33 @@ namespace TSVmsDesktop.Services
                 return false;
             }
         }
+
+        public async Task<bool> DownloadFileAsync(string uri, string outputPath)
+        {
+            try
+            {
+                var req = new HttpRequestMessage(HttpMethod.Get, uri);
+                var res = await SendAsync(req);
+
+                if (!res.IsSuccessStatusCode)
+                {
+                    string raw = await res.Content.ReadAsStringAsync();
+                    string err = $"[{DateTime.Now}] DOWNLOAD GET {uri} FAILED ({res.StatusCode}):\n{raw}\n";
+                    System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                    return false;
+                }
+
+                using (var fs = new System.IO.FileStream(outputPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                {
+                    await res.Content.CopyToAsync(fs);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", $"[{DateTime.Now}] Download GET Exception: {ex.Message}\n");
+                return false;
+            }
+        }
     }
 }

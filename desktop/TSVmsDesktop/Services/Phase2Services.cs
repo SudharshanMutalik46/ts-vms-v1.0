@@ -86,6 +86,8 @@ namespace TSVmsDesktop.Services
             return res?.Data;
         }
 
+        public async Task<bool> DeleteCredentialsAsync(string camId) => await _api.DeleteAsync($"/api/v1/cameras/{camId}/credentials");
+
         private class CredentialResponse
         {
             [System.Text.Json.Serialization.JsonPropertyName("data")]

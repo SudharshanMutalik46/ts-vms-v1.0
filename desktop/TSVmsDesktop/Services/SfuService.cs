@@ -15,9 +15,18 @@ namespace TSVmsDesktop.Services
 
         public async Task<string> JoinRoomAsync(string roomId)
         {
-            // Returns Transport Options or Router Capabilities
-            // Simplified for brevity: Assuming we get a JSON string we'd pass to mediasoup-client
-            return await _api.GetStringAsync($"/api/v1/sfu/rooms/{roomId}/join");
+            var res = await _api.PostAsync<object, object>($"/api/v1/sfu/rooms/{roomId}/join", new { });
+            return res?.ToString() ?? "";
+        }
+
+        public async Task<bool> ResumeConsumerAsync(string consumerId)
+        {
+            return await _api.PostAsync($"/api/v1/sfu/consumers/{consumerId}/resume", new { });
+        }
+
+        public async Task<bool> RegisterProducerAsync(object producerData)
+        {
+            return await _api.PostAsync("/api/v1/sfu/producers", producerData);
         }
 
         public async Task<RtpCapabilities?> GetRtpCapabilitiesAsync(string roomId)

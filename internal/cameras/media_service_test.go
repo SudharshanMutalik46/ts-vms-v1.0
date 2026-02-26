@@ -40,7 +40,7 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 	svc.ClientFactory = func(x, u, p string) (OnvifClient, error) {
 		return &MockOnvifClient{
 			Profiles: []discovery.MediaProfile{
-				{Token: "t1", Name: "Main", VideoEncoderConfiguration: struct {
+				{Token: "t1", Name: "Main", VideoEncoderConfiguration: &struct {
 					Encoding   string
 					Resolution struct {
 						Width  int
@@ -52,7 +52,7 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 					Width  int
 					Height int
 				}{1920, 1080}, Rate: 30, Bitrate: 4096}},
-				{Token: "t2", Name: "Sub", VideoEncoderConfiguration: struct {
+				{Token: "t2", Name: "Sub", VideoEncoderConfiguration: &struct {
 					Encoding   string
 					Resolution struct {
 						Width  int

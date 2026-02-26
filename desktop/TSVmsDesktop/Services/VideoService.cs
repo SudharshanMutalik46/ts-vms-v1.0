@@ -25,8 +25,11 @@ namespace TSVmsDesktop.Services
         public event Action<IntPtr, string>? StreamError;
         private readonly ConcurrentDictionary<IntPtr, StreamContext> _activeStreams = new();
 
-        public VideoService()
+        private readonly ApiClient _api;
+
+        public VideoService(ApiClient api)
         {
+            _api = api;
             _logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gstreamer_log.txt");
         }
 
@@ -76,36 +79,35 @@ namespace TSVmsDesktop.Services
             }
         }
 
-        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl)
+        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false)
         {
             if (!_isInitialized) Initialize();
 
-            Log($"[TS-VMS] StartStream Request: '{rtspUrl}'");
+            string authUrl = rtspUrl;
+            string userIdProp = "";
+            string userPwProp = "";
 
-            // USER-REQUESTED HARDENING:
-            // 1. Protocols: Removed strict 'protocols=4' to allow auto-negotiation (TCP/UDP/Mcast).
-            //    Staggered startup in LiveViewModel prevents the previous UDP port collisions.
-            // 2. location=\"{rtspUrl}\": Wrap in quotes to handle special characters.
-            // 3. user-agent=\"VLC/3.0.16\": Spoof VLC identity for picky cameras.
-            // 4. latency=500: Stabilization buffer.
-            // 5. short-header=true & Explicit Auth: Match user's preferred reliability flags.
-            string authProps = "";
-            if (rtspUrl.Contains("@"))
+            if (!string.IsNullOrEmpty(username) && rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
             {
-                try {
-                    int start = rtspUrl.IndexOf("://") + 3;
-                    int end = rtspUrl.IndexOf("@");
-                    string creds = rtspUrl.Substring(start, end - start);
-                    if (creds.Contains(":")) {
-                        var parts = creds.Split(':');
-                        if (parts.Length >= 2) authProps = $"user-id={parts[0]} user-pw={parts[1]}";
-                    }
-                } catch {}
+                if (!authUrl.Contains("@"))
+                {
+                    // If it doesn't have credentials in the URL, add them.
+                    authUrl = authUrl.Replace("rtsp://", $"rtsp://{username}:{password}@");
+                }
+                
+                userIdProp = $"user-id=\"{username}\"";
+                userPwProp = $"user-pw=\"{password}\"";
             }
 
-            string pipelineStr = rtspUrl == "test" 
-                ? "videotestsrc pattern=ball is-live=true ! videoconvert ! d3dvideosink name=mysink sync=false force-aspect-ratio=false"
-                : $"rtspsrc location=\"{rtspUrl}\" latency=1000 protocols=tcp ! decodebin ! queue max-size-buffers=300 max-size-time=1000000000 ! d3d11download ! d3d12download ! videoconvert ! d3d11videosink name=mysink sync=false force-aspect-ratio=false";
+            // 3. Log it so you can VERIFY
+            Log($"[TS-VMS] StartStream Request Original: '{rtspUrl}'");
+            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Authenticated URL: {authUrl}");
+
+            // 4. The Explicit Hardware Pipeline
+            string audioPart = hasAudio ? " src. ! queue ! decodebin ! audioconvert ! audioresample ! volume name=myvolume ! autoaudiosink sync=false" : "";
+            string pipelineStr = $"rtspsrc location=\"{authUrl}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols=tcp name=src " +
+                                 $"src. ! queue ! rtph265depay ! h265parse ! d3d11h265dec ! d3d11convert ! d3d11videosink name=mysink sync=false force-aspect-ratio=true" +
+                                 audioPart;
 
             Log($"[TS-VMS] Window Handle: {windowHandle}");
 
@@ -206,6 +208,15 @@ namespace TSVmsDesktop.Services
 
             int stateResult = GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
             Log($"[TS-VMS] Set State PLAYING returned: {stateResult} ({rtspUrl})");
+
+            // User Fix: Force WPF to repaint by invalidating visuals via dispatcher
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                // We don't have direct access to VideoCanvas here, but we can force the main window to update its layout
+                System.Windows.Application.Current.MainWindow?.InvalidateVisual();
+                System.Windows.Application.Current.MainWindow?.UpdateLayout();
+            });
+
             return pipeline;
         }
 
@@ -248,6 +259,17 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public void SetVolume(IntPtr pipeline, double volume)
+        {
+            if (pipeline == IntPtr.Zero) return;
+            IntPtr volElement = GstNative.gst_bin_get_by_name(pipeline, "myvolume");
+            if (volElement != IntPtr.Zero)
+            {
+                GstNative.g_object_set(volElement, "volume", volume, IntPtr.Zero);
+                GstNative.gst_object_unref(volElement);
+            }
+        }
+
         public void StopStream(IntPtr pipeline)
         {
             if (pipeline == IntPtr.Zero) return;
@@ -255,12 +277,54 @@ namespace TSVmsDesktop.Services
             if (_activeStreams.TryRemove(pipeline, out var ctx))
             {
                 ctx.CTS?.Cancel();
-                // We don't await WatchTask here to avoid deadlock if called from UI thread
+                
+                // 1. Set the pipeline state to NULL to stop the flow of frames
                 GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_NULL);
+
+                // 2. Wait for the state change to complete
+                GstNative.gst_element_get_state(pipeline, out _, out _, GstNative.GST_CLOCK_TIME_NONE);
+
+                // 3. Clear the window handle from the video overlay interface
+                IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
+                if (sink != IntPtr.Zero)
+                {
+                    GstNative.gst_video_overlay_set_window_handle(sink, IntPtr.Zero);
+                    GstNative.gst_object_unref(sink);
+                }
+
                 GstNative.gst_object_unref(pipeline);
                 ctx.CTS?.Dispose();
-                Log("[TS-VMS] Stopped.");
+                Log("[TS-VMS] Stopped and handle cleared.");
             }
+        }
+
+        private string InjectCredentials(string rtspUrl, string username, string password)
+        {
+            if (string.IsNullOrEmpty(rtspUrl) || !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase)) 
+                return rtspUrl;
+
+            // Strip "rtsp://"
+            string cleanUrl = rtspUrl.Substring(7);
+            
+            // If it already has an '@' symbol, strip the existing credentials to be safe
+            if (cleanUrl.Contains("@")) 
+            {
+                cleanUrl = cleanUrl.Substring(cleanUrl.IndexOf('@') + 1);
+            }
+
+            // Rebuild the URL with credentials
+            return $"rtsp://{username}:{password}@{cleanUrl}";
+        }
+
+        public async Task<bool> RecordLiveEventAsync(string eventType, string details)
+        {
+            return await _api.PostAsync("/api/v1/live/events", new { type = eventType, details = details });
+        }
+
+        public async Task<bool> DownloadSnapshotAsync(string cameraId, string outputPath)
+        {
+            // Assuming ApiClient has a DownloadFileAsync method
+            return await _api.DownloadFileAsync($"/api/v1/cameras/{cameraId}/snapshot", outputPath);
         }
     }
 }

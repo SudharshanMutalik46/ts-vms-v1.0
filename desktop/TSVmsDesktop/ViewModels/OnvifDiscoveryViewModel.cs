@@ -298,19 +298,50 @@ namespace TSVmsDesktop.ViewModels
         private string ParseRtspUrl(System.Collections.Generic.IList<string>? uris)
         {
             if (uris == null || uris.Count == 0) return "";
+            
+            string fallbackUrl = "";
+
             foreach(var raw in uris)
             {
                 if (string.IsNullOrWhiteSpace(raw)) continue;
+                
+                string url = raw;
                 if (raw.Contains("|"))
                 {
                     var parts = raw.Split('|');
                     if (parts.Length > 1 && parts[1].StartsWith("rtsp", System.StringComparison.OrdinalIgnoreCase)) 
-                        return parts[1];
+                        url = parts[1];
                 }
-                if (raw.StartsWith("rtsp", System.StringComparison.OrdinalIgnoreCase))
-                    return raw;
+
+                if (url.StartsWith("rtsp", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    // Save the very first URL as a fallback just in case a sub-stream isn't found
+                    if (string.IsNullOrEmpty(fallbackUrl)) fallbackUrl = url;
+
+                    // Search the URL string for common sub-stream identifiers
+                    string lowerUrl = url.ToLower();
+                    if (lowerUrl.Contains("profiletoken=profile_1") || 
+                        lowerUrl.Contains("profile=1") ||
+                        lowerUrl.Contains("subtype=1") || 
+                        lowerUrl.Contains("stream=1") || 
+                        lowerUrl.Contains("channels/102") || 
+                        lowerUrl.Contains("sub"))
+                    {
+                        return url; // Found the sub-stream! Return it immediately.
+                    }
+                }
             }
-            return "";
+            
+            // If no keywords matched, try returning the second URL in the list 
+            // (ONVIF cameras almost always list Main stream first, Sub stream second)
+            var parsedUrls = uris.Where(u => u.ToLower().Contains("rtsp")).ToList();
+            if (parsedUrls.Count > 1) 
+            {
+                string secondUrl = parsedUrls[1].Contains("|") ? parsedUrls[1].Split('|')[1] : parsedUrls[1];
+                return secondUrl; 
+            }
+
+            return fallbackUrl;
         }
     }
 }

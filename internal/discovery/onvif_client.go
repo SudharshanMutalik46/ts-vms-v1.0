@@ -152,7 +152,7 @@ func (c *OnvifClient) GetCapabilities(ctx context.Context) (map[string]bool, str
 type MediaProfile struct {
 	Name                      string `xml:"Name"`
 	Token                     string `xml:"token,attr"`
-	VideoEncoderConfiguration struct {
+	VideoEncoderConfiguration *struct {
 		Encoding   string
 		Resolution struct {
 			Width  int
@@ -160,7 +160,10 @@ type MediaProfile struct {
 		}
 		Rate    float64 `xml:"FrameRateLimit"`
 		Bitrate int     `xml:"BitrateLimit"`
-	}
+	} `xml:"VideoEncoderConfiguration"`
+	AudioSourceConfiguration  *struct{} `xml:"AudioSourceConfiguration"`
+	AudioEncoderConfiguration *struct{} `xml:"AudioEncoderConfiguration"`
+	PTZConfiguration          *struct{} `xml:"PTZConfiguration"`
 }
 
 func (c *OnvifClient) GetProfiles(ctx context.Context, mediaURI string) ([]MediaProfile, error) {

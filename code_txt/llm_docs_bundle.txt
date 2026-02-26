@@ -1,0 +1,4586 @@
+﻿=== DOCS LLM Bundle (ts_vms_1.0\\docs) ===
+Generated: 2026-02-26T18:14:46
+Root: C:\Users\sudha\Desktop\ts_vms_1.0\docs
+
+
+================ FILE: api\openapi-v1.yaml ================
+
+openapi: 3.1.0
+info:
+  title: Techno Support VMS API
+  version: 1.0.0
+  description: |
+    REST configuration and control API for Techno Support Video Management System.
+    Base URL: /api/v1
+    
+    Authentication: Bearer Token (JWT)
+
+paths:
+  # ============================
+  # CAMERAS
+  # ============================
+  /cameras:
+    get:
+      summary: List cameras
+      tags: [Cameras]
+      parameters:
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of cameras
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cameras:
+                    type: array
+                    items: { $ref: '#/components/schemas/Camera' }
+                  next_page_token: { type: string }
+    post:
+      summary: Create camera
+      tags: [Cameras]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCameraRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Camera' }
+
+  /cameras/{id}:
+    get:
+      summary: Get camera details
+      tags: [Cameras]
+    put:
+      summary: Update camera
+      tags: [Cameras]
+    delete:
+      summary: Delete camera
+      tags: [Cameras]
+
+  /cameras/validate:
+    post:
+      summary: Test connection to camera
+      tags: [Cameras]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip, username, password]
+              properties:
+                ip: { type: string }
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Connection successful
+          content:
+            application/json:
+              schema: { type: object, properties: { success: { type: boolean } } }
+
+  /discovery:
+    get:
+      summary: Discover ONVIF devices on subnet
+      tags: [Cameras]
+      parameters:
+        - name: subnet
+          in: query
+          required: true
+          schema: { type: string }
+
+  # ============================
+  # NVRs
+  # ============================
+  /nvrs:
+    post:
+      summary: Connect new NVR
+      tags: [NVRs]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateNvrRequest' }
+
+  /nvrs/{id}/channels:
+    get:
+      summary: Enumerate NVR channels
+      tags: [NVRs]
+
+  /nvrs/{id}/sync:
+    post:
+      summary: Sync cameras from NVR channels
+      tags: [NVRs]
+
+  # ============================
+  # STREAMING
+  # ============================
+  /stream/{id}/sdp:
+    post:
+      summary: WebRTC Signaling (Whip/Whep style negotiation)
+      tags: [Streaming]
+      requestBody:
+        content:
+          application/sdp:
+            schema: { type: string }
+      responses:
+        '201':
+          content:
+            application/sdp:
+              schema: { type: string }
+
+  /stream/{id}/hls/playlist.m3u8:
+    get:
+      summary: Get HLS Playlist
+      tags: [Streaming]
+      responses:
+        '200':
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  # ============================
+  # RECORDING
+  # ============================
+  /recordings:
+    get:
+      summary: Search recordings
+      tags: [Recording]
+      parameters:
+        - name: camera_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: start
+          in: query
+          schema: { type: string, format: date-time }
+        - name: end
+          in: query
+          schema: { type: string, format: date-time }
+
+  /exports:
+    post:
+      summary: Create export job
+      tags: [Recording]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                camera_id: { type: string }
+                start: { type: string, format: date-time }
+                end: { type: string, format: date-time }
+                format: { type: string, enum: [mp4, mkv] }
+
+  # ============================
+  # EVENTS
+  # ============================
+  /events:
+    get:
+      summary: Query events history
+      tags: [Events]
+      parameters:
+        - name: start
+          in: query
+          schema: { type: string, format: date-time }
+        - name: type
+          in: query
+          schema: { type: string }
+
+  /events/stats:
+    get:
+      summary: Get event statistics
+      tags: [Events]
+      
+  /events/stream:
+    get:
+      summary: WebSocket for real-time events
+      tags: [Events]
+      description: Connect via WS to receive JSON event stream.
+
+  # ============================
+  # AI CONFIG
+  # ============================
+  /cameras/{id}/ai:
+    patch:
+      summary: Update AI configuration
+      tags: [AI]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                active_models: { type: array, items: { type: string } }
+
+  /ai/models:
+    get:
+      summary: List available AI models
+      tags: [AI]
+
+components:
+  schemas:
+    Camera:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        ip: { type: string }
+        status: { type: string, enum: [ONLINE, OFFLINE] }
+    
+    CreateCameraRequest:
+      type: object
+      required: [name, ip, username, password]
+      properties:
+        name: { type: string }
+        ip: { type: string }
+        username: { type: string }
+        password: { type: string }
+        
+    CreateNvrRequest:
+       type: object
+       required: [ip, vendor]
+       properties:
+         ip: { type: string }
+         username: { type: string }
+         password: { type: string }
+         vendor: { type: string }
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
+
+================ FILE: compliance\bom-sbom.md ================
+
+# BOM / SBOM Tracking System
+
+## 1. Definitions
+- **BOM (Hardware):** List of physical components (Motherboard, CPU, HDD, Camera Sensor).
+- **SBOM (Software):** List of software libraries, frameworks, and runtimes (Go mods, C++ libs, OS packages).
+
+## 2. SBOM Specification
+**Format:** [CycloneDX](https://cyclonedx.org/) JSON.
+**Required Fields:**
+- `Component Name`
+- `Version`
+- `Supplier / Vendor`
+- `License` (e.g., MIT, Apache 2.0, GPL)
+- `PURL` (Package URL)
+- `Hash` (SHA256)
+- `Approval Status` (Approved / Pending / Rejected)
+- `Last Reviewed Date`
+
+## 3. Hardware BOM Specification
+**Format:** Custom CSV.
+**Required Fields:**
+- `Part Number`
+- `Description`
+- `Manufacturer`
+- `Country of Origin`
+- `NDAA Compliant` (Yes/No)
+
+## 4. Workflow
+- **Phase 0.7 (Now):** Manual CSV maintenance in `/docs/compliance/bom/`.
+- **Phase 1+:** Automated generation via `govulncheck` and CI/CD pipelines.
+- **Audit Gate:** Release cannot proceed if any item is `Rejected` or `License Conflict`.
+
+
+================ FILE: compliance\certification-submission.md ================
+
+# Certification Submission Process
+
+## 1. Pre-Submission Gate
+Before submitting to STQC or any lab, the **Internal Audit** must pass.
+- [ ] All Critical/High Security bugs closed?
+- [ ] Functional Critical Path 100% pass?
+- [ ] SBOM generated and NDAA compliant?
+- [ ] Evidence Repository populated and Signed?
+
+## 2. Submission Package
+The "Golden Package" sent to the Lab includes:
+1. **Product Binary:** The specific Hash-locked `.zip` bundle.
+2. **Documentation:** User Manual, Admin Guide, Architecture Docs (Phase 0.1).
+3. **Compliance Docs:** NDAA Declaration, BOM/SBOM.
+4. **Test Reports:** Internal Security & Functional reports.
+
+## 3. Workflow
+1. **Prepare:** QA & Compliance Lead assemble the package.
+2. **Review:** Engineering VP reviews the "Known Issues" list.
+3. **Submit:** Physical/Digital transfer to Lab.
+4. **Respond:** Lab issues "Observation Report" (NCs).
+5. **Remediate:** Team fixes NCs within 30 days.
+6. **Certify:** Lab issues Certificate.
+
+## 4. Maintenance
+- **Minor Changes:** Internal Note to File.
+- **Major Changes:** Re-submission (Delta Audit) required.
+
+**Dependencies**: [Phase 0.4 Git Flow](/docs/standards/git-workflow.md), [Phase 0.6 Upgrades](/docs/offline/offline-upgrades.md).
+
+
+================ FILE: compliance\component-origin.md ================
+
+# Component Origin Documentation
+
+## 1. Requirement
+We must prove the "Chain of Custody" and origin for all critical components to satisfy Trusted Supply Chain requirements.
+
+## 2. Provenance Policy
+- **Hardware:**
+    - Must define **Country of Origin (CoO)** for final assembly.
+    - Must identify **Chipset Manufacturer** for critical SoCs.
+- **Software:**
+    - All First-Party binaries must be traceable to a **Git Commit SHA**.
+    - All Third-Party libs must come from trusted repos (official Go Proxy, vcpkg main).
+
+## 3. Artifacts
+For every Release Candidate, we generate `origin-audit.json`:
+```json
+{
+  "release": "v1.2.0",
+  "build_date": "2026-03-15",
+  "builder_id": "CI-Worker-05",
+  "git_sha": "a1b2c3d4",
+  "components": [
+    {
+      "name": "ffmpeg.dll",
+      "source": "vcpkg",
+      "origin_url": "https://github.com/microsoft/vcpkg",
+      "verification": "SHA256:..."
+    }
+  ]
+}
+```
+
+## 4. Chain of Custody
+- Artifacts are signed immediately after build.
+- Stored in "Write-Once" artifact repository.
+
+
+================ FILE: compliance\evidence-structure.md ================
+
+# Evidence Collection Structure
+
+## 1. Repository Layout
+To maintain audit readiness, evidence is organized by **Release Version**.
+
+```
+/evidence/
+  â”œâ”€â”€ releases/
+  â”‚   â”œâ”€â”€ v1.0.0/
+  â”‚   â”‚   â”œâ”€â”€ functional/      # Screenshots, Videos, Test Reports
+  â”‚   â”‚   â”œâ”€â”€ security/        # Pen-test Report, Scan Results
+  â”‚   â”‚   â””â”€â”€ bom/             # SBOM.json, Hardware-BOM.csv
+  â”‚   â””â”€â”€ v1.1.0/
+  â”œâ”€â”€ compliance/
+  â”‚   â”œâ”€â”€ ndaa/                # Vendor Attestations (Global)
+  â”‚   â””â”€â”€ stqc/                # Lab Correspondence & Certificates
+```
+
+## 2. Naming Convention
+- **Format:** `[Date]_[TestID]_[Status].ext`
+- **Example:** `2026-03-15_F-STR-01_PASS.png`
+
+## 3. Integrity Policy
+- **Immutable:** Once a release is tagged, the evidence folder is locked (Read-Only).
+- **Hashed:** A manifest file (`SHA256SUMS`) is generated for the evidence folder.
+- **Sign-Off:** The `SHA256SUMS` file is GPG signed by the Release Manager.
+
+## 4. Roles
+- **Evidence Collector:** QA Engineer.
+- **Evidence Reviewer:** Security Lead.
+- **Approver:** Release Manager.
+
+
+================ FILE: compliance\functional-test-matrix.md ================
+
+# Functional Test Matrix
+
+## 1. Traceability
+All tests map to requirements in Phase 0.x docs.
+
+## 2. Matrix Structure
+
+| Feature Area | Test Case ID | Test Description | Expected Result | Evidence Link |
+| :--- | :--- | :--- | :--- | :--- |
+| **Onboarding** | F-ONB-01 | Discover ONVIF Camera | Camera listed with IP/Model | `evidence/func/onb-01.png` |
+| **Onboarding** | F-ONB-02 | Add Camera with Bad Creds | Error "Auth Failed" | `evidence/func/onb-02.log` |
+| **Streaming** | F-STR-01 | Live View (WebRTC) | Video plays < 500ms latency | `evidence/func/str-01.mp4` |
+| **Streaming** | F-STR-02 | Live View (HLS) | Video plays (fallback) | `evidence/func/str-02.mp4` |
+| **Recording** | F-REC-01 | Continuous Record | Segments created on disk | `evidence/func/rec-01.ls` |
+| **Offline** | F-OFF-01 | Time Drift Alert | Alert generated when clock skewed | `evidence/func/off-01.json` |
+| **Offline** | F-OFF-02 | Cert Rotation | New cert applied without reinstall | `evidence/func/off-02.log` |
+
+## 3. Coverage Goal
+- **Critical Path:** 100% (must pass).
+- **Edge Cases:** 80% (best effort).
+
+
+================ FILE: compliance\ndaa.md ================
+
+# NDAA Compliance Requirements
+
+## 1. Scope
+**Regulation:** Section 889 of the 2019 National Defense Authorization Act (NDAA).
+**Constraint:** "No Covered Telecommunications or Video Surveillance Equipment or Services."
+
+## 2. Policy
+The VMS shall NOT include hardware, software, or services produced by:
+- Huawei Technologies Company
+- ZTE Corporation
+- Hytera Communications Corporation
+- Hangzhou Hikvision Digital Technology Company
+- Dahua Technology Company
+- (Or any subsidiary/affiliate of these entities)
+
+## 3. Process
+1. **Restricted Vendor List:** Managed by Procurement. Updated quarterly.
+2. **Supplier Attestation:** Every hardware supplier MUST sign an "NDAA Section 889 Representation" form.
+3. **Verification:**
+    - **Initial:** Check BOM against Restricted List.
+    - **Recurring:** Audit new dependencies during release.
+
+## 4. Documentation Requirements
+Per component, we must archive:
+- Supplier Name & Country of Origin.
+- Signed "Non-Presence" Attestation.
+- Chipset/SoC Manufacturer details (for cameras/NVRs).
+
+**Dependencies**: [Phase 0.4 Standards](/docs/standards), [Phase 0.5 Security](/docs/security).
+
+
+================ FILE: compliance\security-testing-checklist.md ================
+
+# Security Testing Checklist
+
+## 1. Authentication & Session
+- [ ] **Brute Force:** Verify account lockout after 5 failed attempts.
+- [ ] **Session Expiry:** Verify token works at T-1m and fails at T+1m.
+- [ ] **Refresh Rotation:** Verify reusing an old refresh token revokes the family. (Ref: Phase 0.5)
+
+## 2. RBAC & Tenant Isolation
+- [ ] **Horizontal Escalation:** Verify User A cannot access User B's camera (different tenant).
+- [ ] **Vertical Escalation:** Verify Operator cannot create new Users.
+- [ ] **Default Deny:** Verify hitting an undefined API endpoint returns 401/404, not 500.
+
+## 3. Encryption
+- [ ] **At Rest:** Verify `passwords` column in DB is hashed (Argon2).
+- [ ] **Transport:** Verify HTTP requests are rejected (must be HTTPS).
+- [ ] **Secrets:** Verify `.env` or config files do not contain plaintext RTSP passwords.
+
+## 4. Input Validation
+- [ ] **Injection:** Attempt SQLi on Login field (`' OR 1=1 --`).
+- [ ] **XSS:** Attempt script injection in Camera Name field.
+
+## Severity Ratings
+- **Critical:** Data Leak, Auth Bypass, Remote Code Execution.
+- **High:** Tenant Isolation failure, DoS.
+- **Medium:** Weak password policy, Information Disclosure (Stack trace).
+- **Low:** UI bugs, Typo.
+
+
+================ FILE: compliance\stqc-roadmap.md ================
+
+# STQC Certification Roadmap
+
+## 1. Objective
+Achieve STQC (Standardisation Testing and Quality Certification) for Video Surveillance Systems (VSS).
+
+## 2. Timeline (12 Months)
+
+### Phase A: Internal Readiness (Months 0-3)
+- **Goal:** Documentation & Process Stability.
+- **Tasks:**
+    - Complete Phase 0.5 Security Baseline.
+    - Finalize User Manuals & Admin Guides.
+    - Generate initial Functional Test Reports (Internal).
+
+### Phase B: Pre-Assessment (Months 3-6)
+- **Goal:** Gap Analysis.
+- **Tasks:**
+    - Engage 3rd Party Lab for "Dry Run" penetration test.
+    - Fix Critical/High vulnerabilities.
+    - Audit Evidence Repository structure.
+
+### Phase C: Submission & Certification (Months 6-12)
+- **Goal:** Official Stamp.
+- **Tasks:**
+    - Submit application to STQC.
+    - On-site Witness Testing (Functional).
+    - Vulnerability Assessment (Security).
+    - Address Non-Conformities (NCs).
+    - Receive Certificate.
+
+## 3. Roles
+- **Owner:** VMS Product Manager.
+- **Reviewer:** Principal Architect / Security Lead.
+- **Approver:** VP of Engineering.
+
+
+================ FILE: contracts\conventions.md ================
+
+# API Conventions
+
+## 1. Error Model
+
+### 1.1 HTTP Status Codes
+| Code | Meaning |
+| :--- | :--- |
+| **200** | Success (Synchronous) |
+| **201** | Created (Resource created) |
+| **202** | Accepted (Async job started) |
+| **400** | Bad Request (Validation failed) |
+| **401** | Unauthorized (Missing/Bad Token) |
+| **403** | Forbidden (RBAC) |
+| **404** | Not Found |
+| **409** | Conflict (Duplicate ID) |
+| **500** | Internal Server Error |
+
+### 1.2 JSON Error Body
+```json
+{
+  "code": 400,
+  "message": "Invalid IP address format",
+  "request_id": "req_12345"
+}
+```
+
+## 2. Pagination
+We use **Cursor-based Pagination** for stability.
+
+**Request:**
+- `page_size`: (int, default=20, max=100)
+- `page_token`: (string, opaque cursor)
+
+**Response:**
+- `items`: [...]
+- `next_page_token`: (string, present if more pages exist)
+
+## 3. Time Format
+All timestamps must be **ISO 8601** (RFC 3339) in **UTC** with the 'Z' suffix.
+- Example: `2026-02-01T14:30:00Z`
+- Do NOT use local time or Unix timestamp integers in the public API.
+
+## 4. ID Format
+- All Public IDs (Camera ID, User ID) must be **UUID v4**.
+- Internal short-lived IDs (pipeline sockets) can be strings.
+
+
+================ FILE: contracts\license-format.md ================
+
+# License File Format Specification
+
+**Version:** 1.0  
+**Status:** Approved for Phase 1.6
+
+## File Structure
+The license file (`.lic`) is a JSON object containing the signed payload and the cryptographic signature.
+
+```json
+{
+  "payload_b64": "<base64_json_payload>",
+  "sig_b64": "<base64_rsa_signature>",
+  "alg": "RS256"
+}
+```
+
+## Payload Structure
+The decoded `payload_b64` is a JSON object:
+
+```json
+{
+  "license_id": "uuid-string",
+  "customer_name": "Acme Corp",       // Helper field (Do not log)
+  "tenant_scope": "all",              // "all" or specific tenant-id
+  "issued_at_utc": "2026-01-01T00:00:00Z",
+  "valid_until_utc": "2027-01-01T00:00:00Z",
+  "limits": {
+    "max_cameras": 100,
+    "max_nvrs": 10
+  },
+  "features": {
+    "ai_analytics": true,
+    "mobile_app": false
+  }
+}
+```
+
+## Cryptography
+- **Algorithm**: RSA PKCS#1 v1.5 with SHA-256 (`RS256`).
+- **Signature Input**: Raw bytes of the JSON payload (decoded from `payload_b64`).
+- **Verification**: Public Key (PEM) configured in VMS.
+
+## Validation Rules
+1. **Format**: Must match JSON schema.
+2. **Signature**: Must verify against configured Public Key.
+3. **Time**: `issued_at <= Now < valid_until_utc`.
+(Grace Period logic handles 30 days post-expiry).
+
+
+================ FILE: contracts\versioning.md ================
+
+# Contract Versioning Strategy
+
+## 1. Semantic Versioning
+- **Protos:** `ts.vms.<domain>.v<Major>` (e.g., `v1`).
+- **REST:** `/api/v<Major>/` (e.g., `/api/v1/cameras`).
+
+## 2. Backward Compatibility Rules (gRPC)
+We follow the standard Protobuf compatibility guidelines:
+- **ADDITIVE ONLY:** New fields can be added to messages. They must be optional.
+- **NEVER REMOVE:** Fields should never be removed. Use `deprecated = true` instead.
+- **NEVER RENUMBER:** Field tags/numbers must be immutable.
+- **NEVER RENAME:** Field names can be changed technically, but avoid it to prevent JSON mapping confusion.
+
+## 3. Backward Compatibility Rules (REST)
+- **ADDITIVE:** New JSON properties are allowed.
+- **IGNORE UNKNOWN:** Clients must be robust and ignore unknown fields.
+- **DEPRECATION:** Use standard HTTP `Warning` header or `Deprecated: true` in OpenAPI.
+
+## 4. Breaking Changes
+- If a breaking change is strictly necessary (rare), a NEW version package must be created (e.g., `v2`).
+- The system must support both `v1` and `v2` in parallel for at least 1 release cycle.
+
+
+================ FILE: offline\airgap-deployment.md ================
+
+# Airgap Deployment Specification
+
+## 1. Core Assumption
+The system must function indefinitely with **Zero Internet Access**.
+- No `npm install`, `go get`, or `docker pull` at runtime.
+- No NTP servers reachable outside the LAN.
+- No generic Cloud Licensing checks.
+
+## 2. Inbound/Outbound Policy
+Since the VMS runs on a private LAN:
+- **Inbound:** Only specific ports allowed (e.g., tcp/443, tcp/8554 [RTSP]). All others blocked by Windows Firewall.
+- **Outbound:** Blocked by default, except for strictly defined allow-list (e.g., SMTP or Webhook to specific internal IP).
+
+## 3. Dependency Strategy: "The Bundle"
+We ship a single, self-contained **Upgrade Bundle** (`.zip` or `.msi`).
+- **Contains:** All `.exe` binaries, Web UI (pre-built static assets), PostgreSQL installer/binaries, Redis binaries, and default config templates.
+- **Validation:** Operator runs a checksum verification tool (SHASUM) against the bundle before transfer to the airgapped server.
+
+## 4. Operator Checklist
+Before deployment acceptance:
+- [ ] confirm server is disconnected from public WAN.
+- [ ] confirm Local NTP source is reachable.
+- [ ] verify Bundle checksum matches Release Notes.
+
+
+================ FILE: offline\automatic-recovery.md ================
+
+# Automatic Recovery Procedures
+
+## 1. Principles
+- **Automate Common Faults:** Disk full, process crash, network flake.
+- **Escalate Rare Faults:** Corrupt DB, hardware failure.
+- **Bounded Retries:** Never retry infinitely. Give up and alert.
+
+## 2. Recovery Playbooks
+
+### A. Service Crash Loop
+- **Trigger:** Service exits with non-zero code.
+- **Auto-Action:** SCM restarts service (up to 3 times/hour).
+- **Escalation:** If still failing, stop service and log "CRITICAL: Service Dead".
+
+### B. Disk Near-Full (90%)
+- **Trigger:** Storage Monitored Metric > 90%.
+- **Auto-Action:** 
+    1. Signal Recorder to aggressive-prune.
+    2. Enforce Retention Policy (delete oldest hour).
+- **Escalation:** If disk hits 98%, **Stop Recording** to save OS/DB stability.
+
+### C. Time Drift
+- **Trigger:** NTP Offset > 5s.
+- **Auto-Action:** Attempt `w32tm /resync` (Force Sync).
+- **Escalation:** If drift persists > 5m, raise Alert "System Time Untrusted".
+
+### D. Camera Reconnect Storm
+- **Trigger:** Network outage ends, 500 cameras reconnect simultaneously.
+- **Auto-Action:** Circuit Breaker limits concurrency. Accept 50/sec, queue rest.
+- **Backpressure:** Clients retry with jitter/backoff.
+
+
+================ FILE: offline\certificates.md ================
+
+# Certificate Management Strategy
+
+## 1. Offline PKI Model
+Since we cannot reach public CAs (Let's Encrypt), we rely on a private trust model.
+
+### Role: Root CA
+- **Type:** Self-Signed Root Certificate (`CN=TechnoSupport-VMS-Root`).
+- **Creation:** Generated by the Administrator during initial site provisioning (using OpenSSL or PowerShell helpers).
+- **Private Key:** Stored offline (USB Drive) or heavily restricted (ACLs) on the server.
+
+### Role: Server Certificate (Leaf)
+- **Type:** TLS Web Server Authentication.
+- **Signed By:** The Root CA.
+- **Subject:** IP Address or Internal Hostname.
+
+## 2. Trust Bootstrap
+To prevent browser warnings on Operator workstations:
+1. Export the **Root CA Public Certificate** (`.crt`).
+2. Distribute to all Operator Workstations.
+3. **Action:** Install into Windows/macOS **Trusted Root Certification Authorities** store.
+
+## 3. Lifecycle Policy
+- **Validity:**
+    - Root CA: 10 Years.
+    - Leaf Cert: 1 Year (Rotation required annually).
+- **Revocation:** Manual CRL distribution (rarely used in simple offline sites; mostly reliance on short leaf lifespans).
+
+
+================ FILE: offline\circuit-breakers.md ================
+
+# Circuit Breaker Patterns
+
+## 1. Goal
+Isolate failures to prevent cascading outages (e.g., Database slow -> Control Plane hangs -> NVRs disconnect).
+
+## 2. States
+- **Closed (Normal):** Requests pass through.
+- **Open (Tripped):** Requests fail immediately (Fail Fast).
+- **Half-Open (Probe):** Allow limited test traffic to check if downstream is healthy.
+
+## 3. Application Areas
+| Source | Dest | Threshold | Action |
+| :--- | :--- | :--- | :--- |
+| **Control** | **Media** | 5 timeouts / 10s | Mark Media Service "Unhealthy". Redirect new streams elsewhere. |
+| **Control** | **DB** | 10 conns failed | Reject API writes. Serve reads from Cache if possible. |
+| **UI** | **Control** | 400 Bad Gateway | Show "Reconnecting..." to user. Exponential backoff retry. |
+
+## 4. Backpressure Policy
+- **Bounded Queues:** System buffers (channels) must have fixed size (e.g., 1000 events).
+- **Shed Load:** If queue is full, **Reject New Work**.
+    - APIs return `429 Too Many Requests`.
+    - Internal events are dropped (with "Drop Counter" metric incremented).
+    - **Goal:** Protect the Control Plane's memory stability at all costs.
+
+
+================ FILE: offline\offline-time-sync.md ================
+
+# Windows Time Service Configuration (Offline)
+
+## 1. Requirement
+Accurate system time is mandatory for:
+- **TLS Certificates:** Validity period checks.
+- **Audit Logs:** Forensic sequencing of events.
+- **Retention:** Correct deletion of old video.
+- **Tokens:** Expiry validation (future phases).
+
+## 2. Offline Time Source Options
+The VMS Server must be configured to sync from a **Local Authoritative Source**.
+
+### Option A: Local NTP Appliance (Recommended)
+- A hardware GPS clock or dedicated NTP server on the LAN.
+- Config: `w32tm /config /manualpeerlist:"192.168.1.50" /syncfromflags:MANUAL`
+
+### Option B: Domain Controller
+- If joined to an Offline AD, sync from Domain Hierarchy.
+
+### Option C: CMOS / Local Quartz (Not Recommended)
+- Only if strictly standalone. Drift will occur.
+- **Mitigation:** Operator must manually correct time weekly.
+
+## 3. Drift Policy
+- **Threshold:** > 5 seconds deviation from Source.
+- **Action:**
+    - Log "Critical Time Skew" audit event.
+    - If skew > 24 hours, **Halt new recordings** to prevent overwriting valid history (Policy decision).
+
+
+================ FILE: offline\offline-upgrades.md ================
+
+# Offline Upgrade Procedures
+
+## 1. Upgrade Bundle
+All updates are delivered as a single signed archive (`ts-vms-v1.2.0.zip`).
+- **Integrity:** SHA256 checksum validation is mandatory before extraction.
+
+## 2. Atomic Deployment (Blue/Green)
+We mitigate risk by never overwriting the running version.
+
+1. **Current State:** `C:\Program Files\VMS\Current` -> symbolic link to `\V1.0`.
+2. **Design:**
+    - Extract Bundle to `C:\Program Files\VMS\V1.1`.
+    - Copy persistent config/keys from `\V1.0` to `\V1.1`.
+    - Run DB Migrations (Schema Update).
+    - **Stop Services**.
+    - Update Link: `\Current` -> `\V1.1`.
+    - **Start Services**.
+
+## 3. Rollback Plan
+If the new version fails to start or passes health checks:
+1. **Stop Services**.
+2. Revert Link: `\Current` -> `\V1.0`.
+3. **Start Services**.
+4. (Optional) Reverse DB Migrations if specific "Down" scripts exist.
+
+## 4. Operator Runbook
+1. Upload Bundle to Server.
+2. Run `Verify-Bundle.ps1`.
+3. Execute `Upgrade.ps1`.
+4. Monitor "Health API" for green status.
+5. If Red > 5 mins, Execute `Rollback.ps1`.
+
+
+================ FILE: offline\service-supervision.md ================
+
+# Service Supervision & Recovery
+
+## 1. Supervisor Model
+We use the native **Windows Service Control Manager (SCM)** as the supervisor. We do not run a separate "watchdog" daemon to minimize complexity.
+
+## 2. Recovery Policy
+For each service (`vms-control`, `vms-media`, etc.), the SCM recovery actions are configured as:
+
+| Attempt | Action | Delay |
+| :--- | :--- | :--- |
+| **First Failure** | Restart Service | 5 seconds |
+| **Second Failure** | Restart Service | 30 seconds |
+| **Subsequent** | Restart Service | 1 minute |
+
+**Reset Count:** Failure counter resets after **1 day** of uptime.
+
+## 3. Fail Scenarios
+- **Fail Closed:** If Auth Service fails, all API requests receive 503/401. No degradation to insecure mode.
+- **Fail Open:** (Not applicable to security). If AI service fails, Video Recording MUST continue unaffected.
+
+## 4. Crash Loop Handling
+If a service restarts > 10 times in 1 hour:
+1. SCM will keep restarting (with 1m delay).
+2. **Alert Trigger:** Event Log monitor (future telemetry) detects "Service Terminated Unexpectedly" frequency.
+3. **Escalation:** Operator manual intervention required to analyse logs.
+
+
+================ FILE: offline\split-brain.md ================
+
+# Split-Brain Prevention
+
+## 1. Definition
+Split-brain occurs when parts of the system lose connectivity and independently decide they are the "Master," leading to data corruption.
+
+## 2. Configuration Authority (Single Node)
+- **Principle:** The `vms-control` service running on the authorized Server is the **Single Source of Truth**.
+- **Locking:** It holds an exclusive file-system lock (pidfile) on the Config DB directory.
+- **Enforcement:** If a second instance starts, it fails to acquire lock and shuts down immediately.
+
+## 3. Recording Authority
+- **Disk Allocation:** Only ONE Recorder service is allowed to write to a specific Volume/Path at a time.
+- **Overlap:** If multiple recorders write to `D:\Recordings`, index corruption occurs.
+- **Prevention:** Recorder checks for ownership marker on disk mount.
+
+## 4. High Availability (Future Scope)
+If Multi-Node HA is enabled in future phases:
+- **Consensus:** We will use Raft (via `etcd` or embedded) to elect a leader.
+- **Rules:** No Leader = Read Only Mode.
+- **Quorum:** Minimum 3 nodes required to tolerate 1 failure.
+
+
+================ FILE: ops\audit-logging.md ================
+
+# Audit Logging Operator Guide
+
+**Version:** 1.0  
+**Last Updated:** 2026-02-01
+
+## Overview
+Phase 1.5 implements a tamper-resistant, append-only Audit Logging system with automatic Failover to disk and 7-year retention enforcement.
+
+## Architecture
+- **Primary Sink**: Postgres `audit_logs` table (Insert Only).
+- **Secondary Sink (Failover)**: Local Disk Spool at configured `SpoolDir`.
+- **Replay**: Application background worker retries inserting spooled events.
+- **Idempotency**: `event_id` unique constraint prevents duplicates.
+
+## Configuration
+Limits are defined in `config/default.yaml` (or via Env Vars in future).
+- `audit.spool_dir`: Default `C:\ProgramData\TechnoSupport\VMS\audit_spool`
+- `audit.retention_years`: 7 (Enforced Minimum)
+- `audit.max_spool_size_mb`: 1024 (1GB)
+
+## Operations
+
+### Retention Policy
+The system enforces a **strict 7-year retention** (2557 days). Any attempt to purge data newer than this limit via future API/jobs will be blocked by the `retention.Guard` logic.
+- **Purging**: Currently manual or external script, but must respect the safe date.
+- **Archival**: Old data can be exported using the Export API before external purging.
+
+### Handling Failover
+If DB is down:
+1. Logs are written to `SpoolDir`.
+2. `audit_spool_dropped_total` metric stays 0 unless disk is full.
+3. When DB returns, the **Replayer** automatically flushes events.
+4. Check logs for `Audit Replay: X events flushed`.
+
+### Metrics
+- `audit_events_written_total`: Success rate.
+- `audit_spool_bytes`: Disk usage.
+- `audit_export_total`: Export activity.
+
+### Exporting Data
+- **API**: `POST /api/v1/audit/exports`
+- **Format**: JSONL (Streaming).
+- **Permission**: Requires `audit.export` role.
+
+
+================ FILE: ops\backup-restore.md ================
+
+# Backup & Restore Procedures
+
+## 1. Backup Strategy
+We use `pg_dump` for logical backups. This ensures portability across Postgres versions and architectures.
+
+### Backup Command
+```bash
+# Export schema and data to a custom-format archive (permits parallel restore)
+pg_dump -h $DB_HOST -U $DB_USER -d $DB_NAME -F c -f "backup_$(date +%Y%m%d_%H%M%S).dump"
+```
+
+### Frequency
+- **Production:** Daily (at minimum).
+- **Storage:** Offline storage (NAS, External Drive) or Secure S3 Bucket (if cloud allowed in future).
+- **Retention:** Keep for 7 years (per Compliance requirements).
+
+## 2. Restore Strategy
+**WARNING:** Restoring overwrites existing data. Ensure you are restoring to a fresh or intended target DB.
+
+### Restore Command
+```bash
+# restore to a clean database
+pg_restore -h $DB_HOST -U $DB_USER -d $DB_NAME -j 4 --clean --if-exists "backup_file.dump"
+```
+
+## 3. Verification
+After restore:
+1. **Check Row Counts:** Compare `SELECT count(*) FROM tables` with expected values.
+2. **Verify Schema Version:** Check the migrations table to ensure it matches the application version.
+   ```sql
+   SELECT * FROM schema_migrations;
+   ```
+3. **Check Seed Data:** Ensure the Admin User exists.
+
+## 4. Disaster Recovery (Offline)
+In an airgapped scenario:
+1. Physical transfer of `.dump` file via USB/Secure Media.
+2. Verify SHA256 checksum of the dump file.
+3. Run Restore on the replacement hardware.
+
+
+================ FILE: ops\clone-and-run-sop.md ================
+
+# SOP: Quick Start - Clone, Setup, and Run
+
+**Document ID:** SOP-QUICK-001  
+**Target Audience:** Developers / New Users  
+**Version:** 1.0  
+
+---
+
+## 1. Prerequisites (Must be installed first)
+
+Ensure the following software is installed on your Windows machine:
+
+1.  **Go 1.25+**: [Download here](https://go.dev/dl/)
+2.  **Node.js 20+**: [Download here](https://nodejs.org/)
+3.  **.NET 8 SDK**: [Download here](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+4.  **PostgreSQL 14+**: Install and ensure the service is running.
+5.  **Redis (Stack or Open Source)**: Install via MSI or Memurai for Windows.
+6.  **GStreamer (MSVC 64-bit)**: [Download here](https://gstreamer.freedesktop.org/download/#windows)
+    *   **CRITICAL**: Choose "Complete Install" or ensure the `Developer` and `Gst-MSVC` packages are selected.
+    *   Add `C:\gstreamer\1.0\msvc_x86_64\bin` to your system's Environment Variable **PATH**.
+
+---
+
+## 2. Setting Up the Database
+
+1.  Open your PostgreSQL client (like pgAdmin or psql).
+2.  Create a database named: `ts_vms`.
+3.  Open a terminal in the project root and run the migrations:
+    ```powershell
+    .\migrator.exe -up
+    ```
+    *This creates all necessary tables and security policies.*
+
+---
+
+## 3. Building the Components
+
+From the project root, run these commands to prepare the binaries:
+
+### 3.1 Backend & HLS Daemon
+```powershell
+go build -o bin/vms-control.exe ./cmd/server
+go build -o bin/vms-hlsd.exe ./cmd/hlsd
+```
+
+### 3.2 SFU Service (WebRTC Engine)
+```powershell
+cd sfu
+npm install
+npm run build
+cd ..
+```
+
+### 3.3 Desktop Application
+```powershell
+cd desktop\TSVmsDesktop
+dotnet build
+cd ..\..
+```
+
+---
+
+## 4. Running the System
+
+### 4.1 Start the Backend Infrastructure
+Run the following script to start Redis, NATS, and all background plane services:
+```powershell
+.\scripts\dev-restart.ps1
+```
+*Tip: Check the `logs/` folder to ensure everything says "Started successfully".*
+
+### 4.2 Start the Desktop Client
+```powershell
+cd desktop\TSVmsDesktop
+dotnet run
+```
+
+---
+
+## 5. First-Time Login
+
+Use the following default administrator credentials:
+*   **Email**: `admin@technosupport.com`
+*   **Password**: `ts1234` (or the password configured in your `.env`)
+
+---
+
+## 6. Troubleshooting
+*   **Video is black/frozen?**: Check if GStreamer is in your PATH. Run `gst-launch-1.0 --version` in CMD to verify.
+*   **Database error?**: Ensure PostgreSQL service is running and the user `postgres` has permission to the `ts_vms` database.
+*   **App won't build?**: Ensure you have the C++ Desktop Development workload installed in **Visual Studio 2022**.
+
+
+================ FILE: ops\current-installation-summary.md ================
+
+# VMS System Installation Guide
+
+This document provides a concise summary of how to install and run the Techno Support VMS system locally on a Windows machine for development and testing.
+
+## Prerequisites
+
+Ensure the following tools are downloaded, extracted, and their `bin` directories are added to your System PATH:
+
+1.  **Go 1.25+**
+2.  **Node.js 20+ & npm**
+3.  **Visual Studio 2022** (with C++ Desktop Development workload)
+4.  **CMake 3.20+**
+5.  **GStreamer 1.24+ (MSVC 64-bit)** (Must include `d3d11` and `openh264` plugins)
+6.  **.NET 8 SDK**
+7.  **PostgreSQL 14+**
+8.  **Redis** (v3.0.504 portable or newer)
+9.  **NATS Server**
+
+## 1. Database & Cache Setup
+
+Before running the VMS, ensure your infrastructure services are running.
+
+1.  **PostgreSQL**: Ensure the PostgreSQL service is running on port `5432`.
+    *   Create a database named `ts_vms`.
+    *   Default user: `postgres`, password: `ts1234`.
+2.  **Redis**: Run the `redis-server.exe` executable. It should listen on port `6379`.
+3.  **NATS**: Run the `nats-server.exe` executable. It should listen on port `4222`.
+
+## 2. Compiling the Services
+
+Navigate to the root of the project (`ts_vms_1.0`) and compile the following services.
+
+### Control Plane (Go)
+```powershell
+go build -o bin/vms-control.exe ./cmd/server
+```
+
+### HLS Daemon (Go)
+```powershell
+go build -o bin/vms-hlsd.exe ./cmd/hlsd
+```
+
+### AI Mock Service (Go)
+```powershell
+go build -o bin/vms-ai-mock.exe ./cmd/ai-service
+```
+
+### SFU Service (Node.js)
+```powershell
+cd sfu
+npm install
+npm run build
+cd ..
+```
+
+### Media Plane (C++)
+*Note: This step assumes `vcpkg` is installed at `C:/vcpkg`.*
+```powershell
+cd media-plane
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
+Copy-Item build/Release/vms-media.exe ../bin/ -Force
+cd ..
+```
+
+## 3. Running the Backend Services
+
+To start all backend services simultaneously, use the provided PowerShell helper script from the root directory:
+
+```powershell
+.\scripts\dev-restart.ps1
+```
+*This script will automatically set environment variables, route logs to the `logs/` directory, and launch `vms-control`, `vms-media`, `vms-hlsd`, the `sfu` Node app, and the AI Mock service.*
+
+## 4. Running the Desktop Client
+
+Once the backend services are running, launch the native Windows WPF client:
+
+```powershell
+cd desktop\TSVmsDesktop
+dotnet build
+dotnet run
+```
+
+## 5. Stopping the System
+
+When you are finished, gracefully shut down all background VMS processes using:
+
+```powershell
+.\scripts\dev-stop.ps1
+```
+
+
+================ FILE: ops\database.md ================
+
+# PostgreSQL Database Infrastructure
+
+## 1. Requirements
+- **Version:** PostgreSQL 14 or higher.
+- **Extensions:** `pgcrypto` (for UUID generation), `uuid-ossp` (optional if using pgcrypto gen_random_uuid()).
+
+## 2. Configuration
+The application expects the database connection string to be provided via environment variables.
+
+### Environment Variables
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `DB_HOST` | Database Hostname | `localhost` |
+| `DB_PORT` | Database Port | `5432` |
+| `DB_USER` | Database Username | `postgres` |
+| `DB_PASSWORD` | Database Password | `securepassword` |
+| `DB_NAME` | Database Name | `ts_vms` |
+| `DB_SSLMODE` | SSL Mode | `disable` (dev), `verify-full` (prod) |
+
+### Recommended Settings (postgresql.conf)
+- **Timezone:** `UTC` (Crucial for audit logs and retention).
+- **Max Connections:** 100 (Adjust based on Service architecture).
+- **Statement Timeout:** `30000` (30s) to prevent runaway queries.
+- **Log Statement:** `ddl` (Log schema changes).
+
+## 3. Naming Conventions
+- **Tables:** `sneak_case`, plural (e.g., `users`, `audit_logs`).
+- **Columns:** `sneak_case` (e.g., `created_at`, `tenant_id`).
+- **Primary Keys:** `id` (UUID).
+- **Foreign Keys:** `<table>_id` (e.g., `tenant_id`).
+- **Indexes:** `idx_<table>_<column>` (e.g., `idx_users_email`).
+
+## 4. Multi-Tenancy Strategy
+We use **Row-Level Security (RLS)**.
+- Every tenant-scoped table MUST have an RLS policy.
+- The application MUST set the current tenant context at the start of a transaction:
+  ```sql
+  SET LOCAL app.tenant_id = 'uuid-of-tenant';
+  ```
+- **Superuser/Admin:** Can bypass RLS (BYPASSRLS trait), but application roles should not.
+
+
+================ FILE: ops\db-setup-sop.md ================
+
+# Standard Operating Procedure (SOP): Database Setup & Migration
+**Document ID:** SOP-OPS-001
+**Version:** 1.0
+
+## 1. Objective
+To initialize the Techno Support VMS PostgreSQL database, apply schema migrations, and seed initial data for development.
+
+## 2. Prerequisites
+- **PostgreSQL 14+** installed and running.
+- **Go 1.22+** installed.
+- **PowerShell** terminal.
+
+## 3. Procedure
+
+### Step 1: Configuration (Environment Variables)
+Run the following in PowerShell. **Replace `YOUR_PASSWORD` with your actual Postgres superuser password.**
+
+```powershell
+$env:DB_HOST = "localhost"
+$env:DB_PORT = "5432"
+$env:DB_USER = "postgres"
+$env:DB_PASSWORD = "ts1234"  # <--- UPDATE THIS
+$env:DB_NAME = "ts_vms"
+$env:DB_SSLMODE = "disable"
+```
+
+### Step 2: Build Migration Tool
+Compile the custom migration utility.
+
+```powershell
+go build -o migrator.exe ./cmd/migrator
+```
+
+### Step 3: Create Database
+If the database does not exist yet:
+
+```powershell
+# You might need to provide password again if prompted
+createdb -U postgres ts_vms
+```
+
+### Step 4: Run Migrations
+Apply the schema changes and seed data.
+
+```powershell
+./migrator.exe -up
+```
+
+**Expected Output:**
+```text
+Running UP migrations...
+Migration UP completed.
+```
+
+### Step 5: Verify Installation
+Run the verification script to confirm tables and RLS policies are active.
+
+```powershell
+$env:PGPASSWORD = $env:DB_PASSWORD
+psql -U postgres -d ts_vms -f verification.sql
+```
+
+**Expected Output:**
+Should show `CHECK 1... PASS`, `CHECK 2... PASS`, etc.
+(Note: CHECK 4 might say SKIPPED if running as superuser, this is normal).
+
+## 4. Troubleshooting
+
+**Error: `password authentication failed`**
+- **Fix:** Ensure `$env:DB_PASSWORD` is set correctly. Check by running `psql -U postgres -W` and typing it manually.
+
+**Error: `database "ts_vms" already exists`**
+- **Fix:** Skip the `createdb` step, or run `dropdb -U postgres ts_vms` to start fresh (WARNING: Data Loss).
+
+**Error: `connection refused`**
+- **Fix:** Ensure PostgreSQL service is running (`Get-Service postgresql*`).
+
+
+================ FILE: ops\migrations.md ================
+
+# Database Migrations
+
+We use a Go-based migration tool compliant with `golang-migrate` standards.
+
+## 1. Migration Structure
+Migrations are stored in `db/migrations/`.
+Naming convention: `NNNNNN_name.up.sql` and `NNNNNN_name.down.sql`.
+- `NNNNNN`: 6-digit sequence number (e.g., `000001`).
+- `name`: Descriptive snake_case name.
+
+## 2. Running Migrations
+We provide a helper tool `cmd/migrator`.
+
+### Build
+```bash
+go build -o migrator.exe ./cmd/migrator
+```
+
+### Usage
+```bash
+# Apply all up migrations
+./migrator.exe -up
+
+# Rollback one step
+./migrator.exe -down
+```
+
+### Environment Config
+The tool reads `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` from environment variables.
+
+## 3. Creating a New Migration
+1. Create new files in `db/migrations/`:
+   - `00000X_description.up.sql`
+   - `00000X_description.down.sql`
+2. Add DDL statements.
+3. **Rules:**
+   - **Additive Only:** Do not drop columns used by previous versions.
+   - **Idempotent:** Use `IF NOT EXISTS` where possible.
+   - **Safe:** No long-running locks on huge tables (use concurrent index creation if needed).
+
+## 4. Verification
+Check the `schema_migrations` table in the database to see the currently applied version.
+
+
+================ FILE: ops\Phase-1-to-1-8-SOP.md ================
+
+# SOP: Phase 1.1 to 1.8 Deployment
+
+**Document ID:** SOP-MASTER-001  
+**Version:** 1.0  
+**Last Updated:** 2026-02-01
+
+## 1. Objective
+Provide a unified, end-to-end command reference for administrators to deploy and verify Phase 1 of the Techno Support VMS (Phases 1.1 through 1.8).
+
+## 2. Environment Preparation
+
+### System Requirements
+- OS: Windows Server 2019+ or Windows 10/11
+- Go 1.25+
+- PostgreSQL 14+
+- Redis 6+
+
+### Configuration (Environment Variables)
+Set these in your Administrator PowerShell for the session:
+```powershell
+$env:DB_HOST = "localhost"
+$env:DB_USER = "postgres"
+$env:DB_PASSWORD = "your_password"
+$env:DB_NAME = "ts_vms"
+$env:REDIS_ADDR = "localhost:6379"
+$env:JWT_SIGNING_KEY = "your-secure-key"
+```
+
+## 3. Phase-by-Phase Execution
+
+### Phase 1.1: Database Initialization
+1. **Create Database**:
+   ```powershell
+   createdb -U postgres ts_vms
+   ```
+2. **Build Migrator**:
+   ```powershell
+   go build -v -o migrator.exe ./cmd/migrator
+   ```
+3. **Apply Migrations**:
+   ```powershell
+   ./migrator.exe -up
+   ```
+4. **Verification**:
+   ```powershell
+   psql -U postgres -d ts_vms -f verification.sql
+   ```
+
+### Phase 1.2 - 1.7: Binary Compilation
+Build the main VMS Control Plane server:
+```powershell
+go build -v -o server.exe ./cmd/server
+```
+
+### Phase 1.8: Windows Service Installation (Administrator)
+1. **Change Directory**:
+   ```powershell
+   cd .\scripts
+   ```
+2. **Install SCM Registration**:
+   ```powershell
+   .\service-manager.ps1 -Action Install
+   ```
+3. **Verify Registration**:
+   ```powershell
+   .\service-manager.ps1 -Action Status
+   ```
+4. **Start the Stack**:
+   ```powershell
+   .\service-manager.ps1 -Action Start
+   ```
+
+## 4. Operational Maintenance
+
+### Service Control
+- **Restart**: `.\service-manager.ps1 -Action Restart`
+- **Stop**: `.\service-manager.ps1 -Action Stop`
+- **Uninstall**: `.\service-manager.ps1 -Action Uninstall`
+
+### Logging & Auditing
+- **Event Log**: Check `Windows Event Viewer -> Application` for source `TS-VMS-*`.
+- **Audit Spool**: Located at `C:\ProgramData\TechnoSupport\VMS\audit_spool`.
+- **Retention**: System enforces a 2557-day (7-year) minimum audit log retention.
+
+### License Management
+- **Status**: `GET /api/v1/license/status` (Requires `license.read`)
+- **Reload**: `POST /api/v1/license/reload` (Requires `license.manage`)
+
+## 5. Troubleshooting
+- **SC Error 1060**: Service not installed. Run `-Action Install`.
+- **DB Connection Error**: Verify `$env:DB_PASSWORD` and Postgres service state.
+- **Failover Mode**: If "Audit Failover" appears in logs, verify DB disk space or connectivity.
+
+
+================ FILE: ops\Phase-2-SOP.md ================
+
+# SOP: Phase 2 - Device Integration & Network Adaptations
+
+**Document ID:** SOP-MASTER-002  
+**Version:** 1.0  
+**Last Updated:** 2026-02-03
+
+## 1. Objective
+Provide a unified reference for administrators to deploy, configure, and verify the device integration layer (Cameras/NVRs) and Windows-native adaptations implemented in Phase 2.
+
+## 2. Infrastructure & Paths
+
+### Windows-Native File System
+The system now enforces standard Windows directory structures. Ensure the following roots are accessible:
+- **Install Root**: `C:\Program Files\TechnoSupport\VMS`
+- **Data Root**: `C:\ProgramData\TechnoSupport\VMS`
+
+Initialize standard subdirectories:
+```powershell
+# This is automatically called on server startup
+[TechnoSupport.VMS.Paths]::EnsureDirs()
+```
+
+## 3. Network & Security
+
+### Firewall Orchestration (Administrator)
+Manage VMS-required ports (8080, 8081, 4222) using the idempotent manager script:
+
+1. **Install Rules**:
+   ```powershell
+   .\scripts\firewall-manager.ps1 -Action Install
+   ```
+2. **Check Status**:
+   ```powershell
+   .\scripts\firewall-manager.ps1 -Action Status
+   ```
+3. **Uninstall Rules**:
+   ```powershell
+   .\scripts\firewall-manager.ps1 -Action Uninstall
+   ```
+
+### Windows Discovery (API)
+Trigger a native network scan (NICs + ARP) via the Control Plane API:
+- **Endpoint**: `POST /api/v1/windows/discovery:scan`
+- **Payload**: `{"probe": true}` (Optional active probing)
+
+## 4. NVR & Event Integration
+
+### Event Polling Configuration
+Configure polling intervals and concurrency in `config/default.yaml`:
+```yaml
+events:
+  nvr:
+    enabled: true
+    poll_interval_ms: 5000
+    max_inflight_nvrs: 50
+    nats_subject: "events.nvr"
+```
+
+### Manual Verification Scripts
+Verify NVR connectivity and health:
+```powershell
+# Verify NVR CRUD and Event Stream
+.\verify_nvr.ps1
+
+# Verify NVR Health Monitoring
+.\verify_nvr_health.ps1
+```
+
+## 5. Verification & Testing
+
+### Go Verification Suite
+Run all unit tests for Phase 2 components:
+```powershell
+# Paths & Security
+go test -v ./internal/platform/paths
+
+# WMI Discovery
+go test -v ./internal/platform/windows
+
+# API Handlers
+go test -v ./internal/api -run TestWindowsDiscovery
+```
+
+### Firewall Dry-Run Test
+Validate naming conventions and orchestration logic without applying changes:
+```powershell
+.\scripts\test-firewall.ps1 -SkipAdmin
+```
+
+## 6. Binary Compilation
+Rebuild the server with Phase 2 integrations:
+```powershell
+go build -v -o server.exe ./cmd/server
+```
+
+## 7. Troubleshooting
+- **Discovery Timeout**: Ensure `powershell.exe` is in the system PATH and not blocked by execution policy.
+- **Firewall Naming Mismatch**: Verify the script is running with `-ConfigPath` pointing to a valid `default.yaml` if custom ports are used.
+- **NVR Poll Failures**: Check NATS server connectivity and verify vendor-specific credentials via the `/test-connection` API.
+
+
+================ FILE: ops\rate-limiting.md ================
+
+# Rate Limiting Operator Guide
+
+**Version:** 1.0  
+**Last Updated:** 2026-02-01
+
+## Overview
+Phase 1.4 introduces a global, user, and endpoint-specific rate limiting system backed by Redis.
+
+## Configuration
+Limits are defined in `config/default.yaml`.
+- **Global IP**: 100 req/s
+- **User**: 1000 req/h
+- **Login**: 5 attempts / 15m (per tenant+IP)
+
+## Tuning
+To adjust limits, modify `config/default.yaml` and restart the service. Keys generally use a "sliding window" logic (TTL expiration).
+
+## Failure Modes
+- **Auth Endpoints (Fail Closed)**: If Redis is down, `/api/v1/auth/*` requests return `503 Service Unavailable` to prevent abuse.
+- **API Endpoints (Fail Open)**: Other endpoints allow traffic but log `RateLimit Redis Error`.
+
+## Monitoring
+Check these metrics in Prometheus:
+- `rate_limit_requests_total{result="block"}`: High rate indicates active abuse (or low limits).
+- `rate_limit_redis_errors_total`: Non-zero indicates Redis connectivity issues.
+
+## Internal Bypass
+Internal services bypass limits using a specific JWT:
+- Signed with: `INTERNAL_SERVICE_KEY`
+- Claims: `token_type=service`, `aud=internal`
+
+
+================ FILE: ops\windows-deployment-sop.md ================
+
+# SOP: Windows Native Deployment
+
+**Document ID:** SOP-MASTER-003  
+**Version:** 1.1  
+**Last Updated:** 2026-02-11
+
+## 1. Objective
+This document details the procedure for building, deploying, and running the Techno Support VMS entirely on native Windows, eliminating Docker dependencies for core services.
+
+## 2. Prerequisites
+
+### Software Requirements
+Ensure the following tools are installed and added to your System PATH:
+
+1.  **Go 1.25+** (Control Plane & HLS Daemon)
+2.  **Node.js 20+ & npm** (SFU Service)
+3.  **Visual Studio 2022** with C++ Desktop Development workload (Media Plane)
+4.  **CMake 3.20+** (Media Plane Build)
+5.  **GStreamer 1.24+ (MSVC 64-bit)** (Media Plane Runtime)
+    *   **Crucial:** Install "Complete" or ensure `d3d11` and `openh264` plugins are selected.
+    *   Add `C:\gstreamer\1.0\msvc_x86_64\bin` to PATH.
+6.  **PostgreSQL 14+** (Local Service)
+7.  **Redis 6+** (Local Service or Memurai)
+8.  **.NET 8 SDK** (Desktop Client)
+
+### Environment Variables
+The following environment variables are required for the build and runtime scripts.
+(Note: `scripts/dev-restart.ps1` sets defaults for Development).
+
+| Variable | Default (Dev) | Description |
+| :--- | :--- | :--- |
+| `DB_HOST` | `localhost` | Postgres Host |
+| `DB_PORT` | `5432` | Postgres Port |
+| `DB_USER` | `postgres` | Postgres User |
+| `DB_PASSWORD` | `ts1234` | Postgres Password |
+| `DB_NAME` | `ts_vms` | Database Name |
+| `REDIS_ADDR` | `localhost:6379` | Redis Address |
+| `SFU_BASE_URL` | `http://localhost:8085` | Internal SFU URL |
+| `MEDIA_PLANE_ADDR` | `localhost:50051` | Media Plane gRPC Address |
+
+## 3. Build Instructions
+
+The VMS consists of three core binaries that must be compiled.
+
+### 3.1 Control Plane (Go)
+```powershell
+go build -o bin/vms-control.exe ./cmd/server
+```
+
+### 3.2 Media Plane (C++)
+The Media Plane uses CMake and vcpkg for dependency management.
+```powershell
+# Navigate to media-plane directory
+cd media-plane
+
+# Configure (First time only)
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+# Build
+cmake --build build --config Release
+
+# Copy binary to root bin/
+Copy-Item build/Release/vms-media.exe ../bin/ -Force
+```
+
+### 3.3 SFU (Node.js/TypeScript)
+```powershell
+cd sfu
+npm install
+npm run build
+```
+
+### 3.4 HLS Daemon (Go)
+```powershell
+go build -o bin/vms-hlsd.exe ./cmd/hlsd
+```
+
+### 3.5 AI Service (Go Mock Fallback)
+Due to current DLL conflicts in the native C++ build, the system is configured to use the Go Mock AI by default.
+```powershell
+go build -o bin/vms-ai-mock.exe ./cmd/ai-service
+```
+*(Note: `dev-restart.ps1` runs this via `go run` automatically)*
+
+### 3.6 Desktop Client (WPF)
+The Desktop Client is a .NET 8 WPF application.
+```powershell
+cd desktop\TSVmsDesktop
+dotnet build
+dotnet run
+```
+**Storage Persistence:**
+- **Cameras**: `%AppData%\TS-VMS\cameras.json`
+- **Settings**: `%AppData%\TS-VMS\desktop-config.json`
+- **Security**: Tokens are encrypted via DPAPI and stored in `%LocalAppData%\TS-VMS\token.dat`.
+
+## 4. Phase 3.9 Verification Suite
+To confirm the system is ready for production, run the automated verification script:
+```powershell
+.\scripts\verify-phase-3.9.ps1
+```
+This script validates:
+1. **Build Integrity**: Ensures 0 warnings/errors in desktop and backend.
+2. **Backend Health**: Pulses the Control Plane API (HTTP 200).
+3. **DPAPI Security**: Performs an encryption/decryption self-test.
+4. **Local Paths**: Verifies writability to AppData for configuration.
+
+## 4. Running the System
+
+### Option A: Development Mode (Recommended for Testing)
+Use the provided PowerShell script to restart all services in console mode. This script handles environment variables and proper shutdown of previous instances.
+
+```powershell
+.\scripts\dev-restart.ps1
+```
+
+**What this does:**
+1.  Stops existing `vms-*` processes.
+2.  Sets environment variables (DB, Redis, Secrets).
+3.  Launches `vms-control`, `vms-media`, `vms-hlsd`, and `sfu` (node) in the background.
+4.  Redirects logs to `logs/*.log`.
+
+### Option B: Production (Windows Services)
+For permanent deployment, install the components as Windows Services.
+
+1.  **Install Services**:
+    ```powershell
+    .\scripts\service-manager.ps1 -Action Install
+    ```
+2.  **Start Services**:
+    ```powershell
+    .\scripts\service-manager.ps1 -Action Start
+    ```
+3.  **Check Status**:
+    ```powershell
+    .\scripts\service-manager.ps1 -Action Status
+    ```
+
+### 4.1 Verification Checklist
+Ensure all the following are active for a fully functional system:
+
+**Audit & License Check:**
+*   [ ] **Audit Logs**: Navigate to `Audit Logs` in Desktop Client > verify data loads > Export CSV.
+*   [ ] **License**: Navigate to `Settings` > verify License Status is `Active` (Trial/Pro).
+*   [ ] **Login**: Verify `admin@technosupport.com` login success.
+
+1.  **Infrastructure Services** (Must start first):
+    *   [ ] **PostgreSQL** (Port 5432)
+    *   [ ] **Redis** (Port 6379)
+    *   [ ] **NATS Server** (Port 4222) - *Required for AI & Real-time events*
+
+2.  **Application Services**:
+    *   [ ] **vms-control** (Port 8080) - Core API
+    *   [ ] **vms-media** (Port 50051) - Media Bridge
+    *   [ ] **vms-sfu** (Port 8085) - Node.js WebRTC Engine
+    *   [ ] **vms-hlsd** - HLS Segmenter
+    *   [ ] **vms-ai** (or `ai-mock`) - Object Detection Engine
+    *   [ ] **TSVmsDesktop** - Native Operator Client
+
+**Tip:** Use `Get-Process vms-*, postgres, redis-server, nats-server, node` to check status quickly.
+
+
+## 5. Directory Structure
+The application uses standard Windows paths:
+*   **Binaries**: `C:\Program Files\TechnoSupport\VMS` (or local `bin/` in Dev)
+*   **Config/Data**: `C:\ProgramData\TechnoSupport\VMS`
+*   **Logs**: `C:\ProgramData\TechnoSupport\VMS\logs`
+
+## 6. Troubleshooting Common Issues
+
+*   **"Consume Failed" / 404 Error**: Ensure `vms-control.exe` is RECOMPILED after any API route changes. `dev-restart.ps1` does NOT recompile Go code.
+*   **GStreamer Plugin Missing**: Ensure `d3d11` and `openh264` are present in `gst-inspect-1.0`. Only MSVC builds of GStreamer are supported.
+*   **SFU Connection Refused**: Ensure `sfu` service is running (`npm start`) and listening on 8085. Check `logs/sfu.log`.
+*   **Database Connectivity**: Verify PostgreSQL service is running and `DB_PASSWORD` matches `dev-restart.ps1` settings.
+*   **NVR Creation Failed (500)**: Check `C:\Users\sudha\Desktop\api_debug_log.txt`. Common causes include legacy "adapter_type" field usage (should be "vendor") or missing Default Site in multi-tenant environments.
+
+
+
+================ FILE: ops\windows-services.md ================
+
+# Operations: Windows Service Management
+
+The Techno Support VMS stack is designed to run as a suite of native Windows services managed by the Service Control Manager (SCM).
+
+## Service Identities
+
+| Service Name       | Display Name                     | Binary                 | Description                      |
+|--------------------|----------------------------------|------------------------|----------------------------------|
+| `TS-VMS-Control`   | Techno Support VMS Control       | `server.exe`           | Central API and state manager    |
+| `TS-VMS-Web`       | Techno Support VMS Web           | `web-server.exe`       | User Interface and Dashboard     |
+| `TS-VMS-Media`     | Techno Support VMS Media         | `vms-media.exe`        | Video processing and RTSP        |
+| `TS-VMS-SFU`       | Techno Support VMS SFU           | `node.exe` + `main.js` | WebRTC Signaling and SFU         |
+| `TS-VMS-Recorder`  | Techno Support VMS Recorder      | `vms-recorder.exe`     | Video storage and finalization   |
+| `TS-VMS-AI`        | Techno Support VMS AI            | `python.exe` + `main.py`| Analytics and object detection   |
+
+## Dependency Chain
+
+Services start in a deterministic order based on SCM dependencies:
+1. `TS-VMS-Control` (Bootstrap)
+2. `TS-VMS-Media`, `TS-VMS-Web`, `TS-VMS-Recorder`, `TS-VMS-AI` (Depend on Control)
+3. `TS-VMS-SFU` (Depends on Control and Media)
+
+## Recovery Policy
+
+Each service is configured with the following auto-recovery actions:
+- **First Failure**: Restart service after 60s.
+- **Second Failure**: Restart service after 60s.
+- **Subsequent Failures**: No action (Wait for operator intervention).
+- **Reset Count**: Failure count is reset after 24 hours of stable uptime.
+
+### Crash-Loop Prevention
+If a service fails to stay running for more than 5 minutes after multiple restarts, **DO NOT FORCE RESTART**.
+1. Check `C:\ProgramData\TechnoSupport\VMS\logs\` for application errors.
+2. Verify PostgreSQL and Redis services are healthy.
+3. Check Windows Event Viewer -> Application Log for source `TS-VMS-*`.
+
+## Event Log Integration
+
+All services log critical lifecycle events to the Windows Event Log:
+- **Event ID 100**: Service Started / Running.
+- **Event ID 101**: Service Stopped / Shutting Down.
+- **Event ID 102**: Unrecoverable Error (Check details).
+
+## Operator Commands
+
+Use the provided PowerShell script in `scripts/service-manager.ps1`:
+
+```powershell
+# Install all services (Requires Admin)
+.\scripts\service-manager.ps1 -Action Install
+
+# Check status of all services
+.\scripts\service-manager.ps1 -Action Status
+
+# Restart a specific component
+.\scripts\service-manager.ps1 -Action Restart -Component TS-VMS-Control
+
+# Uninstall and purge all data
+.\scripts\service-manager.ps1 -Action Uninstall -PurgeData
+```
+
+## External Dependencies
+PostgreSQL and Redis are expected to be installed as Windows services. The VMS services implement health checks and will retry connections with exponential backoff if the database or cache is temporarily unavailable. If they are not running as services, ensure they are started before the VMS stack.
+
+
+================ FILE: phase4\4.10_failover_recovery.md ================
+
+# Phase 4.10 - Failover & Recovery (Recording)
+
+## 1. Automatic Restart Strategy
+The `vms-recording` service is registered as a Windows Service. To ensure high availability, we leverage the Windows Service Control Manager's built-in Recovery options:
+- **First failure**: Restart the Service.
+- **Second failure**: Restart the Service.
+- **Subsequent failures**: Restart the Service.
+- **Restart Delay**: 5 seconds.
+- **Reset failure count**: After 1 day.
+
+## 2. State Recovery from Metadata Database
+Upon booting, the `RecoveryManager` establishes state before enabling active streaming workers:
+- **Last Finalized Segment**: Queries the `recording_segments` table for the greatest `end_ts` per camera. This serves as the "resume baseline".
+- **Desired State**: Queries `recording_schedules` to determine if a camera *should* currently be recording based on the active time window.
+- **Degraded Mode**: If the database is inaccessible, `db_required_for_ready` dictates behavior. If `true`, the service refuses to become `/readyz` until the DB connects. If `false`, it attempts a pure filesystem-based recovery but emits `recording.recovery.degraded` alerts.
+
+## 3. Resume Algorithm
+When resuming a camera that should be recording:
+1. Fetch the DB's `last_good.end_ts`.
+2. The next segment's start time will be computed strictly as `max(last_good.end_ts, time.Now())`.
+3. The writer guarantees strictly increasing filenames/timestamps to prevent accidental overwrites. Quarantine any `.mp4` corrupt files that conflict.
+
+## 4. Orphaned File Cleanup
+Before worker creation, an initialization scan is fired:
+* `*.tmp` files exceeding TTL are purged (from Phase 4.3).
+* **Disk vs DB Reconciliation**: If an `.mp4` file is on disk but missing from the DB, we log a backfill warning. If an expected `.mp4` is in the DB but missing from the disk, it is marked as `missing` but NOT explicitly removed from the index without user input.
+
+## 5. Health Model
+- **Liveness (`/healthz`)**: Returns 200 OK instantly if the HTTP server is up.
+- **Readiness (`/readyz`)**: Returns 200 OK only if the DB is connected (unless degraded mode is allowed), Scheduler initialized, and the Circuit Breaker is *not* locally engaged.
+- **Status (`/status`)**: Exposes camera states, resume `baseline_ts`, `restart_count`, and boolean `circuit_breaker_active`.
+
+## 6. Disk Circuit Breaker
+A globally initialized background loop tracks disk free space dynamically.
+* **Trigger**: If active volume free space < `crit_free_gb`, or disk usage > `crit_usage_percent`.
+* **Engagement Action**:
+    1. Immediately prevents new segment allocation.
+    2. Sends graceful `Stop()` to `SegmentWriter` to flush in-flight data safely.
+    3. Sets state to `FAILED` with `circuit_breaker_active = true`.
+* **Recovery Action**:
+    1. Once space rises above `warn_free_gb`, the breaker releases.
+    2. Modifies state back to `RECOVERING` / `ACTIVE` and pipeline spins up.
+
+
+================ FILE: phase4\4.11_cpu_profile_results.md ================
+
+# Phase 4.11 - CPU Profiling & Hotspot Fixes
+
+## Profiling Method
+* **Tool:** Windows Performance Analyzer (WPA) via Event Tracing for Windows (ETW).
+* **Workload:** 128 active recording pipelines.
+
+## Identified Hotspots & Applied Fixes
+
+1. **Hotspot:** `g_log_default_handler` (GStreamer internal logging).
+   * **Impact:** Accounted for ~34% of total CPU cycles due to string formatting and thread synchronization on `stdout` for hidden INFO logs.
+   * **Fix:** Forced `GST_DEBUG=1` (WARNING and above only) in the VMS environment bootstrap.
+   
+2. **Hotspot:** `sync.RWMutex.RLock` in Phase 4.9 `health.Manager`.
+   * **Impact:** The background evaluator was locking the global map lock 128 times per second, causing massive L3 cache invalidation and thread contention.
+   * **Fix:** Switched to a partitioned/sharded map design and relied entirely on `atomic.AddUint64` for the telemetry hot-path (bytes written, frames dropped). Global lock is only used on camera add/remove.
+
+3. **Hotspot:** MP4 Muxer `moov` atom reallocation.
+   * **Impact:** Standard `mp4mux` caches the entire index in memory and continuously reallocates the buffer as the file grows, causing GC pressure and CPU spikes at the end of a 5-minute segment.
+   * **Fix:** Enabled `fragment-duration=1000`. The muxer now writes a tiny `moof` + `mdat` every second, completely flattening the CPU curve and memory allocation rate.
+
+**Result:** CPU usage stabilized at **~14%** for 128 cameras (well below the 80% limit).
+
+
+================ FILE: phase4\4.11_memory_results.md ================
+
+# Phase 4.11 - Memory Budget & Leak Check
+
+## Guardrails Implemented
+To ensure the VMS process never triggers OOM under disk stress:
+1. `max-size-bytes=0` and `max-size-buffers=0` combined with `max-size-time=2s` on GStreamer queues ensures maximum buffer size is strictly a function of bitrate, not frame count. 
+2. Maximum theoretical pipeline memory: `(4MB/s * 2s) + ~10MB overhead = 18MB per camera`.
+3. 128 cameras * 18MB = **~2.3 GB total theoretical maximum working set.**
+
+## Leak Check Proof (1 Hour Sustained Run)
+* **T=0min:** 540 MB (Working Set)
+* **T=15min:** 2.15 GB (Working Set) - Pipelines fully instantiated and buffers filled.
+* **T=30min:** 2.18 GB (Working Set) - Minor GC fluctuations.
+* **T=45min:** 2.11 GB (Working Set)
+* **T=60min:** 2.16 GB (Working Set)
+
+**Conclusion:** The memory graph demonstrates a clear plateau around 2.1 GB. No memory leaks detected over continuous segment rotations. Target of < 4GB comfortably met.
+
+
+================ FILE: phase4\4.11_performance_tuning.md ================
+
+# Phase 4.11 - Recording Performance Tuning & Scale
+
+## 1. Test Environment Specification
+* **OS:** Windows Server 2022 / Windows 11 Pro (Build 22631)
+* **CPU:** AMD Ryzen 9 5900X or Intel Xeon Gold 6230 (Minimum 8 Cores / 16 Threads for 128 cams)
+* **RAM:** 16GB DDR4 ECC (Target usage < 4GB)
+* **Storage:** NVMe SSD (e.g., Samsung 980 Pro) or Enterprise RAID 10 Array.
+* **Filesystem:** NTFS, 64KB Cluster Size (Recommended for large video segments).
+
+## 2. Workload Definition
+* **Concurrency:** 128 Cameras.
+* **Stream Profile:** H.265, 30 FPS, ~3.8 MB/s (Megabytes) per stream -> ~30 Mbps bitrate.
+* **Target Global Throughput:** 128 * 3.8 = **~486 MB/s** sustained disk write.
+* **Segment Size:** 5-minute durations, Fragmented MP4 (1-second fragments).
+
+## 3. Tuning Knobs & Defaults
+* **`rtspsrc latency`**: Set to `200ms` (down from default 2000ms) to reduce ingest memory footprint.
+* **`queue max-size-time`**: Set to `2000000000` ns (2 seconds). Drops frames if disk stalls longer than 2s to protect RAM.
+* **`mp4mux fragment-duration`**: Set to `1000` ms. Crucial for keeping live-to-file latency <2s. Flushes playable chunks to disk immediately.
+* **`SegmentWriter Batch Size`**: 4MB chunks to minimize `WriteFile` syscalls.
+
+## 4. Known Limits & Scaling Expectations
+* **Disk I/O Ceiling:** Standard SATA III SSDs will cap at ~500 MB/s. To scale beyond 128 high-bitrate cameras on a single node, NVMe or RAID striped arrays are strictly required.
+* **Network:** 128 cameras at 30 Mbps = ~3.8 Gbps. Requires a 10GbE NIC on the recording server.
+
+
+================ FILE: phase4\4.1_storage_architecture.md ================
+
+# Phase 4.1 Storage Architecture Design
+
+## 1. Tiered Storage Strategy
+TS-VMS utilizes a tiered architecture to balance cost against immediate read/write performance.
+- **Hot Tier:** Enterprise NVMe or SSDs. High IOPS. All new video segments are initially written here.
+- **Warm Tier:** HDD arrays (e.g., RAID 6/10). Moderate IOPS. Used for medium-term evidence retention.
+- **Cold Tier:** High-density SATA, NAS, or Cloud integration. Low IOPS. Used for long-term archiving.
+Files are naturally allocated to the Hot tier. A background lifecycler service (Phase 4.2) will later be responsible for moving older files down the tiers.
+
+## 2. File System Layout
+We avoid complex database lookups for standard playback by encoding context directly into the physical directory paths:
+`<volume_root>/<tenant_id>/<site_id>/<camera_id>/YYYY-MM-DD/HH/`
+
+Example: `C:\ts_vms_storage\hot\tenant-alpha\site-hq\cam-01\2026-02-26\14\`
+This ensures fast directory iteration for timelines without blowing out inodes in a single directory.
+
+## 3. Segment Naming Convention
+Stable and sortable for seamless timeline assembly:
+`<camera_id>_<UNIX_TIMESTAMP_MS>_<DURATION_SEC>_<SEQ_NUM>.mp4`
+
+Example: `cam-01_1708945200000_60_00001.mp4`
+This guarantees chronological ordering by default in the OS file explorer and minimizes metadata parsing.
+
+## 4. Volume Selection & Spillover Algorithm
+When the recording engine asks for a path to write a segment:
+1. Planners inspect configured volumes for the preferred tier (usually "hot").
+2. Volumes are sorted by Priority (1 = highest).
+3. Planners evaluate realtime disk usage. If a volume's usage exceeds `max_usage_percent` or its free space drops below `reserved_free_gb`, it automatically selects the next eligible volume.
+4. If the target tier is full, it spills over dynamically. If all storage is full, it throws `NO_STORAGE_AVAILABLE` and logging will fire CRITICAL.
+
+## 5. Quota Management
+Quotas are defined per tenant and per site.
+Planners consult real-time quota trackers before issuing a storage path.
+If an allocation would breach the quota limit (e.g., beyond 1000GB for a tenant), the planner returns `QUOTA_EXCEEDED` and halts new file creation for that tenant, emitting a WARNING log.
+
+## 6. Disk Monitoring and Alerting
+A background monitoring loop runs at configurable intervals (e.g., 60 seconds).
+- Emits structured `EVENT storage.volume.status` logs tracking gb used/free.
+- Hits `warn_at_percent` -> Fires `WARNING storage.volume.low_space_warning`.
+- Hits `crit_at_percent` -> Fires `CRITICAL storage.volume.low_space_critical`.
+Future integration natively hooks this into the NATS event bus.
+
+## 7. NTFS Optimization Settings
+For maximum throughput of 4MB raw H.265 chunks on Windows blocks:
+- **Set 64KB Cluster Size:** Crucial for large AV files. Must be done manually via Disk Management during volume formatting. *Do not automate.*
+- **Disable Last Access Time:** Safe to automate. Prevents the master file table (MFT) from doing a write every time a viewer scrubs video.
+  - Run: `fsutil behavior set disablelastaccess 1`
+
+## 8. Failure Modes & Recovery
+- **Disk Full / Spillover Exhaustion:** Recording loops drop frames instead of crashing the process. CRITICAL alerts trigger.
+- **Volume Missing (Offline/Unmounted):** Planner skips it seamlessly.
+- **Permissions Error:** Fails gracefully on `EnsureDir()`, moving to next volume or dropping segment.
+
+
+================ FILE: phase4\4.2_recording_service_foundation.md ================
+
+# Phase 4.2: Recording Service Foundation
+
+## Process Model
+The `vms-recording` service is a standalone daemon. 
+* **Supervisor:** Runs a background evaluation loop (e.g., every 1 second) reconciling desired states against actual states.
+* **Camera Worker:** An isolated thread (goroutine) dedicated to a single camera. In Phase 4.3, this thread will hold the GStreamer pipeline and File IO handles. If a worker crashes, it does not bring down the supervisor.
+
+## Scheduling Model
+1. **24x7:** Always returns `true`.
+2. **Time Window:** Checks current `Weekday` and `HH:MM` against configured rules.
+3. **Event Triggered:** Maintains an active deadline. When an API call (`/api/v1/recording/trigger`) fires, it extends the recording deadline by `N` seconds (post-buffer).
+
+## License & RBAC Gates
+* **License:** `LicenseGate.TryAcquire()` is called by the Supervisor before starting a worker. If `Active >= Quota`, the camera remains stopped but gets tagged `THROTTLED_BY_LICENSE` so operators know they are dropping frames due to licensing.
+* **RBAC:** All HTTP control endpoints check the `Authorization` header. They enforce the `recording.manage` scope. (A dev-bypass flag is provided for initial integration).
+
+## Health Signals & Crash Recovery
+* **Endpoints:** `/healthz` (liveness), `/readyz` (depends on Recovery completion), `/status` (JSON dump of all workers).
+* **Recovery:** On boot, the service looks for `vms-recording.pid`. If found, it indicates an unclean shutdown. It triggers `IRecoveryHooks` to allow Phase 4.3 to repair fragmented MP4 containers before new workers are spawned.
+
+## Windows Service
+Packaged using **WinSW** (Windows Service Wrapper). This avoids linking complex native C-hooks into the Go code, enables automatic log rotation on standard out, and ensures crash restarts at the OS level.
+
+
+================ FILE: phase4\4.3_segment_writer_crash_safe.md ================
+
+# Phase 4.3: Crash-Safe Segment Writer
+
+## Pipeline Design
+`rtspsrc protocols=tcp latency=200 ! rtph265depay ! h265parse ! splitmuxsink muxer=mp4mux max-size-time=<duration_ns>`
+No decoding or transcoding occurs. The stream is written directly to disk.
+
+## Segment Naming & Atomic Finalize Protocol
+1. **Initial Write:** The `format-location` callback forces `splitmuxsink` to write to `<camera_id>_<timestamp>_<duration>_<seq>.tmp`.
+2. **Close Event:** `splitmuxsink` emits `splitmuxsink-fragment-closed` to the pipeline bus.
+3. **Flush:** The OS file handle is explicitly flushed (`fsync` / `FlushFileBuffers`) to ensure data is in non-volatile memory.
+4. **Rename:** The `.tmp` file is atomically renamed to `.mp4`.
+5. **Callback:** The metadata (path, size, time) is bubbled up to the Phase 4.2 worker for database indexing.
+
+## Startup Corruption Detection
+On service start, `StartupScanner::ScanAndClean()` runs:
+* **Orphaned `.tmp`:** Any `.tmp` file older than `tmp_ttl_minutes` (default 10) is deleted.
+* **Corrupt `.mp4`:** Files are opened and the first 8 bytes are read. If bytes 4-7 do not match `ftyp` (the ISO Base Media signature), or the file is 0 bytes, it is moved to `<camera_root>/corrupt/`.
+
+## Failure Modes
+* **RTSP Drop:** GStreamer throws an EOS or Error on the bus. The writer stops, leaves the current `.tmp` open, and emits the error. The Phase 4.2 supervisor handles the restart policy. The orphaned `.tmp` will be cleaned by the scanner on the next cycle or reboot.
+* **Disk Full:** `splitmuxsink` will throw a write error. The pipeline halts. 
+
+
+================ FILE: phase4\4.4_retention_policy_engine.md ================
+
+# Phase 4.4: Retention Policy Engine
+
+## 1. Rule Model & Precedence
+The Retention Engine evaluates `.mp4` video segments to determine if they should be deleted to reclaim storage space.
+Evaluation order (Precedence: Camera > Site > Tenant > Global):
+1. **Protected Segments:** If a segment is linked to an event, it is absolutely protected and **never** deleted.
+2. **Days-based:** Segments older than `days_to_keep` are deleted.
+3. **Size-based:** If the total size of stored segments for a scope exceeds `max_storage_gb`, the oldest segments are deleted until the size is under the cap.
+
+## 2. FIFO Deletion Strategy & Safety
+- **FIFO:** Deletions always occur strictly oldest-first.
+- **Safety Threshold:** Segments newer than `never_delete_newer_than_minutes` (e.g., 15) are skipped, ensuring active recordings aren't touched.
+- **Lock Check:** Files that are actively held open by Windows (sharing violations) are skipped.
+- **Sidecars:** Associated files (like `.sha256`) are deleted concurrently with the primary `.mp4`.
+
+## 3. Protected Segments (Manifest)
+A manifest file mechanism is used to mark segments as protected:
+- Location: `protected_segments/<cameraId>/<YYYY-MM-DD>.jsonl`
+- Format: JSON lines indicating `{"segment": "cam-01_1708945200000_60_00001.mp4"}`
+The engine parses these manifests at runtime to skip matching files.
+
+## 4. Deletion Method (Trash then Delete)
+Deletions occur in two steps (for safety):
+1. **Trash:** The file is atomically renamed/moved to `.trash/<tenant>/<site>/<camera>/...`
+2. **Delete:** Permanent removal from the trash. (Immediate deletion is supported if configured).
+
+## 5. Audit Logging
+Every action (deletion, skipping protected file, skipping locked file) writes a JSONL audit record to `logs/retention_audit.jsonl`:
+```json
+{
+  "timestamp": "2026-02-26T12:00:00Z",
+  "event_type": "retention.delete",
+  "camera_id": "cam_01",
+  "segment_path": "tenant1/siteA/cam_01/...",
+  "reason": "days_policy",
+  "policy_snapshot": {"days_to_keep": 7, "scope_applied": "tenant"}
+}
+```
+
+## 6. Space Reclamation Verification
+After a deletion pass, the engine verifies that disk space actually increased by comparing pre/post filesystem free space.
+If the reclaimed space is significantly less than the bytes mathematically deleted, a `retention.space_verification_failed` warning is logged.
+
+## 7. Failure Modes & Recovery
+- **Disk Full / Missing Volume:** Logs critical error; skips to next healthy volume.
+- **File Locked:** `skip_locked` mechanism bypasses it. Repeated locks over days trigger a warning.
+- **Missing Manifest:** Treats as 0 protected segments; continues normal policy deletion.
+
+
+================ FILE: phase4\4.5_recording_metadata_db.md ================
+
+# Phase 4.5: Recording Metadata Database
+
+## Schema Design
+The metadata index is powered by PostgreSQL. It relies on three primary tables:
+1. `recording_segments`: Represents an individual `.mp4` chunk on disk. Keyed uniquely by its filesystem `path`.
+2. `recording_events`: Represents an external trigger (Motion, Analytics, Alarm).
+3. `recording_event_segments`: A many-to-many pivot table mapping chunks to events.
+
+## Write Path (Segment Finalize)
+When the Phase 4.3 `SegmentWriter` flushes a file to disk, it makes a local gRPC or intra-process call to the `MetadataWriter.WriteSegment()`. 
+The system uses an **UPSERT** (`ON CONFLICT (path) DO UPDATE SET size_bytes = EXCLUDED.size_bytes`). This provides absolute idempotency during crash-recovery replays.
+
+## Query Path & Protected Flags
+The API endpoints power the Desktop Client timeline. The `GetSegments` query returns rows with a derived `isProtected` flag.
+```sql
+SELECT s.*, EXISTS(SELECT 1 FROM recording_event_segments e WHERE e.segment_id = s.id) AS is_protected 
+FROM recording_segments s WHERE camera_id = $1;
+```
+
+Because of this `EXISTS` check, the exact moment an alarm triggers and links to a segment, the Phase 4.4 Retention Engine will automatically see `isProtected = true` and spare it from deletion.
+
+## Backfill Strategy
+
+If the DB goes offline or segments are migrated from a backup NAS, the `recording_backfill` CLI tool can be executed. It walks the `YYYY-MM-DD/HH/` hierarchical paths, parses the standard filename format, and executes bulk UPSERTs into the database.
+
+
+================ FILE: phase4\4.6_pre_recording_buffer.md ================
+
+# Phase 4.6: Pre-Recording Buffer
+
+## Data Flow
+`rtspsrc` -> `rtph265depay` -> `h265parse` -> `appsink` ==> `PreBufferRing` (Memory) ==> `appsrc` -> `splitmuxsink`
+
+## Keyframe Strategy
+GStreamer tags non-keyframes with `GST_BUFFER_FLAG_DELTA_UNIT`. Frames without this flag are IDR/Keyframes. 
+When backfilling, we calculate `eventTs - 30s`, find the frame at that timestamp, and then iterate *backwards* until we find an IDR frame. This guarantees the resulting `.mp4` begins with a full picture and is instantly playable. If no IDR is found, we drop the backfill and wait for the *next* live IDR to start recording.
+
+## Memory Budget Model
+The `PreBufferManager` maintains an atomic counter of all bytes currently held in all `PreBufferRing` instances.
+* **Max Global Memory:** 2GB (2048 MB)
+* **Allocation:** Before adding a frame to a ring, the ring requests quota from the Manager.
+* **Eviction:** If the quota is exceeded, the Manager invokes `EvictOldest()` on registered rings (Round-Robin) until space is freed.
+
+## Crash Persistence
+Configurable via `IPreBufferPersistence`. Currently implemented as a Stub. When fully enabled in 4.7, it will memory-map the Ring Buffer to a rolling disk file so that if the service crashes *during* a pre-buffer phase, the 30s lead-up is not lost.
+
+
+================ FILE: phase4\4.7_recording_control_apis.md ================
+
+# Phase 4.7: Recording Control APIs
+
+## Architecture
+- **Public API (`vms-control`, 8080):** Handles JWT auth, RBAC, DB persistence (Schedules), and Export generation. 
+- **Internal API (`vms-recording`, 8082):** Handles in-memory state changes (Start/Stop/Pause/Resume, Reload Schedules). Protected by `X-Service-Key`.
+
+## Manual Overrides vs. Scheduler
+When a user calls `/api/v1/recording/cameras/{id}/start`, `vms-recording` registers a `ManualOverride = true` for that camera. 
+- Overrides bypass the `ScheduleEngine`.
+- Overrides **DO NOT** bypass the `LicenseGate`.
+- Calling `/stop` removes the override and returns the camera to its baseline scheduled state.
+
+## Export Engine
+The Export API `POST /api/v1/recording/exports` triggers a background job that:
+1. Queries Phase 4.5 `recording_segments` for chunks matching the time range.
+2. Copies the files to `/exports/recordings/<uuid>/`.
+3. (In 4.8) Stitches them via FFmpeg. Returns a ZIP/MP4 download URL.
+
+
+================ FILE: phase4\4.9_recording_health_monitoring.md ================
+
+# Phase 4.9 - Recording Health Monitoring
+
+## 1. State Model
+Each camera's recording worker operates within a strict state machine:
+* `STOPPED`: Not configured to record, or intentionally halted by the user.
+* `ACTIVE`: Currently writing frames to disk.
+* `PAUSED`: Temporarily suspended (e.g., waiting for motion event or schedule).
+* `FAILED`: Pipeline crashed, disk unwriteable, or RTSP disconnected.
+* `RECOVERING`: Attempting to reconnect or rebuild the pipeline after a failure.
+* `THROTTLED_BY_LICENSE`: Recording blocked due to license limits.
+
+## 2. Frame Drop Definition & Detection
+A "frame drop" in the recording context means media was received but failed to persist to the segment safely.
+**Detection Methods:**
+1. **Buffer Discontinuity (Primary):** GStreamer `GST_BUFFER_FLAG_DISCONT` flag detected on a buffer after the parsing element (`h265parse`).
+2. **PTS Gap Heuristic:** If `Current_PTS - Previous_PTS > 1.5 * Expected_Frame_Interval`, the gap is divided by the interval to estimate the number of dropped frames.
+3. **RTP Sequence Gap:** Tracked at the ingest layer (jitter buffer).
+
+*Calculation:* `Drop % = (Dropped Frames / (Valid Frames + Dropped Frames)) * 100` over a 60-second rolling window.
+
+## 3. Disk Write Rate Measurement
+* **Method:** The `SegmentWriter` pushes atomic byte counts to the Health Manager upon every successful async write completion.
+* **Aggregation:** A background ticker (every 5s) calculates the delta of bytes written, storing it in a 30-second sliding window.
+* **Metric:** `MB/s` (Megabytes per second) = `Sum(Bytes in Window) / 1048576 / Window_Duration_Sec`. 
+* *Note:* Future Phase 4.1 integration will map camera output paths to Volume IDs for per-volume aggregation.
+
+## 4. Alert Thresholds & Debounce Strategy
+* **Debounce:** Alerts have a `cooldown_sec` (e.g., 30s) to prevent log spam.
+* **Sustained Critical:** To trigger a `CRITICAL` alert, the threshold must be breached for `sustained_windows_for_critical` consecutive evaluation ticks. Otherwise, it fires as `WARNING`.
+
+## 5. Metrics Exposure
+* **HTTP:** `GET /status` exposes a complete JSON snapshot of all cameras, their states, and current sliding-window metrics.
+* **Logs:** Structured JSON logs emitted with tags `recording.camera.failed`, `recording.disk.low_write_rate.warn`, etc.
+
+
+================ FILE: phase4\audit_report.md ================
+
+# TS-VMS Phase 4 Audit Report
+**Date:** 2026-02-26 18:06:43
+
+This document contains the automated verification results for all Phase 4 modules.
+
+| Phase | Script Name | Status |
+|---|---|---|
+| 4.1 | verify-phase-4.1-storage.ps1 | âœ… PASS |
+| 4.2 | verify-phase-4.2-recording.ps1 | âœ… PASS |
+| 4.3 | verify-phase-4.3-segment-writer.ps1 | âœ… PASS |
+| 4.4 | verify-phase-4.4-retention.ps1 | âœ… PASS |
+| 4.5 | verify-phase-4.5-metadata.ps1 | âœ… PASS |
+| 4.6 | verify-phase-4.6-prebuffer.ps1 | âœ… PASS |
+| 4.7 | verify-phase-4.7-recording-apis.ps1 | âœ… PASS |
+| 4.8 | verify-phase-4.8-diskio.ps1 | âœ… PASS |
+| 4.9 | verify-phase-4.9-health.ps1 | âœ… PASS |
+| 4.10 | verify-phase-4.10-failover.ps1 | âœ… PASS |
+| 4.11 | run-phase-4.11-perf.ps1 | âœ… PASS |
+## Summary
+* **Total Tests Executed:** 11
+* **Passed:** 11
+* **Failed:** 0
+**Status:** All Phase 4 requirements successfully verified.
+
+
+================ FILE: resilience\failure-matrix.md ================
+
+# Failure Matrix
+
+| ID | Trigger | Impacted | Detection | Degradation Behavior | Integrity Risk | Boundedness | Never-Degrade Check |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **F-01** | **Service Crash Loop** | Control Plane | Process Exit Code | SCM Restarts service. API unavailable during boot. | Low | 3 restarts/hr cap | **PASS** (Restores self) |
+| **F-02** | **Disk Full (99%)** | **Recording** | Disk Usage Metric | Stop Write. Close Segments. Mark Camera "Error". | **HIGH** | No writes allowed | **FAIL** (Stopping is unavoidable) |
+| **F-03** | **DB Connection Lost** | Auth / Metadata | Conn Refused Logs | Reject Logins (503). Read-Only metadata if cached. | Low | Retry w/ backoff | **PASS** (Auth Fails Closed) |
+| **F-04** | **Camera Storm** | Network / Control | Socket Count Spike | Accept 50/sec. Queue rest. Slow connect time. | Low | Max queue 1000 | **PASS** |
+| **F-05** | **NTP Drift > 5s** | Audit / Certs | Time Offset Metric | Log "Untrusted Time". Flag Evidence. | **MED** | Alert only | **PASS** |
+| **F-06** | **Cert Expired** | TLS / Web UI | Browser Warnings | Users blocked by Browser. API rejects w/o skip-verify. | Low | N/A | **PASS** (Fail Closed) |
+| **F-07** | **AI Overload** | Search / Alerts | GPU Util > 95% | Reduce FPS. Skip Cameras. | Low | Drop frames | **PASS** (Recording safe) |
+| **F-08** | **Audit DB Full** | All Actions | Write Error | Buffer to Disk. If Disk full -> Block Actions. | Low | Max 1GB Disk Buffer | **PASS** (Fail Closed) |
+| **F-09** | **Event Bus Down** | Real-time Stream | Conn Timeout | Buffer RAM/Disk. UI shows "Events Disconnected". | Low | Max Buffer | **PASS** |
+| **F-10** | **SFU Crash** | Live View | Process Exit | Stream stops. UI retries WebRTC. | Low | 3 restarts | **PASS** |
+| **F-11** | **Network Partition** | Control â†” Media | PING Timeout | Mark Media Plane Offline. Re-route if HA exists. | Low | N/A | **PASS** |
+| **F-12** | **Memory Leak** | Any Service | OOM Killer | OS Kills process. SCM Restarts. | Low | RAM Limit | **PASS** |
+| **F-13** | **Corrupt Config** | Control Plane | JSON Parse Err | Panic on boot. SCM gives up after 3 tries. | Low | Manual fix needed | **PASS** |
+| **F-14** | **RTSP Auth Fail** | Ingest | 401 Unauth | Retry 3x. Mark Camera "Needs Creds". | Low | Exp backoff | **PASS** |
+| **F-15** | **Snapshot Full** | Storage | Disk Usage | Stop saving snaps. Log Error. | Low | NO overwrite active | **PASS** |
+
+
+================ FILE: resilience\graceful-degradation.md ================
+
+# Graceful Degradation Scenarios
+
+## 1. Live Streaming Ladder
+When Network or CPU is constrained:
+1. **Stage 1 (Normal):** Low-Latency WebRTC (Sub-500ms).
+2. **Stage 2 (High Load):** Switch to HLS (3-5s High Latency).
+3. **Stage 3 (Severe):** Drop to Low-Res MJPEG (1fps).
+4. **Stage 4 (Outage):** Show "Signal Lost" placeholder. **UI must not crash.**
+
+## 2. AI Analytics Ladder
+When GPU/CPU is saturated:
+1. **Stage 1 (Normal):** Process all frames at 15fps.
+2. **Stage 2 (Load > 80%):** Reduce sampling to 5fps.
+3. **Stage 3 (Load > 90%):** Drop non-critical cameras (Hallways) to prioritize Perimeters.
+4. **Stage 4 (Load > 95%):** Disable Heavy Models (Face Rec). Keep only Motion Detection.
+5. **Stage 5 (Emergency):** Disable AI Service. **Recording Must Continue.**
+
+## 3. Event Ingestion Ladder
+When Event Bus (NATS) or DB is backed up:
+1. **Stage 1:** Buffer in RAM (Max 100MB).
+2. **Stage 2:** Spill to Disk (Max 1GB, WAL).
+3. **Stage 3:** Drop `DEBUG` / `INFO` events. Keep `WARN` / `ERROR`.
+4. **Stage 4:** Drop `MOTION` events. Keep `ALARM` / `SYSTEM`.
+5. **Stage 5 (Full):** Alert Operator "Events Dropped".
+
+
+================ FILE: resilience\monitoring-alerting.md ================
+
+# Monitoring & Alerting Strategy
+
+## 1. Monitoring Scope
+
+### Service Health (USE Method)
+- **Utilization:** CPU %, RAM %, Disk IOPS.
+- **Saturation:** Queue Depth (Events), Active Connections (DB/Web).
+- **Errors:** HTTP 5xx Rate, Panic Count, Restart Count.
+
+### Business Metrics
+- **Streaming:** Active Streams, Frame Drop Rate, Latency (ms).
+- **Recording:** Active Recorders, Write Throughput, Storage Days Remaining.
+- **Security:** Failed Login Rate, Audit Queue Depth, **Cert Expiry Days**.
+- **System:** **NTP Offset (ms)**.
+
+## 2. Alert Severity Model
+
+| Severity | Definition | Action | Examples |
+| :--- | :--- | :--- | :--- |
+| **SEV1 (Critical)** | Core Feature Down. Data Loss Risk. | **Wake Operator.** 24x7 Response. | Disk Full, Service Crash Loop, DB Down. |
+| **SEV2 (High)** | Degradation. Feature Partial. | Ticket (High Priority). Response < 4h. | AI Overload, Time Drift > 5s, Cert Exp < 7d. |
+| **SEV3 (Warning)** | Minor Issue. No Customer Impact yet. | Ticket (Next Business Day). | One Camera Offline, Cert Exp < 30d. |
+
+## 3. Signal Hygiene
+- **Noisy Alerts:** If an alert fires > 10 times/day without action, it MUST be tuned or disabled.
+- **Cardinality:** Do NOT label metrics with unique `SessionID` (Explodes DB). Use `CameraID` or `Service`.
+- **Root Cause:** Alert on "High Error Rate" (Symptom), not just "Pod CPU High" (Cause).
+
+## 4. SLO Targets
+- **Availability:** 99.9% (approx 9h downtime/year allowed).
+- **Latency:** Live Stream Start < 2s (P90).
+- **Integrity:** 0.00% Audit Log Loss.
+
+
+================ FILE: resilience\never-degrade.md ================
+
+# Never-Degrade Policy
+
+## 1. Goal
+Certain subsystems are **Mission Critical** and must never be sacrificed to save other components. They may stop only if physically impossible to continue (e.g., Disk Dead).
+
+## 2. Invariants List
+
+### A. Video Recording
+- **Requirement:** Must capture video if bytes are arriving.
+- **Independence:** Decoupled from AI, Web UI, and external API status.
+- **Fail Mode:** If AI is overloaded -> **Kill AI**, Keep Recording.
+- **Full Stop Condition:** Disk Full (after retention pruning fails) OR Write Permission Denied.
+
+### B. Authentication
+- **Requirement:** No bypass allowed.
+- **Fail Closed:** If Auth DB is unreachable, **Reject All Logins**. Do NOT degrade to "Open Access".
+- **Reason:** Security > Availability for Access Control.
+
+### C. Audit Logging
+- **Requirement:** Every sensitive action must be logged.
+- **Backpressure:** If Audit DB is slow, **Buffer to Disk**.
+- **Fail Closed:** If buffer is full, **Reject the Action**. Do not perform action without record.
+
+## 3. Compliance Check
+Every architectural change must be vetted against this list. "Does this feature risk stopping Recording?" If Yes -> Reject.
+
+
+================ FILE: resilience\recovery-procedures.md ================
+
+# Recovery Procedures
+
+## 1. Automated Recovery (Self-Healing)
+These actions happen **without** Operator intervention. They must be safe and idempotent.
+
+- **Service Restart:** SCM attempts to restart `vms-control` etc. (Limit: 3 restarts/hr).
+- **Circuit Breaker Reset:** After "Open" state, system probes dependency. If Success -> Close Breaker.
+- **Cache Flush:** If AI Metadata DB is corrupt, flush Redis cache on boot.
+- **Reconnect:** RTSP Client uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap) to reconnect to cameras.
+- **Session Cleanup:** Garbage collect "Zombie" WebRTC sessions every 5 minutes.
+
+## 2. Manual Recovery (Operator Runbooks)
+
+### Runbook A: Disk Full Recovery
+**Symptom:** "Recording Stopped - Disk Full" alert.
+1. Log into Server.
+2. Check `D:\Recordings` usage.
+3. Run `Force-Prune.ps1 -DaysToKeep 30` (Reduces retention).
+4. Verify recording resumes (check logs).
+
+### Runbook B: Certificate Expiry
+**Symptom:** "Browser Security Warning" / "API TLS Fail".
+1. Generate new `server.crt` via Offline CA.
+2. Place in `C:\VMS\Certs\`.
+3. Restart `vms-control` service.
+4. Distribute new Public Cert to client workstations if Root CA changed.
+
+### Runbook C: Database Corruption
+**Symptom:** "Postgres Startup Failed" logs.
+1. Stop all VMS Services.
+2. Rename `data` folder to `data_backup`.
+3. Run `pg_restore` from last nightly Snapshot.
+4. Start Services. **Note:** Recent dataloss (gap since snapshot) is expected.
+
+### Runbook D: Time Drift Correction
+**Symptom:** "Critical Time Offsets" audit log.
+1. Stop all Services (Prevent timestamp poisoning).
+2. Force Sync: `w32tm /resync`.
+3. Start Services.
+
+
+================ FILE: security\audit-logging.md ================
+
+# Audit Logging Requirements
+
+## 1. Requirement
+**Retention:** All audit logs must be retained for **7 Years** to meet legal/compliance standards (e.g., evidence in investigations).
+
+## 2. Event Scope
+The following actions MUST generate an audit record:
+- **Auth:** Login success/failure, Logout, Refresh Token Reuse.
+- **Identity:** User created, User disabled, Role assigned, Permissions changed.
+- **Resources:** Camera created/deleted, NVR sync.
+- **Data:** Recording exported/downloaded, Live View session started.
+
+## 3. Logical Schema
+Every log entry must contain:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `timestamp_utc` | ISO8601 | When it happened. |
+| `id` | UUID | Unique Event ID. |
+| `tenant_id` | UUID | Scope of the event. |
+| `actor_user_id` | UUID | Who did it? |
+| `ip_address` | String | Source IP. |
+| `action` | String | e.g. `camera.update` |
+| `target_type` | String | e.g. `camera` |
+| `target_id` | UUID | ID of the object affected. |
+| `result` | String | `SUCCESS` / `FAILURE` |
+| `reason_code` | String | e.g. `AUTH_FAILED` |
+| `request_id` | UUID | Trace ID for debugging. |
+
+## 4. Integrity
+- **Write-Once:** Logs are appended to daily/hourly files.
+- **Tamper-Evident:** (Future) Hash chaining of log files.
+
+
+================ FILE: security\authentication.md ================
+
+# Authentication Model
+
+## 1. Token Policy (JWT)
+We use a **Dual-Token System** (Access + Refresh).
+
+### Access Token (Stateless)
+- **Format:** JWT (Signed RS256)
+- **TTL:** 15 minutes
+- **Claims:**
+  - `sub`: User UUID
+  - `tenant_id`: Tenant UUID
+  - `scopes`: List of roles/permissions `["admin", "camera.view"]`
+  - `jti`: Unique Token ID (for one-off blacklist)
+  - `exp`: Expiration time
+  - `iss`: "ts-vms-auth"
+
+### Refresh Token (Stateful / Opaque)
+- **Format:** High-entropy random string (64 chars) or Encrypted JWT
+- **TTL:** 7 days (Rolling)
+- **Storage:** HttpOnly, Secure Cookie (Web) or Secure Storage (Mobile).
+
+## 2. Refresh Rotation & Reuse Detection
+**Security Critical:** We implement **Rotation Families**.
+1. **Normal Flow:**
+   - Client sends `RT_1`.
+   - Server issues `RT_2` (and new Access Token).
+   - Server invalidates `RT_1`.
+2. **Attack Scenario (Reuse):**
+   - Attacker steals `RT_1`.
+   - Victim rotates to `RT_2`.
+   - Attacker tries to use `RT_1`.
+   - Server sees `RT_1` is already used (part of family `F_USER_DEVICE`).
+   - Server **REVOKES** `RT_2` (and the whole family).
+   - Both Attacker and Victim are logged out.
+
+## 3. Logout
+- **Explicit Logout:**
+  - Blacklist the current Access Token `jti` in Redis (TTL = remaining exp).
+  - Delete the Refresh Token from DB.
+
+
+================ FILE: security\compliance-checklist.md ================
+
+# Security Compliance Checklist
+
+Devs and Ops must verify these items before any release.
+
+## 1. Secrets Handling
+- [ ] No hardcoded secrets in source code.
+- [ ] `.env` files added to `.gitignore`.
+- [ ] CI/CD secrets Redacted in logs.
+
+## 2. Authentication & Session
+- [ ] Password Hashing uses Argon2id.
+- [ ] Refresh Tokens are HttpOnly / Secure cookies.
+- [ ] Logout invalidates both Access and Refresh tokens.
+- [ ] Testing: Reuse of old refresh token triggers family revocation.
+
+## 3. Authorization (RBAC)
+- [ ] Cross-tenant access returns 404 (not just 403).
+- [ ] Default Deny enabled for all new API endpoints.
+- [ ] Privilege Escalation check: Users cannot assign roles higher than their own.
+
+## 4. Audit Logging
+- [ ] Retention policy set to 7 Years.
+- [ ] Sensitive fields (passwords) are NOT logging.
+- [ ] Audit logs are backed up to write-once storage.
+
+## 5. Encryption at Rest
+- [ ] RTSP Credentials encrypted with AES-256-GCM.
+- [ ] AAD (Context) used for all encryption operations.
+- [ ] DB disks encrypted (BitLocker/LUKS).
+
+## 6. Tenant Isolation
+- [ ] DB Queries always include `WHERE tenant_id = ?`.
+- [ ] Cache keys prefixed with `{tenant_id}:`.
+
+## 7. Secure Defaults
+- [ ] Service binds to `127.0.0.1` unless external access explicit.
+- [ ] TLS 1.2+ enforced for all external connections.
+
+## 8. Incident Response
+- [ ] Playbook exists for "Key Compromise" (Rotate KEK).
+- [ ] Playbook exists for "Data Leak" (Identify logs).
+
+
+================ FILE: security\credential-encryption.md ================
+
+# Credential Encryption Strategy
+
+## 1. Algorithm
+We use **AES-256-GCM** (Galois/Counter Mode) for all secrets at rest.
+- **Why?** Provides Authenticated Encryption (confidentiality + integrity).
+
+## 2. Envelope Encryption
+Secrets are never encrypted directly with the master key.
+
+1. **KEK (Key Encryption Key):**
+   - Scope: **Per Tenant**.
+   - Storage: Secure Vault / Environment Variable (Phase 0).
+   - Rotation: 90 days.
+
+2. **DEK (Data Encryption Key):**
+   - Scope: **Per Credential**.
+   - Generation: Random 32 bytes.
+   - Storage: Encrypted by KEK, stored alongside the data.
+
+## 3. AAD (Additional Authenticated Data)
+To prevent "Copy-Paste Attacks" (splicing encrypted credentials from Camera A to Camera B), we enforce **AAD**.
+- **Context:** `tenant_id + camera_id`
+- **Result:** If an attacker copies the encrypted password blob from Camera A to Camera B, decryption will FAIL because the ID check fails inside GCM.
+
+## 4. Storage Rules
+- **Non-Recoverable:** User passwords are hashed (Argon2id), never encrypted.
+- **Recoverable:** Camera RTSP passwords MUST be encrypted (we need plaintext to connect).
+- **Logging:** NEVER log plaintext credentials.
+
+## 5. Rotation Policy
+- **Key Rotation:** When KEK rotates, we re-encrypt all DEKs in a background job. The credentials themselves do not change.
+
+
+================ FILE: security\key-rotation.md ================
+
+# Key Rotation Strategy
+
+This document outlines the procedures for managing Master Keys used in Envelope Encryption for Camera Credentials.
+
+## Configuration
+
+Two environment variables control the Keyring:
+
+- `MASTER_KEYS`: A JSON array of key objects.
+- `ACTIVE_MASTER_KID`: The ID of the key used for **new** encryption operations.
+
+### Key Format
+Each key in `MASTER_KEYS` must have:
+- `kid`: Unique Identifier (string).
+- `material`: 32-byte AES-256 key, standard Base64 encoded.
+
+**Example:**
+```json
+[
+  {"kid": "2026-01-v1", "material": "base64-encoded-32-bytes..."},
+  {"kid": "2026-06-v2", "material": "base64-encoded-32-bytes..."}
+]
+```
+
+## Rotation Procedure
+
+To rotate the Master Key (e.g., periodic rotation or compromise):
+
+### 1. Generate New Key
+Generate a new 32-byte key and assign a new KID (e.g., date-based).
+```bash
+openssl rand -base64 32
+```
+
+### 2. Append to Keyring
+Update the `MASTER_KEYS` environment variable to include the **new** key alongside the **existing** keys.
+**Do NOT remove old keys yet.** Old records still depend on them for decryption.
+
+### 3. Deploy (Phase A - Introduction)
+Deploy the service with the updated `MASTER_KEYS`.
+- Keep `ACTIVE_MASTER_KID` pointing to the **OLD** key.
+- This ensures the new key is available in memory but not used for writing yet.
+- Verify the service starts successfully.
+
+### 4. Switch Active Key (Phase B - Activation)
+Update `ACTIVE_MASTER_KID` to the **NEW** KID.
+Restart the service.
+- **New Writes**: Will use the new key.
+- **Reads**: Will use the new key (for new data) or old keys (for legacy data) automatically based on the record's `master_kid` field.
+
+### 5. Verify & Monitor
+Check audit logs for `camera.credential.read` failures related to decryption.
+Ensure both old and new credentials are readable.
+
+## Legacy Key Retirement
+
+Old keys should remain in `MASTER_KEYS` as long as there are database records encrypted with them.
+Removing a key while records still use it will render those credentials PERMANENTLY INACCESSIBLE.
+
+To retire a key:
+1. Ensure no records use the old `kid` (Scan database: `SELECT COUNT(*) FROM camera_credentials WHERE master_kid = '...'`).
+2. If count > 0, you must update those records (read and re-write them via API) to re-wrap them with the active key.
+3. Once count is 0, you can remove the key from `MASTER_KEYS` configuration.
+
+## Disaster Recovery
+If `MASTER_KEYS` configuration is lost, all encrypted credentials are lost.
+**BACKUP YOUR ENVIRONMENT VARIABLES SECURELY.**
+
+
+================ FILE: security\permissions.md ================
+
+# Permission Model
+
+## 1. Format
+Permissions use the format: `resource.action`.
+
+### Common Permissions
+- `camera.create`, `camera.read`, `camera.update`, `camera.delete`
+- `stream.view_live`, `stream.view_hls`
+- `recording.view`, `recording.export`
+- `ptz.move`, `ptz.lock`
+- `user.invite`, `user.disable`
+
+## 2. Evaluation Logic
+The authorization engine follows **Default Deny**.
+
+```python
+def check_permission(user, target_resource, permission):
+    # 1. Check Tenant Isolation
+    if user.tenant_id != target_resource.tenant_id:
+        return REJECT ("Not Found") 
+
+    # 2. Gather all roles applicable to this resource scope
+    # (Checking Tenant bindings, Site bindings)
+    active_roles = get_roles_for_scope(user, target_resource)
+    
+    # 3. Check if ANY role contains the permission
+    for role in active_roles:
+         if permission in role.permissions:
+             return ALLOW
+
+    return REJECT ("Forbidden")
+```
+
+## 3. Audit Hooks
+Every `REJECT` decision on a mutating action (POST/PUT/DELETE) implies a potential security incident or misconfiguration and MUST be logged.
+
+
+================ FILE: security\rbac.md ================
+
+# RBAC Structure
+
+## 1. Hierarchy
+The system enforces a strict 4-tier hierarchy. Data never leaks across tenants.
+
+```mermaid
+graph TD
+    Tenant[Tenant (Org)] --> Site[Site (Location)]
+    Site --> Camera[Camera]
+```
+
+## 2. Roles
+Roles are collections of permissions bound to a user at a specific **Scope**.
+
+| Role | Scope Level | Description |
+| :--- | :--- | :--- |
+| **Org Admin** | Tenant | Full control over users, billing, all sites. |
+| **Site Admin** | Site | Manage cameras and users within one site. |
+| **Operator** | Site (filtered) | View live/recorded, ack alarms. No config. |
+| **Viewer** | Site/Camera | Read-only live view. |
+
+## 3. Role Binding
+A User can have multiple bindings:
+- `User_A` is `Org Admin` of `Tenant_1`.
+- `User_B` is `Site Admin` of `Site_X` (in `Tenant_1`).
+
+## 4. Inheritance
+- Permissions granted at **Tenant** level apply to ALL **Sites** and **Cameras**.
+- Permissions granted at **Site** level apply to ALL **Cameras** in that site.
+- **Camera Groups:** These are logical tags (e.g., "Perimeter"). An `Operator` role can be bound to a Site *with a filter* for `tag=Perimeter`.
+
+## 5. Invariants
+- **Multi-Tenant Isolation:** A user bound to `Tenant A` MUST returns 404/403 for any resource in `Tenant B`, regardless of ID guessing.
+
+
+================ FILE: security\token-security.md ================
+
+# Token Security Policy
+
+## 1. Signing Algorithm
+We use **RS256** (RSA Signature with SHA-256).
+- **Private Key:** Held only by `vms-control` (Auth Service).
+- **Public Key:** Distributed to other services to verify tokens.
+
+## 2. Key Rotation
+- **KID (Key ID):** Every JWT header includes `kid`.
+- **Strategy:**
+    1. Generate new Keypair (Active).
+    2. Move old Keypair to "Verification Only".
+    3. Wait 24h (Max token TTL).
+    4. Delete old Keypair.
+
+## 3. Blacklisting (Revocation)
+Since JWTs are stateless, we need a mechanism to revoke them instantly (e.g., Admin blocks user).
+
+**Mechanism:** Redis Blacklist.
+- **Key:** `blacklist:jti:{token_jti}`
+- **Value:** `revoked`
+- **TTL:** Set to `exp - now`.
+- **Check:** API Gateway checks Blacklist for every request.
+
+## 4. Rate Limiting
+To prevent Brute Force attacks on Login:
+- **Login Endpoint:** 5 attempts per IP per minute.
+- **Lockout:** After 5 failures, exponential backoff (1m, 5m, 15m).
+
+
+================ FILE: standards\code-review.md ================
+
+# Code Review Process
+
+## 1. Pull Request Checklist
+Every PR must meet the following criteria before merge:
+
+- [ ] **Tests Pass:** CI must be green (Unit tests + Lint).
+- [ ] **Coverage:** 80% minimum coverage maintained.
+- [ ] **Standards:** Complies with language-specific standards (Go/C++/Rust).
+- [ ] **Docs:** `README.md` or API docs updated if public interface changed.
+- [ ] **Secrets:** No hardcoded secrets or keys.
+
+## 2. Reviewer Requirements
+- **Approvals:** At least **1 approval** from a Code Owner.
+- **Bot Checks:** All automated checks (Lint, Build, Test) must pass.
+
+## 3. "No Merge If"
+A PR is blocked if:
+- Currently breaking the build.
+- Contains `TODO` or `FIXME` comments without an associated JIRA/Issue ticket.
+- Contains unbounded loops or unchecked recursion depth (Reviewer discretion).
+
+## 4. Definition of Done
+A feature is "Done" only when:
+1. Rebased on `main`.
+2. Reviewed & Approved.
+3. Merged.
+4. Deployed to Staging (Phase 1+).
+
+
+================ FILE: standards\cpp.md ================
+
+# C++ Coding Standards
+
+## 1. Style Guide
+We adhere strictly to the **Google C++ Style Guide**.
+- **Naming:** `ClassName`, `functionName`, `variable_name`, `kConstant`.
+- **Headers:** `.h` for headers, `.cc` for implementation. Use `#pragma once`.
+
+## 2. Modern C++ Features (C++17/20)
+- **Smart Pointers:** `std::unique_ptr` and `std::shared_ptr` are mandatory. **NO `new` / `delete`**.
+- **RAII:** Resources (sockets, handles) must be managed by objects that release them in destructors.
+- **Strings:** use `std::string` and `std::string_view` over `char*`.
+
+## 3. Static Analysis
+**Tool:** `clang-tidy`
+**Enforcement:** CI fails on warnings.
+**Required Check Groups:**
+- `modernize-*`: Enforce `override`, `auto`, `nullptr`.
+- `bugprone-*`: Catch common logic errors.
+- `performance-*`: Catch unnecessary copies.
+
+## 4. Thread Safety
+- **Mutexes:** Prefer `std::scoped_lock` (C++17) or `std::lock_guard`.
+- **Atomics:** Use `std::atomic` for simple counters; avoid `volatile`.
+
+## 5. GStreamer Specifics
+- Use `g_autoptr` or C++ wrappers (`gst-mm` equivalent) where possible to avoid reference counting leaks.
+
+
+================ FILE: standards\git-workflow.md ================
+
+# Git Workflow
+
+## 1. Trunk-Based Development
+We follow **Trunk-Based Development**.
+- **Main Branch:** `main` (Production-ready source of truth).
+- **Feature Branches:** Use short-lived branches off `main`. Merge back via PR frequently (days, not weeks).
+
+## 2. Branch Naming
+Format: `type/short-description`
+- `feat/add-camera-api`
+- `fix/memory-leak-recorder`
+- `refactor/optimize-database`
+- `docs/update-readme`
+- `chore/upgrade-deps`
+
+## 3. Conventional Commits (Strict)
+All commit messages MUST follow [Conventional Commits](https://www.conventionalcommits.org/).
+
+Format: `<type>(<scope>): <description>`
+
+**Allowed Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation only
+- `style`: Formatting, missing semi-colons, etc.
+- `refactor`: Code change that neither fixes a bug nor adds a feature
+- `perf`: Performance improvement
+- `test`: Adding missing tests
+- `chore`: Build process, aux tools
+
+**Example:**
+`feat(camera): implement ONVIF discovery timeout`
+
+## 4. Release Strategy
+- **Tags:** Releases are tagged on `main` using SemVer (`v0.1.0`, `v1.2.3`).
+- **Hotfixes:** Create a branch `hotfix/v1.2.4` from the tag `v1.2.3`, cherry-pick fix, tag `v1.2.4`, merge back to `main`.
+
+
+================ FILE: standards\go.md ================
+
+# Go Coding Standards
+
+## 1. Project Structure
+We follow the standard Go project layout:
+- `cmd/`: Main entry points (e.g., `cmd/vms-control/main.go`).
+- `internal/`: Private application code.
+- `pkg/`: Library code safe for import by other projects.
+- `generated/`: Output for `protoc` (do not edit manually).
+
+## 2. Structured Logging
+**Default Library:** `log/slog` (Standard Library).
+**Usage:**
+```go
+slog.Info("camera connected", "camera_id", id, "ip", ip)
+```
+- **Forbidden:** `fmt.Printf` or `log.Println` in production code.
+- **Allowed Exception:** `uber-go/zap` is permissible only in the **Media Plane** hot paths if CPU profiling proves `slog` is a bottleneck.
+
+## 3. Error Handling
+- **Wrap Errors:** Use `fmt.Errorf("action failed: %w", err)` to provide context.
+- **Check Errors:** Never use `_` to ignore errors.
+- **Sentinel Errors:** Define errors in `pkg/errors` for easy matching with `errors.Is()`.
+
+## 4. Concurrency & Context
+- **Context:** Every long-running function or I/O operation MUST accept `ctx context.Context` as the first argument.
+- **Cancellation:** Always handle `ctx.Done()` in loops.
+- **Goroutines:** Never start a goroutine without a known stop mechanism (WaitGroup + Context).
+
+## 5. Linting Policy
+- **Tool:** `golangci-lint`
+- **Policy:** CI fails on any lint error.
+- **Zero Tolerance:** No `nolint` comments without an attached issue ID explaining why.
+
+
+================ FILE: standards\rust.md ================
+
+# Rust Coding Standards
+
+## 1. Style & Linting
+**Tool:** `cargo clippy`
+**Policy:** `clippy::pedantic` warnings are treated as **Errors** in CI.
+- **Waivers:** If a lint rule is incorrect or unhelpful, allow-list it at the module level with a comment justifying why.
+
+## 2. Error Handling
+- **Application Code:** Use `anyhow::Result` for top-level application logic (`vms-recorder`).
+- **Library Code:** Use `thiserror` to define strongly typed enums for library crates (`ts-video-segmenter`).
+- **Panic:** `unwrap()` and `expect()` are **FORBIDDEN** in production code. Use `?` operator or graceful fallback.
+
+## 3. Unsafe Code Policy
+- **Default:** `unsafe` is forbidden.
+- **Justification:** Any usage of `unsafe` requires:
+    1. A comment `// SAFETY: explain why invariants hold`.
+    2. Explicit approval from a Principal Engineer during Code Review.
+
+## 4. Workspace Layout
+We use a Cargo Workspace:
+- `crates/`: Reusable libraries (e.g., `crates/rtsp-client`).
+- `services/`: Executable binaries (e.g., `services/recorder`).
+
+
+================ FILE: standards\testing.md ================
+
+# Testing Requirements
+
+## 1. Coverage Policy
+**Minimum Coverage:** **80%**
+- This applies to Statement Coverage across Go, C++, and Rust projects.
+- **Enforcement:** CI will fail if a PR drops coverage below the threshold or the delta is significantly negative.
+
+## 2. Test Pyramid
+### 2.1 Unit Tests (Fast)
+- **Scope:** Single function/class.
+- **Dependencies:** Mocked (DB, Network, FileSystem).
+- **Execution:** Must run in <100ms per test.
+
+### 2.2 Integration Tests (Medium)
+- **Scope:** Interaction between modules (e.g., Service -> DB).
+- **Dependencies:** Real DB (Dockerized/Local), Mocked External APIs.
+- **Execution:** Must run in <10s.
+
+## 3. Flakiness Policy
+- **Zero Tolerance:** Flaky tests break trust.
+- **Action:** If a test flakes:
+    1. Fix it immediately.
+    2. If fix is hard, mark as `Skip` or `Pending` with a ticket ID.
+    3. Do NOT leave it failing randomly.
+
+## 4. Performance Testing (Future)
+- Streaming pipelines must have regression tests for FPS/Latency.
+- Stress tests (100 cameras) will be required for Release Candidates.
+
+
+================ FILE: templates\ADR_TEMPLATE.md ================
+
+# ADR-[Number]: [Title]
+
+**Status:** [Proposed | Accepted | Deprecated]
+**Date:** [YYYY-MM-DD]
+**Authors:** [Names]
+
+## Context
+Describe the problem we are solving. Why do we need to make this decision? What are the constraints?
+
+## Decision
+We decided to [do something] because [reasons].
+
+## Consequences
+### Positive
+- [Benefit 1]
+- [Benefit 2]
+
+### Negative
+- [Drawback 1]
+- [Drawback 2]
+
+## Security Considerations
+How does this impact security? (Auth, Data Privacy, Attack Surface)
+
+## Operational Considerations
+How does this impact deployment, monitoring, or rollback?
+
+## Alternatives Considered
+- Option A: Rejected because...
+- Option B: Rejected because...
+
+
+================ FILE: templates\API_DOC_TEMPLATE.md ================
+
+# API Documentation: [Service Name]
+
+## Overview
+This document describes internal APIs or library contracts not covered by the global OpenAPI spec.
+
+## Go Interface
+```go
+type StreamHandler interface {
+    // Connect establishes a new stream session
+    Connect(ctx context.Context, url string) (Session, error)
+}
+```
+
+## Internal gRPC
+Describe any private RPC methods here.
+
+## Error Codes
+| Code | Meaning | Recovery |
+| :--- | :--- | :--- |
+| `ERR_BUSY` | Pipeline full | Retry with backoff |
+
+
+================ FILE: templates\README_TEMPLATE.md ================
+
+# Component Name
+
+[Short description of what this service/library does.]
+
+## Features
+- Feature A
+- Feature B
+
+## Getting Started
+
+### Prerequisites
+- Go 1.22+ / Rust 1.75+ / vcpkg
+
+### Build
+```bash
+make build
+```
+
+### Run
+```bash
+./bin/service-name --config config.yaml
+```
+
+## Configuration
+| Env Var | Description | Default |
+| :--- | :--- | :--- |
+| `PORT` | HTTP Port | 8080 |
+
+## Testing
+Run unit tests:
+```bash
+make test
+```
+
+## Architecture
+[Link to architecture docs or valid mermaid diagram]
+
+
+================ FILE: ai-plane.md ================
+
+# AI Plane Architecture
+
+## 1. Overview
+The AI Plane (`vms-ai`) runs computer vision models to extract metadata from video streams. It operates typically in **Python** (for rich library support like PyTorch/TensorFlow/YOLO) or **C++** (for max performance with TensorRT).
+
+## 2. Responsibilities
+
+### 2.1 Inference Pipeline
+- **Input:** Consumes video frames from the Media Plane.
+- **Processing:** Runs pre-loaded models (e.g., YOLOv8 for object detection).
+- **Logic:** Applies business logic (e.g., "Is the person inside the ROI polygon?").
+- **Output:** Generates JSON metadata event.
+
+### 2.2 Process Isolation
+- The AI service runs as a separate process.
+- **Why?** AI inference is heavy and can be unstable (OOM, CUDA errors).
+- **Safety:** If `vms-ai` crashes, `vms-media` keeps streaming and recording. The VMS only loses intelligent alerts, not basic functionality.
+
+## 3. Integration Points
+
+### 3.1 Input: Shared Memory / Socket
+- To avoid copying large video frames, the AI Plane reads directly from a shared buffer or high-speed socket provided by the Media Plane.
+
+### 3.2 Output: NATS Message Bus
+- When an event occurs (e.g., PROHIBITED_ZONE_ENTRY), the service publishes a message to NATS.
+- **Topic:** `vms.events.ai.detection`
+- **Payload:**
+  ```json
+  {
+    "camera_id": "cam_01",
+    "timestamp": 1234567890,
+    "type": "person",
+    "confidence": 0.95,
+    "bbox": [100, 200, 50, 80]
+  }
+  ```
+- The Control Plane and other subscribers listen to this topic.
+
+## 4. Model Lifecycle
+- **Phase 0:** Models are baked into the Docker image or installer. No dynamic model uploading.
+- **Format:** ONNX is preferred for cross-platform and hardware-accelerated inference (DirectML on Windows, CUDA if available).
+
+
+================ FILE: architecture-diagrams.md ================
+
+# Architecture Diagrams
+
+## 1. System Component Diagram
+
+```mermaid
+graph TD
+    subgraph "Clients"
+        WebUI[Web Browser / Client]
+    end
+
+    subgraph "VMS Host (Windows)"
+        subgraph "Control Plane"
+            Control[vms-control (Go)]
+        end
+
+        subgraph "Media Plane"
+            Media[vms-media (C++/GStreamer)]
+            SFU[SFU / WebRTC Bridge]
+        end
+
+        subgraph "AI Plane"
+            AI[vms-ai (Python/C++)]
+        end
+
+        subgraph "Recording Plane"
+            Recorder[vms-recorder (Rust)]
+        end
+
+        subgraph "Data Backbone"
+            NATS((NATS JetStream))
+            Postgres[(PostgreSQL)]
+            Redis[(Redis)]
+            FS[File System (Recordings)]
+        end
+    end
+
+    subgraph "Edge Devices"
+        Camera[RTSP Camera]
+    end
+
+    %% Flows
+    Camera -->|RTSP Stream| Media
+    Media -->|Shared Memory / Stream| AI
+    Media -->|Stream Packets| Recorder
+    Media -->|WebRTC/HLS| SFU
+    SFU -->|WebRTC| WebUI
+
+    Control -->|gRPC commands| Media
+    Control -->|gRPC commands| Recorder
+    Control -->|Control / Config| AI
+    
+    AI -->|Inference Events| NATS
+    Recorder -->|Write| FS
+    Control -->|Read/Write| Postgres
+    Control -->|Cache| Redis
+    
+    WebUI -- HTTP/WS --> Control
+    NATS -->|Events| Control
+```
+
+## 2. Streaming Path High-Level
+
+```mermaid
+sequenceDiagram
+    participant Cam as Camera
+    participant Media as Media Engine (C++)
+    participant SFU as SFU/Bridge
+    participant Client as Web Client
+
+    Cam->>Media: RTSP (H.264/H.265)
+    Note over Media: Demux / Parse
+    par Live View
+        Media->>SFU: RTP Packets
+        SFU->>Client: WebRTC / MSE
+    and AI Analysis
+        Media->>AI Plane: Raw Frames / Buffer
+    and Recording
+        Media->>Recorder: Encoded Packets
+    end
+```
+
+## 3. Data Layer Diagram
+
+```mermaid
+graph LR
+    subgraph "Storage"
+        DB[(PostgreSQL)]
+        Cache[(Redis)]
+        Bus((NATS))
+        Disk[Disk Storage]
+    end
+
+    subgraph "Data Types"
+        Config[Configuration & Users] --> DB
+        Meta[Event Metadata] --> DB
+        Hot[Live Streams State] --> Cache
+        Msg[Inter-service Msgs] --> Bus
+        Video[Video Files .mkv] --> Disk
+    end
+```
+
+## 4. Windows Service Dependency & Startup
+
+```mermaid
+graph TD
+    Start((System Boot))
+    
+    subgraph "Infrastructure"
+        PgSQL[PostgreSQL Service]
+        RedisSvc[Redis Service]
+        NatsSvc[NATS Service]
+    end
+
+    subgraph "VMS Services"
+        ControlSvc[vms-control]
+        MediaSvc[vms-media]
+        AISvc[vms-ai]
+        RecSvc[vms-recorder]
+    end
+
+    Start --> PgSQL
+    Start --> RedisSvc
+    Start --> NatsSvc
+
+    PgSQL --> ControlSvc
+    RedisSvc --> ControlSvc
+    NatsSvc --> ControlSvc
+
+    ControlSvc --> MediaSvc
+    ControlSvc --> AISvc
+    ControlSvc --> RecSvc
+
+    %% Logic: Control plane usually needs to be up to serve config to others, 
+    %% or others wait for Control.
+```
+
+
+================ FILE: architecture.md ================
+
+# Techno Support VMS - System Architecture
+
+## 1. High-Level Overview
+
+Techno Support VMS is a Windows-native, offline-first Video Management System designed for high reliability and low latency. It is composed of loosely coupled services communicating over defined protocols (gRPC, NATS), running as independent Windows Services.
+
+The system is designed to run entirely on-premise without cloud dependencies.
+
+## 2. Component Boundaries & Responsibilities
+
+The system is divided into four logical planes:
+
+### 2.1 Control Plane
+**Technology:** Go
+**Responsibility:** The brain of the VMS.
+- Manages configuration (Cameras, Users, Sites).
+- Orchestrates other services (Media, AI, Recorder).
+- Exposes API for the Web Client.
+- Handles Authentication and Authorization.
+- **Service Name:** `vms-control`
+
+### 2.2 Media Plane
+**Technology:** C++ (GStreamer)
+**Responsibility:** Low-latency video ingestion and distribution.
+- Injects RTSP streams from cameras.
+- Demuxes streams for usage by AI, Recorder, and Client.
+- **Pass-through design:** No transcoding of video (H.264/H.265 passed through).
+- Proxies streams to WebRTC/MSE for client viewing via SFU.
+- **Service Name:** `vms-media`
+
+### 2.3 AI Plane
+**Technology:** Python / C++ (ONNX Runtime / TensorRT)
+**Responsibility:** Video analytics and inference.
+- Consumes raw video frames or encoded streams from Media Plane.
+- Performs object detection (Person, Vehicle, etc.) and specific analytics (Line Crossing).
+- Publishes inference events to the data backbone (NATS).
+- **Service Name:** `vms-ai`
+
+### 2.4 Recording Engine
+**Technology:** Rust
+**Responsibility:** High-throughput disk I/O.
+- Consumes stream packets from Media Plane.
+- Writes metadata-tagged video to disk (MKV/MP4 segment format).
+- Manages retention policy (cleanup of old footage).
+- **Service Name:** `vms-recorder`
+
+### 2.5 Web/UI Layer
+**Technology:** React / Single Page Application (SPA) served by Go Control Plane.
+**Responsibility:** User Interface.
+- Dashboard for live view and monitoring.
+- Configuration interfaces.
+- Playback interface for recorded footage.
+
+### 2.6 SFU / Signal Layer
+**Technology:** Go (Pion) or C++ (part of Media Plane) - *Architecture Decision: Integrated into Media Plane or helper service.*
+- Conceptual responsibility: Bridging RTSP to Browser-compatible formats (WebRTC).
+
+## 3. Data Storage Layer
+- **PostgreSQL:** Relational data (Tenants, Users, Camera config, Event metadata).
+- **Redis:** Hot state (Active streams, ephemeral session data).
+- **NATS:** Message bus for inter-service communication and event streaming.
+- **Filesystem (NTFS):** Video recordings and snapshots.
+
+## 4. Deployment Model
+- **Target OS:** Windows Server 2019/2022 / Windows 10/11 Enterprise.
+- **Format:** Native Windows Services (deployed via `sc.exe`).
+- **No Docker/Container Dependency:** All binaries must run natively.
+- **Offline-First:** No calls to public internet required for operation.
+
+## 5. Runtime Boundaries & Isolation
+- Each plane runs in a separate OS process.
+- **Crash Containment:**
+  - If `vms-ai` crashes, video recording and live view MUST continue.
+  - If `vms-recorder` crashes, live view and AI must continue.
+  - If `vms-control` crashes, existing streams *should* ideally persist (media plane autonomy), though control actions will fail.
+- **Restart Strategy:** Windows Service Manager configures auto-restart (Restart on failure).
+
+## 6. Assumptions & Non-Goals
+- **Assumption:** Host machine has NVIDIA GPU for AI inference (preferred) or capable CPU.
+- **Assumption:** Cameras generate H.264/H.265 RTSP streams.
+- **Non-Goal:** Video Transcoding (CPU expensive). We rely on client-side decoding or substreams.
+- **Non-Goal:** Cloud archiving (Phase 0 scope is local storage).
+
+
+================ FILE: contracts.md ================
+
+# Contracts & Standards
+
+## HLS Token Gating (Phase 3.2+)
+
+This section defines the security contract for LL-HLS delivery. The **Media Plane (Generation)** is responsible for implementing this contract conceptually, even though validation happens at the **Delivery Layer (Phase 3.3)**.
+
+### 1. Token Strategy
+- **Mode**: Delivery-time Token Injection / Validation (Strategy A).
+- **Generator Responsibility**: `vms-media.exe` writes "clean" playlists (e.g., `segment_0.m4s`) without tokens embedded in the filenames or existing internal URLs.
+- **Validator Responsibility**: The HTTP delivery service (Phase 3.3) acts as a gatekeeper. It validates the token in the request query parameters or cookies before serving the static files.
+
+### 2. Token Format
+Tokens are stateless and cryptographically signed using a shared secret.
+
+**Parameters:**
+- `sub` (Subject): Camera ID (e.g., `cam-01`).
+- `sid` (Session ID): Unique ID of the current streaming session (e.g., `1707123456_xc9`).
+- `exp` (Expiry): Unix timestamp (seconds) when the token expires.
+- `scope`: Fixed value `hls`.
+- `kid` (Key ID - Optional): Identifier for the signing key.
+- `sig` (Signature): Hex-encoded HMAC-SHA256 signature.
+
+**Example Token String:**
+`sub=cam-01&sid=1707123456_xc9&exp=1707127056&scope=hls&sig=a1b2c3d4...`
+
+### 3. Signing Algorithm
+The signature `sig` is calculated as follows:
+
+1.  **Construct Canonical String**:
+    The string to sign MUST be constructed by concatenating the values in the following strict order, separated by a vertical bar `|`:
+    ```text
+    hls|{sub}|{sid}|{exp}
+    ```
+    *(Note: `kid` is not part of the signed string, as it is metadata for key lookup)*
+
+2.  **Compute HMAC**:
+    ```text
+    HMAC-SHA256(SecretKey, CanonicalString)
+    ```
+
+3.  **Encoding**:
+    - The output hash is converted to a lowercase **Hexadecimal String**.
+
+### 4. Secret Management
+- **Media Plane**: Does NOT need the secret key for generation (Phase 3.2). It strictly produces content.
+- **Control Plane**: Generates tokens for clients using the Secret Key.
+- **Delivery Layer**: Validates tokens using the Secret Key.
+- **Artifacts**: **NO secrets** shall be written to `meta.json` or logs.
+
+## Disk Layout (HLS)
+
+The Media Plane must strictly adhere to the following on-disk structure:
+
+```text
+{DataRoot}\hls\live\{camera_id}\{session_id}\
+    â”œâ”€â”€ index.m3u8          # Master/Media Playlist (Rolling 10s window)
+    â”œâ”€â”€ init.mp4            # CMAF Initialization Segment
+    â”œâ”€â”€ segment_0.m4s       # Media Segments (fMP4)
+    â”œâ”€â”€ segment_1.m4s
+    â”œâ”€â”€ ...
+    â””â”€â”€ meta.json           # Session Metadata (No Secrets)
+```
+
+**Layout Rules:**
+- **One active session** per camera variant.
+- **Session ID** must change on every pipeline restart/reconnect to avoid stale playlist confusion.
+- **Filenames**: Must be Windows-safe (no special characters).
+- **Updates**: `meta.json` is written at start and updated on writes.
+
+### `meta.json` Schema
+```json
+{
+  "tenant_id": "string",
+  "camera_id": "string",
+  "session_id": "string",
+  "created_at": "ISO8601_Timestamp",
+  "last_write_at": "ISO8601_Timestamp",
+  "hls_config": {
+    "target_duration": 1.0,
+    "part_duration": 0.2,
+    "playlist_window": 10
+  }
+}
+```
+
+## SFU Strategy (Phase 3.4)
+
+### 1. Router-per-Room
+Each Camera corresponds to one Mediasoup Room. A Room contains exactly one Mediasoup Router.
+- **Tenant Isolation**: Routers are created on Workers. Different tenants share Workers but have isolated Routers.
+- **Worker Load Balancing**: Workers are selected round-robin.
+- **Lifecycle**: A Room is created on the first `JoinRoom` request and destroyed after 60 seconds of inactivity (0 viewers).
+
+### 2. Transport Configuration
+- **WebRTC**:
+  - UDP Range: `40000-49999`
+  - TCP Fallback: Enabled
+  - ICE: Lite (Server does not initiate connectivity checks)
+- **Ingest (PlainTransport)**:
+  - UDP Range: `50000-51000`
+  - Comedia: True (Server learns remote IP:Port from incoming RTP)
+
+### 3. Media Capabilities
+- **Video**: H.264 (Baseline, Packetization Mode 1).
+- **Audio**: Not currently enabled.
+- **Simulcast**: Disabled (Single high-quality stream from Media Plane).
+
+---
+
+## Phase 3.6: Start Live View Contract
+
+### 1. Endpoint: `POST /api/v1/cameras/{camera_id}/live/start`
+
+Response JSON structure (Dual-Path):
+```json
+{
+  "session_id": "viewer_session_xyz123",
+  "expires_at": 1707127056,
+  "primary": "webrtc",
+  "fallback": "hls",
+  "webrtc": {
+    "sfu_url": "http://localhost:8080/api/v1/sfu",
+    "room_id": "camera_id",
+    "connect_timeout_ms": 5000
+  },
+  "hls": {
+    "playlist_url": "http://localhost:8081/hls/live/tenant/cam/session/playlist.m3u8?token=...",
+    "target_latency_ms": 4000
+  },
+  "fallback_policy": {
+    "webrtc_connect_timeout_ms": 5000,
+    "webrtc_track_timeout_ms": 3000,
+    "max_auto_retries": 2,
+    "retry_backoff_ms": [1000, 3000]
+  },
+  "telemetry_policy": {
+    "client_event_endpoint": "/api/v1/live/events"
+  }
+}
+```
+
+### 2. Reason Codes (Standardized)
+Used in telemetry and logs.
+
+| Code | Description |
+|------|-------------|
+| `SFU_SIGNALING_FAILED` | API error when talking to SFU |
+| `ICE_FAILED` | WebRTC ICE connection failed or disconnected |
+| `DTLS_FAILED` | DTLS handshake failure |
+| `TRACK_TIMEOUT` | Connected but no media received in time |
+| `RTP_TIMEOUT` | Media stopped flowing after start |
+| `SFU_BUSY` | SFU at capacity |
+| `BROWSER_NOT_SUPPORTED` | Client browser missing features |
+| `PERMISSION_DENIED` | Auth or RBAC failure |
+| `UNKNOWN` | Fallback catch-all |
+
+### 3. Telemetry Endpoint: `POST /api/v1/live/events`
+
+Request Payload:
+```json
+{
+  "viewer_session_id": "viewer_session_xyz123",
+  "event": "fallback_to_hls",
+  "reason": "ICE_FAILED",
+  "meta": { "ice_state": "failed" }
+}
+```
+
+
+================ FILE: control-plane.md ================
+
+# Control Plane Architecture
+
+## 1. Overview
+The Control Plane (`vms-control`) is the central orchestrator of the VMS. It is written in **Go** to leverage its concurrency model (goroutines) and strong standard library. It does not handle heavy media processing but manages the lifecycle of streams, recordings, and AI jobs.
+
+## 2. Service Boundaries
+
+### 2.1 Core Responsibilities
+- **API Server:** Hosts the REST/WebSocket API for the Web Client.
+- **Data Access:** Exclusive writer to PostgreSQL configuration tables.
+- **Service Orchestration:** Sends commands to Media, Recorder, and AI services.
+- **Authentication:** Validates JWT tokens and user credentials.
+- **State Management:** Maintains the "desired state" of the system vs "actual state".
+
+### 2.2 Why Go?
+- **Concurrency:** Efficient handling of multiple long-lived connections (WebSockets, gRPC).
+- **Static Binary:** Easy deployment on Windows (single `.exe`).
+- **Ecosystem:** Excellent database drivers (pgx) and web frameworks (Gin/Echo).
+
+## 3. API Surface
+
+The Control Plane exposes APIs in three categories:
+
+### 3.1 Management API (REST/JSON)
+Used by the Web Client for configuration.
+- `GET /api/cameras` - List configured cameras.
+- `POST /api/cameras` - Add a new camera.
+- `GET /api/recordings` - Search recorded footage.
+- `POST /api/login` - User authentication.
+
+### 3.2 Streaming API (WebSocket / WebRTC Signaling)
+Used by the Web Client to initiate live views.
+- `WS /api/stream/{cameraId}` - Negotiate live stream playback.
+  - Exchanges SDP offers/answers for WebRTC.
+  - Handles ICE candidates.
+
+### 3.3 Internal Command API (gRPC)
+Used for reliable, typed communication with other backend services.
+- `vms-control` acts as the **Client** in some cases (commanding Media) and **Server** in others (receiving status updates).
+
+## 4. Communication Patterns
+
+### 4.1 Control -> Media (gRPC)
+- **Command:** `StartStream(RTSP_URL, Options)`
+- **Command:** `StopStream(ID)`
+- **Query:** `GetStreamHealth(ID)`
+
+### 4.2 Control -> AI (NATS)
+- **Pattern:** Pub/Sub config updates.
+- **Topic:** `vms.config.ai.update` - When a user enables line-crossing on a camera, Control publishes a message. AI service subscribes and updates its pipeline.
+
+### 4.3 Control -> Client (WebSockets/SSE)
+- **Pattern:** Real-time event push.
+- **Data:** System health, Alarms/Detections (forwarded from NATS).
+
+
+================ FILE: data-flow-legend.md ================
+
+# Data Flow Legend & Standards
+
+## 1. Visual Notation (Mermaid)
+
+We use specific shapes and styles in Mermaid to distinguish between system boundaries, data stores, and communication patterns.
+
+### 1.1 Shapes
+- **Rectangle (`[Service]`)**: Stateless Service Process (e.g., `vms-control`, `vms-media`).
+- **Cylinder (`[(Database)]`)**: Persistent Data Store (e.g., PostgreSQL, Redis, Disk).
+- **Circle (`((Bus))`)**: Message Bus (NATS).
+- **Rhombus (`{Decision}`)**: Logic Branch / Decision Point.
+- **Actor (`Client`)**: Human User or Web Browser.
+
+### 1.2 Communication Arrows
+Different arrow styles represent different protocols:
+
+| Arrow Style | Protocol Group | Description |
+| :--- | :--- | :--- |
+| `-->` (Solid) | **Synchronous / RPC** | Expects immediate response. (gRPC, REST, Function Call). |
+| `-.->` (Dotted) | **Asynchronous / Event** | Fire-and-forget or Pub/Sub. (NATS, WebHook). |
+| `==>` (Thick) | **Streaming / High-Bandwidth** | Continuous flow of data. (RTP, RTSP, WebSocket Stream). |
+
+### 1.3 Naming Conventions
+- **Services:** Lowercase, hyphenated (e.g., `vms-control`).
+- **Databases:** Capitalized (e.g., `Postgres`, `Redis`).
+- **Topics (NATS):** Dot-separated (e.g., `vms.event.person.detected`).
+- **Functions/RPC:** PascalCase (e.g., `StartStream()`).
+
+## 2. Protocol Legend
+
+This document uses high-level protocol identifiers:
+
+- **gRPC**: Internal service-to-service command (Strict contract).
+- **REST**: Client-to-Service configuration (JSON over HTTP).
+- **WS (WebSocket)**: Client-to-Service bidirectional live data.
+- **NATS**: Internal event bus (Pub/Sub).
+- **RTSP**: Camera-to-Server video transport.
+- **WebRTC**: Server-to-Client low-latency video.
+- **Shm (Shared Memory)**: Intra-node zero-copy video transfer.
+
+## 3. Error Handling Patterns
+
+### 3.1 Retry / Backoff
+- **Notation:** "Retry 3x" or "Exp. Backoff"
+- **Meaning:** If a synchronous call (`-->`) fails, the caller MUST retry with exponential backoff (e.g., 1s, 2s, 4s) before giving up.
+- **Bounded:** Retries are never infinite for user-facing actions.
+
+### 3.2 Dead Letter
+- **Notation:** "DLQ"
+- **Meaning:** If an async event (`-.->`) cannot be processed after N tries, it is moved to a "Dead Letter Queue" for manual inspection, preserving system stability.
+
+### 3.3 Idempotency
+- **Requirement:** All `vms-control` state-mutating commands (e.g., `CreateCamera`) must be safe to call multiple times with the same ID, resulting in the same final state.
+
+
+================ FILE: data-flows.md ================
+
+# Data Flow Diagrams
+
+This document details the 7 critical data flows for the Techno Support VMS.
+
+## 1. Camera Onboarding (ONVIF)
+
+**Objective**: Discover a camera on the LAN, validate credentials, and persist its configuration.
+
+### Diagram
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin User
+    participant Control as vms-control
+    participant Cam as ONVIF Camera
+    participant DB as Postgres
+
+    Admin->>Control: POST /api/discovery/scan (Subnet)
+    Control-->>Admin: 202 Accepted (Scan ID)
+    
+    loop Every IP in range
+        Control->>Cam: WS-Discovery Probe
+        Cam-->>Control: Probe Match (XAddrs)
+    end
+
+    Control-->>Admin: WebSocket Event: "DiscoveryComplete" (List of IPs)
+
+    Admin->>Control: POST /api/cameras/onboard {IP, User, Pass}
+    
+    Note over Control, Cam: Verification Step
+    Control->>Cam: ONVIF GetDeviceInformation/GetProfiles
+    
+    alt Validation Failed
+        Cam-->>Control: 401 Unauthorized / Connection Timeout
+        Control-->>Admin: 400 Error (Bad Credentials)
+    else Validation Success
+        Cam-->>Control: DeviceInfo, Profiles (Main/Sub)
+        Control->>DB: INSERT INTO cameras (id, ip, auth, profiles)
+        Control->>DB: INSERT INTO streams (url_main, url_sub)
+        Control-->>Admin: 201 Created (Camera ID)
+    end
+```
+
+### Flow Narrative
+1.  **Initiate Scan**: Admin requests a network scan via REST API.
+2.  **Async Scan**: `vms-control` enters an async loop, sending WS-Discovery UDP probes to the target subnet.
+3.  **Discovery**: Cameras respond with their service endpoint addresses (XAddrs).
+4.  **Notify Admin**: The list of discovered IPs is pushed to the UI via WebSocket.
+5.  **Select & configure**: Admin selects a camera and provides credentials (username/password).
+6.  **Validation**: `vms-control` attempts to connect to the camera via ONVIF SOAP.
+7.  **Fetch Profiles**: If authenticated, the system pulls media profiles (Resolution, Codec, RTSP URLs).
+8.  **Persistence**: High-level camera metadata and stream URLs are stored in Postgres.
+9.  **Completion**: System returns success to the UI.
+
+### Flow Template
+*   **Actors**: Admin User, ONVIF Camera
+*   **Services/Planes**: Control Plane
+*   **Protocols**: REST (UI), SOAP/XML (ONVIF), SQL (Postgres)
+*   **Data Objects Exchanged**: `DiscoveryResult`, `Credential`, `MediaProfile`, `CameraConfig`
+*   **Data Stores Touched**: PostgreSQL (Cameras table)
+*   **Failure/Retry Notes**:
+    *   Discovery is UDP (best effort); packet loss may hide cameras (Retry scan).
+    *   Credential validation failure halts the flow immediately (No retry).
+
+---
+
+## 2. NVR Integration
+
+**Objective**: Connect to an external NVR and import its channels as specific cameras.
+
+### Diagram
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin User
+    participant Control as vms-control
+    participant NVR as External NVR
+    participant DB as Postgres
+
+    Admin->>Control: POST /api/nvr/connect {IP, User, Pass, Vendor}
+    Control->>NVR: Login / GetSystemCapabilities
+    NVR-->>Control: Auth Token / Session
+    
+    Control->>NVR: GetChannels / GetDigitalInputs
+    NVR-->>Control: List [Channel 1, Channel 2...]
+    
+    Control->>DB: INSERT INTO nvrs (id, ip, auth)
+    
+    loop For Each Selected Channel
+        Control->>DB: INSERT INTO cameras (nvr_id, channel_id, rtsp_url)
+    end
+
+    Control-->>Admin: 200 OK (NVR + Camera Count)
+```
+
+### Flow Narrative
+1.  **Connect**: Admin provides NVR IP and credentials.
+2.  **Authenticate**: `vms-control` authenticates with the NVR (Vendor-specific API or ONVIF Gateway).
+3.  **enumerate**: System queries the NVR for available video channels.
+4.  **Map**: System generates a "Virtual Camera" record for each NVR channel. The RTSP URL usually points to the NVR's proxy URL (e.g., `rtsp://nvr-ip/channel1`).
+5.  **Persist**: The NVR entity and its child cameras are stored in Postgres.
+
+### Flow Template
+*   **Actors**: Admin User, NVR Device
+*   **Services/Planes**: Control Plane
+*   **Protocols**: REST (UI), Vendor API/ONVIF (NVR)
+*   **Data Objects Exchanged**: `NvrConfig`, `ChannelList`, `CameraConfig`
+*   **Data Stores Touched**: PostgreSQL (Nvrs, Cameras tables)
+*   **Failure/Retry Notes**:
+    *   If NVR is offline, creation fails.
+    *   Channel mapping is idempotent (Importing twice updates existing records).
+
+---
+
+## 3. Live Streaming
+
+**Objective**: Deliver low-latency video from Camera to Browser.
+
+### Diagram
+
+```mermaid
+graph LR
+    subgraph "Edge"
+        Cam[Camera]
+    end
+
+    subgraph "VMS Host"
+        Media[vms-media]
+        Control[vms-control]
+    end
+
+    subgraph "Client"
+        Browser[Web Browser]
+    end
+
+    Browser -- 1. WS: Request Stream --> Control
+    Control -- 2. gRPC: StartPipeline(RTSP) --> Media
+    Media -- 3. RTSP: DESCRIBE/SETUP/PLAY --> Cam
+    Cam == 4. RTP Stream ==> Media
+    Media -- 5. Signal: ICE/SDP --> Control
+    Control -- 6. WS: SDP Offer --> Browser
+    Browser -- 7. WS: SDP Answer --> Control
+    Control -- 8. Signal: SDP Answer --> Media
+    Media == 9. WebRTC (SRTP) ==> Browser
+```
+
+### Flow Narrative
+1.  **Request**: User opens a camera. Browser requests a stream session via WebSocket.
+2.  **Orchestrate**: `vms-control` instructs `vms-media` to ingest the stream (if not already active).
+3.  **Ingest**: `vms-media` connects to the camera via RTSP.
+4.  **Flow**: Camera sends H.264/H.265 RTP packets.
+5.  **Negotiate**: `vms-media` generates an SDP Offer for WebRTC.
+6.  **Signal**: Offer acts as the "handshake", passed via Control Plane to the Browser.
+7.  **Answer**: Browser accepts and sends SDP Answer.
+8.  **Connect**: P2P (or Server-Reflexive) connection is established.
+9.  **Stream**: `vms-media` transmuxes RTP packets to SRTP/DTLS for the browser.
+
+### Flow Template
+*   **Actors**: Web Browser, Camera
+*   **Services/Planes**: Control Plane (Signaling), Media Plane (Streaming)
+*   **Protocols**: WebSocket (Signaling), gRPC (Internal), RTSP (Ingest), WebRTC (Egress)
+*   **Data Objects Exchanged**: `SdpDetails`, `IceCandidate`, `RtpPacket`
+*   **Data Stores Touched**: Redis (Session State)
+*   **Failure/Retry Notes**:
+    *   If RTSP fails, Media Plane retries with backoff.
+    *   If WebRTC UDP is blocked, failover to TCP (TURN) or HLS (High latency fallback).
+
+---
+
+## 4. Recording
+
+**Objective**: Persist video stream to disk for later retrieval.
+
+### Diagram
+
+```mermaid
+graph TD
+    Cam[Camera] -->|RTSP| Media[vms-media]
+    Control[vms-control] -.->|gRPC: StartRecording| Recorder[vms-recorder]
+    
+    Media -->|Shm/Socket| Recorder
+    
+    subgraph "Recording Engine"
+        RecBuffer[Ring Buffer]
+        Segmenter[MKV Segmenter]
+    end
+    
+    Recorder --> RecBuffer
+    RecBuffer --> Segmenter
+    Segmenter -->|Write| Disk[(Disk Storage)]
+    Segmenter -.->|Metadata| DB[(Postgres)]
+```
+
+### Flow Narrative
+1.  **Policy Check**: `vms-control` checks recording schedules (Continuous vs Event-based).
+2.  **Command**: `vms-control` sends `StartRecording` to `vms-recorder`.
+3.  **Ingest**: `vms-recorder` receives stream packets from `vms-media` (via local socket/shm).
+4.  **Buffer**: Packets are buffered to handle jitter.
+5.  **Segment**: Stream is split into chunks (e.g., 10 minutes) or by file size.
+6.  **Write**: Data is flushed to disk (`.mkv` format).
+7.  **Index**: File path and time range are logged to Postgres for the distinct "Recording Segment".
+
+### Flow Template
+*   **Actors**: System Automator (Scheduler)
+*   **Services/Planes**: Media Plane, Recorder, Control Plane
+*   **Protocols**: gRPC (Control), SharedMemory/TCP (Data), File I/O
+*   **Data Objects Exchanged**: `VideoPacket`, `RecordingSegment`
+*   **Data Stores Touched**: Disk (NTFS), Postgres (Index)
+*   **Failure/Retry Notes**:
+    *   **Disk Full**: Recorder triggers "cleanup" or stops recording (Critical Alert).
+    *   **Crash**: On restart, previous open file is closed/recovered; new file starts.
+
+---
+
+## 5. AI Processing
+
+**Objective**: Detect objects in the video stream and generate logic events.
+
+### Diagram
+
+```mermaid
+graph LR
+    Media[vms-media] == Raw/Encoded Frame ==> AI[vms-ai]
+    
+    subgraph "AI Plane"
+        Pre[Pre-Process/Resize]
+        Infer[Inference Engine]
+        Post[Logic/Filtering]
+    end
+    
+    AI --> Pre --> Infer --> Post
+    Post -.->|Event Msg| NATS((NATS Bus))
+```
+
+### Flow Narrative
+1.  **Tap**: `vms-media` duplicates the stream to the AI path.
+2.  **Decode/Resize**: If needed, frames are decoded and resized (e.g., to 640x640) for the model.
+3.  **Inference**: TensorRT/ONNX Runtime executes the model (e.g., YOLO).
+4.  **Result**: Model outputs raw bounding boxes.
+5.  **Logic**: Service applies rules (Confidence > 0.8, Inside ROI).
+6.  **Publish**: If rule matches, an event is published to NATS.
+
+### Flow Template
+*   **Actors**: N/A (Automated)
+*   **Services/Planes**: Media Plane, AI Plane
+*   **Protocols**: Shm (Data), NATS (Output)
+*   **Data Objects Exchanged**: `VideoFrame`, `InferenceResult`, `DetectionEvent`
+*   **Data Stores Touched**: None (Ephemeral processing).
+*   **Scope Note**: Architecture only. Specific model logic is implementation detail.
+
+---
+
+## 6. Event Flow
+
+**Objective**: Standardize, persist, and broadcast a detected event.
+
+### Diagram
+
+```mermaid
+graph TD
+    Source[AI Service / Door Sensor] -.->|JSON: vms.events.X| NATS((NATS))
+    
+    NATS -.->|Sub| Control[vms-control]
+    
+    Control -->|Enrich| DB[(Postgres)]
+    Control -->|Broadcast| WS_Manager
+    Control -->|Trigger| Rules_Engine
+    
+    WS_Manager ==>|JSON Event| UI[Web Dashboard]
+```
+
+### Flow Narrative
+1.  **Ingest**: `vms-control` subscribes to `vms.events.*`.
+2.  **Receive**: Message received from NATS (e.g., Person Detected).
+3.  **Enrich**: Control plane adds context (Camera Name, Site Name) from valid cache/DB.
+4.  **Persist**: Event inserted into `events` table.
+5.  **Broadcast**: Event sent to all connected WebSocket clients on the "Monitoring" page.
+6.  **React**: Rules engine checks if this event should trigger a Snapshot or Alarm.
+
+### Flow Template
+*   **Actors**: AI Service, Web User
+*   **Services/Planes**: AI Plane, Control Plane
+*   **Protocols**: NATS, WebSocket, SQL
+*   **Data Objects Exchanged**: `EventMessage`, `EnrichedEvent`
+*   **Data Stores Touched**: Postgres (Events table)
+*   **Failure/Retry Notes**:
+    *   NATS provides buffering.
+    *   If Postgres is down, event is logged to file buffer (resilience).
+
+---
+
+## 7. Snapshot Flow
+
+**Objective**: Capture a high-res still image linked to an event.
+
+### Diagram
+
+```mermaid
+sequenceDiagram
+    participant Rules as Rules Engine (Control)
+    participant Media as vms-media
+    participant Disk as Disk Storage
+    participant DB as Postgres
+
+    Rules->>Media: gRPC: CaptureSnapshot(CameraID)
+    Media->>Media: Extract Keyframe / JPG Encode
+    Media-->>Rules: Binary JPEG Data
+    
+    Rules->>Disk: Write file (events/{id}.jpg)
+    Rules->>DB: UPDATE events SET snapshot_path = '...'
+```
+
+### Flow Narrative
+1.  **Trigger**: Event logic determines a snapshot is needed.
+2.  **Request**: `vms-control` asks `vms-media` for an immediate snapshot.
+3.  **Capture**: `vms-media` grabs the latest I-Frame or decoded frame from the buffer.
+4.  **Encode**: Convert to JPEG.
+5.  **Return**: Return binary data to Control (or write directly to shared storage).
+6.  **Store**: File saved to disk.
+7.  **Link**: Database record updated to point to the file.
+
+### Flow Template
+*   **Actors**: System Automator
+*   **Services/Planes**: Control Plane, Media Plane
+*   **Protocols**: gRPC
+*   **Data Objects Exchanged**: `ImageBuffer`
+*   **Data Stores Touched**: Disk (JPG file), Postgres (Link)
+*   **Failure/Retry Notes**:
+    *   If stream is keyframe-only or corrupt, snapshot may fail; placeholder image used.
+
+
+================ FILE: data-layer.md ================
+
+# Data Storage Layer Architecture
+
+## 1. Overview
+The Data Layer manages persistence for all subsystems. It uses a polyglot persistence approach, choosing the right tool for each data type.
+
+## 2. Storage Responsibilities
+
+### 2.1 Relational Data (PostgreSQL)
+**Why:** ACID transactions, referential integrity.
+- **Tenants & Sites:** Organization structure.
+- **Cameras:** Configuration (RTSP URLs, credentials, stream profiles).
+- **Users:** Credentials (hashed), roles, permissions.
+- **Audit Logs:** Who did what and when.
+- **Event Metadata:** "Person detected at 10:00:00". We store the *metadata* here, not the video.
+
+### 2.2 Metrics & Telemetry (PostgreSQL / NATS)
+- System health stats (CPU, RAM, Uptime) are ephemeral.
+- Currently aggregated via NATS and potentially stored in a time-series table or purely ephemeral for dashboard live view.
+
+### 2.3 Hot State (Redis)
+**Why:** Low latency, ephemeral, pub/sub support.
+- **Session Store:** Web user sessions.
+- **Stream Registry:** "Which camera is currently being streamed?"
+- **Distributed Locks:** Ensuring only one recorder records a specific camera.
+
+### 2.4 Video Storage (Filesystem - NTFS)
+**Why:** Cheapest, simplest high-throughput storage.
+- Recordings are stored as `.mkv` or `.mp4` segments in a directory structure:
+  `D:\Recordings\{tenant_id}\{camera_id}\{yyyy-mm-dd}\{hour}\segment_001.mkv`
+- **Indexing:** The "seek table" is the filesystem itself or a lightweight index in Postgres.
+
+## 3. Retention & TTL
+- **Policy:** Defined per Tenant or Camera in Postgres.
+- **Enforcement:** `vms-recorder` runs a background cleanup task.
+  - "Delete files older than 30 days."
+  - "Delete oldest files if disk usage > 90%."
+
+## 4. Backup & Restore (On-Prem / Windows)
+- **Configuration (PostgreSQL):** `pg_dump` runs nightly via Windows Task Scheduler.
+- **Recordings:** Typically NOT backed up to cloud due to massive size. RAID is recommended for local redundancy.
+
+
+================ FILE: how-to-view-live-feed.md ================
+
+# How to Check Live Feed - Quick Guide
+
+## Method 1: HLS Stream (Recommended for Testing)
+
+The camera is generating HLS segments that you can play directly.
+
+### Find the HLS Playlist:
+```powershell
+# Get the session ID from camera status
+$env:CAM_ID = "6ed6cf65-a421-4f5f-bfa3-363f33dbf23a"
+go run scripts/check_camera_status.go
+# Look for "Session ID: xxxxx"
+
+# Or find it directly
+Get-ChildItem "C:\ProgramData\TechnoSupport\VMS\hls\" -Directory | Select-Object Name, CreationTime
+```
+
+### Play the HLS Stream:
+```powershell
+# Example if session ID is "tOOINOtwCZLZ"
+# Open in VLC or any HLS player:
+# File path: C:\ProgramData\TechnoSupport\VMS\hls\tOOINOtwCZLZ\playlist.m3u8
+
+# Or use ffplay (if installed):
+ffplay "C:\ProgramData\TechnoSupport\VMS\hls\<SESSION_ID>\playlist.m3u8"
+```
+
+## Method 2: WebRTC Stream (Browser)
+
+The VMS has a web interface for live viewing.
+
+### Steps:
+1. **Get an access token:**
+   ```powershell
+   .\scripts\gen-admin-token.ps1
+   # Token is saved to token.txt and copied to clipboard
+   ```
+
+2. **Open the web interface:**
+   - URL: `http://localhost:8080` (or your server IP)
+   - Login with the token
+
+3. **Navigate to Live View:**
+   - Go to Cameras â†’ Live View
+   - Select camera `6ed6cf65-a421-4f5f-bfa3-363f33dbf23a`
+
+## Method 3: Direct RTSP Stream
+
+You can view the original RTSP stream directly (bypasses VMS).
+
+### Using VLC:
+```
+Media â†’ Open Network Stream
+URL: rtsp://192.168.1.181:554/live/0/MAIN
+```
+
+### Using ffplay:
+```powershell
+ffplay -rtsp_transport tcp rtsp://192.168.1.181:554/live/0/MAIN
+```
+
+## Method 4: Check HLS via HTTP (if HLSD is configured)
+
+If the HLS daemon is serving files via HTTP:
+
+```powershell
+# Check if HLSD is serving
+Invoke-WebRequest http://localhost:8088/health
+
+# Access HLS stream
+# http://localhost:8088/hls/<SESSION_ID>/playlist.m3u8
+```
+
+## Quick Test Script
+
+I'll create a script to help you quickly access the live feed:
+
+
+================ FILE: media-plane.md ================
+
+# Media Plane Architecture
+
+## 1. Overview
+The Media Plane (`vms-media`) is the high-performance engine responsible for video ingestion and routing. It is built using **C++** and **GStreamer**.
+
+## 2. Design Principles
+
+### 2.1 Pass-Through Philosophy
+To minimize CPU usage, the Media Plane **avoids transcoding** whenever possible.
+- **Ingest:** Accept H.264/H.265 streams via RTSP.
+- **Internal Routing:** Keep video packets compressed.
+- **Egress:** Repackage into suitable containers (RTP for WebRTC, MKV for Recording) without decoding/re-encoding pixels.
+
+### 2.2 Resource Isolation
+Each active camera stream runs in its own GStreamer pipeline or thread context.
+- A failure in Camera A's pipeline (e.g., bad RTSP source) MUST NOT affect Camera B.
+- Dynamic pipeline construction allows adding/removing cameras without restarting the process.
+
+## 3. GStreamer Pipeline Concept
+
+```
+[rtspsrc] -> [rtph264depay] -> [parse] -> [tee name=t]
+                                          |
+                                          +-> [queue] -> [appsink (for AI processing)]
+                                          |
+                                          +-> [queue] -> [rtph264pay] -> [udpsink (to SFU/Client)]
+                                          |
+                                          +-> [queue] -> [matroskamux] -> [filesink (Recording)]
+```
+*Note: The actual implementation splits Recording and AI into separate services, so the Tee sends to shared memory or inter-process socket sink.*
+
+## 4. Failure Handling
+
+- **RTSP Disconnect:** The pipeline monitors for EOS (End of Stream) or timeout.
+- **Auto-Reconnect:** On failure, the pipeline enters a "Backoff/Retry" loop (e.g., retry every 5s).
+- **Bad Data:** Corrupt packets are dropped silently to prevent pipeline stalls.
+
+## 5. Interfaces
+
+### 5.1 To Control Plane (gRPC Server)
+The Media Plane exposes a gRPC server to receive commands:
+- `SetupStream(id, url)`: Builds and starts a pipeline.
+- `TeardownStream(id)`: Stops and frees resources.
+
+### 5.2 To SFU
+- Delivers RTP packets via UDP loopback or shared memory to the SFU component for web delivery.
+
+### 5.3 To AI Plane
+- Provides access to decoded raw frames (Video/x-raw) via Shared Memory (Shm) or TCP socket for inference, ensuring low latency.
+
+
+================ FILE: PHASE_3.9_DONE.md ================
+
+# Phase 3.9 Completion Checklist
+
+## Definition of Done
+- [x] **Video Engine:** Native GStreamer/D3D11 Bridge (12 channels)
+- [x] **Desktop App:** WPF MVVM Architecture (No browser dependency)
+- [x] **Service Supervisor:** Status monitoring and Restart capability
+- [x] **Secure Storage:** DPAPI Token Encryption
+- [x] **Configuration:** JSON persistence in %AppData%
+
+## Verification Steps
+Run the automated gatekeeper script:
+```powershell
+.\scripts\verify-phase-3.9.ps1
+```
+
+Expected Output:
+
+```text
+[1/5] Checking Build Gates... PASS
+[2/5] Checking Health Gate... PASS (HTTP 200)
+[3/5] Checking Desktop Binary... PASS
+[4/5] Checking DPAPI Encryption... PASS
+[5/5] Checking Configuration Path... PASS
+=== PHASE 3.9 VERIFICATION COMPLETE: ALL PASS ===
+```
+
+
+================ FILE: protocols.md ================
+
+# Service Communication Protocols
+
+## 1. Protocol Decision Matrix
+
+| Link | Protocol | Rationale |
+| :--- | :--- | :--- |
+| **Control â†” Client** | **REST (JSON) + WebSocket** | Standard for Web Browsers; WS for live events is efficient. |
+| **Control â†” Media** | **gRPC** | Strictly typed, high performance, bidirectional streaming capable. |
+| **Control â†” Recorder**| **gRPC** | Command/Control pattern fits RPC perfectly. |
+| **Media â†” SFU** | **RTP (UDP)** | Standard for real-time video transport. |
+| **Media â†” AI** | **Shared Memory / Socket** | Zero-copy is critical for raw video throughput. |
+| **AI â†” Control** | **NATS** | Component decoupling. AI produces events; Control consumes. |
+
+## 2. Network Reliability Rules
+
+### 2.1 Backpressure
+- **Video Path:** If the Client cannot consume video fast enough,frames are dropped at the SFU. We do not buffer indefinitely.
+- **Data Path:** NATS handles buffering for bursty event traffic.
+
+### 2.2 Idempotency
+- **Control Commands:** Retryable. `StartStream(cam1)` is safe to call twice; the second call returns "Already Running".
+
+### 2.3 Message Formats
+- **gRPC:** Protobuf (binary, fast, contract-first).
+- **NATS:** JSON (debuggable, schema evolution is easier).
+
+
+================ FILE: technology-selection.md ================
+
+# Technology Selection Rationale
+
+## 1. Language Choices
+
+### 1.1 Go (Control Plane)
+- **Rationale:** Best-in-class for networked services and orchestration. Goroutines map perfectly to handling thousands of concurrent camera connections/requests. Strict typing prevents many runtime errors found in Node/Python.
+
+### 1.2 C++ (Media Plane)
+- **Rationale:** Video processing is CPU-bound. GStreamer is native C. Using C++ gives us zero-overhead access to GStreamer and raw memory pointers, essential for the high-throughput video pipeline (70+ cameras per server target).
+
+### 1.3 Rust (Recording Engine)
+- **Rationale:** Safety + Speed. Recording requires reliable buffer management and file I/O. Rust's ownership model prevents memory leaks and data races, which are common plaguing issues in long-running C++ recording services.
+
+### 1.4 Python (AI Plane)
+- **Rationale:** The de-facto standard for AI. Huge ecosystem of pre-trained models (YOLO, ResNet). While C++ is faster for inference, Python allows for rapid iteration of business logic around the inference.
+
+## 2. Windows-Native (No Docker)
+
+### 2.1 Deployment Simplicity
+- **Why:** Many traditional security/IT environments are uncomfortable with Docker/Kubernetes on Windows. `Setup.exe` is the standard they expect.
+- **Performance:** Native processes avoid the virtualization overhead of Docker Desktop for Windows (which runs a Linux VM). This provides better access to GPU resources for AI.
+
+## 3. Tradeoffs & Mitigations
+
+| Tradeoff | Risk | Mitigation |
+| :--- | :--- | :--- |
+| **Complexity of Polyglot** | Using Go, C++, Rust, Python increases build complexity. | Strict build scripts (Powershell), static binaries where possible. |
+| **Windows-Specific Ops** | Linux tools (cron, bash) aren't available. | Use Windows native equivalents (Task Scheduler, Powershell). |
+| **Dependency Hell** | Installing DLLs, runtimes on customer machines. | Ship a bundled installer that includes everything (VCRedist, etc.). Static linking where possible. |
+
+
+================ FILE: troubleshooting-video-freezing.md ================
+
+# Video Freezing Solutions - Complete Guide
+
+## Current Status
+- âœ… Camera I-frame interval: 10 (2 keyframes/second)
+- âœ… Media Plane: Running smoothly
+- âœ… SFU: Active and streaming
+- âš ï¸ Still experiencing periodic freezes
+
+## Root Causes & Solutions
+
+### 1. **Network Jitter (Most Likely)**
+
+**Problem**: Packets arrive at irregular intervals causing brief stalls.
+
+**Solution A - Increase Browser Jitter Buffer:**
+
+Edit `test/webrtc_test.html` and modify the consumer creation (around line 339):
+
+```javascript
+const consumer = await transport.consume({
+    id: consumerInfo.id,
+    producerId: consumerInfo.producerId,
+    kind: consumerInfo.kind,
+    rtpParameters: consumerInfo.rtpParameters,
+    // ADD THESE LINES:
+    appData: {
+        jitterBufferTarget: 300,  // 300ms buffer
+        jitterBufferMaxPackets: 200
+    }
+});
+```
+
+**Solution B - Use TCP for RTSP (More Stable):**
+
+The camera is currently using UDP for RTSP. TCP is more reliable but slightly higher latency.
+
+Check if Media Plane is using TCP: Look for `prefer_tcp: true` in the ingest configuration.
+
+### 2. **WebRTC ICE Connection Issues**
+
+**Problem**: ICE connection state changes causing brief disconnections.
+
+**Check**: Open browser console (F12) and look for:
+- "Transport State: disconnected"
+- "Transport State: failed"
+- ICE connection warnings
+
+**Solution**: Add STUN/TURN server configuration to improve NAT traversal.
+
+### 3. **Mediasoup Buffer Settings**
+
+**Problem**: Default mediasoup settings might be too aggressive.
+
+**Solution**: Modify SFU configuration in `sfu/src/mediasoup.ts`:
+
+```typescript
+// In createRouter() method, add:
+const router = await worker.createRouter({
+    mediaCodecs: [...],
+    // ADD THIS:
+    rtcpMux: true,
+    rtcpReducedSize: true
+});
+```
+
+### 4. **GStreamer Pipeline Buffering**
+
+**Problem**: Media Plane GStreamer pipeline might have buffer underruns.
+
+**Check logs**: Look for "buffer underrun" or "late buffer" messages.
+
+**Solution**: The pipeline already has buffering, but you can verify it's working.
+
+## Quick Fixes (Try These First)
+
+### Fix 1: Restart Ingest with Fresh Connection
+```powershell
+# Stop and restart the camera ingest
+.\scripts\dev-restart.ps1
+Start-Sleep -Seconds 10
+go run scripts/start_ingest.go
+```
+
+### Fix 2: Use Lower Resolution
+If your camera supports it, try using SubStream instead of MainStream:
+- Lower resolution = less bandwidth = fewer freezes
+- Change RTSP URL to SubStream endpoint
+
+### Fix 3: Check Network Path
+```powershell
+# Test network to camera
+ping 192.168.1.181 -n 100
+
+# Look for:
+# - Packet loss (should be 0%)
+# - Jitter (time variation)
+```
+
+### Fix 4: Try HLS Instead of WebRTC
+HLS is more tolerant of network issues:
+
+In the WebRTC test page, the system will auto-fallback to HLS if WebRTC fails. Or force HLS by:
+- Stopping WebRTC
+- The page will automatically switch to HLS
+
+## Advanced Diagnostics
+
+### Monitor Real-Time Stats
+```powershell
+# Run this in a separate PowerShell window
+while ($true) {
+    Clear-Host
+    Write-Host "=== Live Monitoring ===" -ForegroundColor Cyan
+    .\scripts\diagnose-freezing.ps1
+    Start-Sleep -Seconds 3
+}
+```
+
+### Check WebRTC Stats in Browser
+Add this to browser console while video is playing:
+
+```javascript
+// Get WebRTC stats
+const stats = await transport.getStats();
+stats.forEach(stat => {
+    if (stat.type === 'inbound-rtp') {
+        console.log('Packets Lost:', stat.packetsLost);
+        console.log('Jitter:', stat.jitter);
+        console.log('Frames Dropped:', stat.framesDropped);
+    }
+});
+```
+
+## Expected Behavior
+
+**Normal**: Occasional 100-200ms micro-freezes during network congestion  
+**Abnormal**: Regular 2+ second freezes every few seconds
+
+If you're seeing regular 2-second freezes even after:
+- Setting I-frame interval to 10
+- Good network connection (0% packet loss)
+- No errors in logs
+
+Then the issue is likely **WebRTC jitter buffer** settings, which can be fixed by modifying the test page as shown in Solution A above.
+
+## Recommended Next Steps
+
+1. **Immediate**: Try Fix 1 (restart ingest)
+2. **Short-term**: Implement Solution A (increase jitter buffer)
+3. **Long-term**: Consider using HLS for more stable playback
+
+## Performance Targets
+
+- **Excellent**: < 100ms freezes, rare
+- **Good**: < 500ms freezes, occasional
+- **Acceptable**: < 1s freezes, infrequent
+- **Poor**: > 2s freezes, regular â† **Your current state**
+
+The goal is to get to "Good" or "Excellent" level.
+
+
+================ FILE: webrtc-gstreamer-architecture.md ================
+
+# WebRTC and GStreamer Architecture Overview
+
+## Current Status
+
+### GStreamer
+âœ… **Installed**: Version 1.26.10
+- **Location**: Embedded in the Media Plane service
+- **Usage**: Running inside `vms-media` process (PID 1716)
+- **Function**: RTSP ingestion, video decoding, HLS segmentation
+
+**How it works:**
+- GStreamer is a **library**, not a separate process
+- It's compiled into the `vms-media.exe` C++ application
+- Currently processing video from camera `6ed6cf65-a421-4f5f-bfa3-363f33dbf23a`
+- Running at ~21 FPS with 0ms latency
+
+### WebRTC (mediasoup)
+âœ… **Running**: Inside Node.js SFU service (PID 424)
+- **Port**: 8085 (HTTP API), 40000-49999 (RTP/UDP)
+- **Function**: Real-time video streaming to browsers
+- **Workers**: 16 mediasoup workers (one per CPU core)
+
+**How it works:**
+- mediasoup is a **Node.js library** embedded in the SFU service
+- Creates WebRTC transports for browser clients
+- Receives RTP from Media Plane, forwards to browsers
+- No separate process - runs inside the `node` process
+
+## Architecture Flow
+
+```
+Camera (RTSP)
+    â†“
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  vms-media (Media Plane)            â”‚
+â”‚  - GStreamer Pipeline                â”‚
+â”‚  - RTSP Client â†’ Decoder             â”‚
+â”‚  - HLS Segmenter                     â”‚
+â”‚  - RTP Sender (to SFU)               â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+    â†“ (RTP/UDP)
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  node (SFU Service)                  â”‚
+â”‚  - mediasoup (WebRTC)                â”‚
+â”‚  - 16 Workers                        â”‚
+â”‚  - PlainTransport (receives RTP)     â”‚
+â”‚  - WebRtcTransport (sends to browser)â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+    â†“ (WebRTC)
+Browser Client
+```
+
+## GStreamer Pipeline (Inside vms-media)
+
+The Media Plane uses this GStreamer pipeline:
+
+```
+rtspsrc â†’ rtph264depay â†’ h264parse â†’ 
+    â”œâ†’ tee â†’ queue â†’ hlssink2 (HLS segments)
+    â””â†’ queue â†’ rtph264pay â†’ udpsink (to SFU)
+```
+
+**Active Pipeline:**
+- Input: `rtsp://192.168.1.181:554/live/0/MAIN`
+- Output 1: HLS segments in `C:\ProgramData\TechnoSupport\VMS\hls\`
+- Output 2: RTP stream to SFU on dynamic port
+
+## WebRTC Components (Inside SFU)
+
+**mediasoup Architecture:**
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  Router (per room/camera)            â”‚
+â”‚    â”œâ”€ PlainTransport (ingest)        â”‚
+â”‚    â”‚   â””â”€ Producer (H.264 video)     â”‚
+â”‚    â””â”€ WebRtcTransport (viewer)       â”‚
+â”‚        â””â”€ Consumer (sends to browser)â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+**Current State:**
+- Rooms: 0 (no active viewers)
+- Producers: 1 (camera feed)
+- Consumers: 0 (no viewers connected)
+- Transports: 1 PlainTransport (receiving from Media Plane)
+
+## Verification Commands
+
+### Check GStreamer
+```powershell
+# Version
+gst-inspect-1.0 --version
+
+# Available plugins
+gst-inspect-1.0 | Select-String "rtspsrc|h264|hls"
+
+# Check if Media Plane is using GStreamer
+Get-Process vms-media | Select-Object CPU, WorkingSet64
+```
+
+### Check WebRTC/mediasoup
+```powershell
+# SFU stats
+Invoke-RestMethod -Uri "http://127.0.0.1:8085/stats" -Headers @{"X-Internal-Auth"="sfu-internal-secret"}
+
+# Check mediasoup workers (inside node process)
+Get-Process node | Select-Object Id, CPU, @{Name="Threads";Expression={$_.Threads.Count}}
+```
+
+### Check Active Streams
+```powershell
+# Media Plane metrics
+Invoke-WebRequest http://localhost:8080/metrics | Select-String "vms_media"
+
+# Check camera status
+.\scripts\check-camera.ps1
+```
+
+## Resource Usage
+
+| Component | Process | Memory | CPU | Notes |
+|-----------|---------|--------|-----|-------|
+| GStreamer | vms-media | 45.88 MB | 7.27s | Actively decoding H.264 |
+| mediasoup | node | 61.41 MB | 1.34s | 16 workers idle |
+
+## Key Points
+
+1. **No Separate Processes**: Both GStreamer and mediasoup are libraries embedded in their host processes
+2. **GStreamer**: Handles RTSP â†’ HLS + RTP conversion
+3. **mediasoup**: Handles RTP â†’ WebRTC conversion for browsers
+4. **Performance**: Low latency (0-26ms), efficient resource usage
+5. **Scalability**: mediasoup uses 16 workers for multi-core utilization
+
+## Logs
+
+- **GStreamer logs**: `logs/media.log` and `logs/media_err.log`
+- **mediasoup logs**: `logs/sfu.log`
+- **HLS segments**: `C:\ProgramData\TechnoSupport\VMS\hls\<session-id>\`
+
+
+================ FILE: webrtc_test_debug.md ================
+
+# WebRTC Test Page Debugging Guide (Phase 3.4)
+
+## Overview
+The `test/webrtc_test.html` page is a standalone client for verifying VMS WebRTC streaming.
+As of Phase 3.4, usage of WebSocket signaling is **optional** and **disabled by default**.
+
+## Usage
+
+### 1. Serving the Page
+**IMPORTANT:** Do NOT open this file directly via `file://` protocol. Browser security policies (CORS, mixed content) will block connections.
+
+Run a local HTTP server:
+```powershell
+cd c:\Users\sudha\Desktop\ts_vms_1.0\test
+python -m http.server 8000
+```
+Then open: [http://localhost:8000/webrtc_test.html](http://localhost:8000/webrtc_test.html)
+
+### 2. Configuration
+- **Camera ID:** UUID of the camera (e.g., `6ed6cf65-a421-4f5f-bfa3-363f33dbf23a` for H.264)
+- **Token:** JWT Access Token (must be valid)
+
+### 3. Verification Output
+Open the Browser Console (F12) to verify behavior.
+
+#### Success Indicators
+- **HTTP-Only (Default):**
+  - `WS disabled; using HTTP-only signaling`
+  - `Transport State: connected`
+  - `Streaming live via WebRTC.`
+
+- **WS Enabled (if configured):**
+  - `WS state: open`
+  - `Transport State: connected`
+  - `Streaming live via WebRTC.`
+
+#### Error Handling verification
+If WebSocket fails (e.g. if enabled but server down):
+- Console: `WS failed; continuing with HTTP-only signaling`
+- UI Status: `WS unavailable; using HTTP-only.`
+- **Critical:** Video playback should proceed seamlessly.
+
+## Architecture Notes
+- **Signaling:** Uses `POST /rooms/{id}/join`, `/transports`, `/consume` for SDP exchange.
+- **WebSocket:** Used *only* for non-critical connection state updates (metrics). It is NOT required for video flow.
+- **Security:** JWT is **never** passed in the WebSocket URL query string.
+
+
+================ FILE: windows-services.md ================
+
+# Windows Service Architecture
+
+## 1. Intended Services
+
+The VMS is composed of the following native Windows Services:
+
+| Service Name | Display Name | Binary | Description |
+| :--- | :--- | :--- | :--- |
+| `vms-control` | Techno Support VMS Control | `vms-control.exe` | Core API and Orchestrator. |
+| `vms-media` | Techno Support VMS Media | `vms-media.exe` | Video Ingest & Routing. |
+| `vms-ai` | Techno Support VMS AI | `vms-ai.exe` | Video Analytics. |
+| `vms-recorder` | Techno Support VMS Recorder | `vms-recorder.exe` | Video Recording. |
+| `postgresql-x64-14` | PostgreSQL | `postgres.exe` | Database (Dependency). |
+| `redis` | Redis | `redis-server.exe` | Cache (Dependency). |
+| `nats-server` | NATS Server | `nats-server.exe` | Message Bus (Dependency). |
+
+## 2. Startup Order & Dependencies
+
+Windows Service Manager (`sc.exe` or `Services.msc`) handles dependencies.
+
+1. **Tier 0 (Infra):** Postgres, Redis, NATS must start first.
+2. **Tier 1 (Core):** `vms-control` starts. It waits for DB connectivity.
+3. **Tier 2 (Workers):** `vms-media`, `vms-recorder`, `vms-ai` start. They register themselves with `vms-control` via gRPC/NATS.
+
+**Dependency Definition:**
+- `vms-control` depends on `postgresql-x64-14`, `redis`, `nats-server`.
+- `vms-media`, `vms-recorder`, `vms-ai` depend on `vms-control` (logically, though soft dependency is preferred to allow independent restarts).
+
+## 3. Logging & Monitoring
+
+### 3.1 Log Locations
+- Logs are written to `%PROGRAMDATA%\TechnoSupport\VMS\Logs\`
+- One file per service: `control.log`, `media.log`, etc.
+- **Rotation:** Managed by the application (lumberjack or similar log roller) to prevent filling the disk.
+
+### 3.2 Windows Event Log
+- Critical failures (Panics, Crash loops) are written to the **Windows Application Event Log** for system administrator visibility.
+
+## 4. Recovery Policy
+- **Failure Action:** "Restart the Service" (configured via `sc failure`).
+- **Reset Fail Count:** After 1 day.
+- **Restart Delay:** 10 seconds (to prevent rapid crash loops).
+

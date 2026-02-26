@@ -164,7 +164,7 @@
                 
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Margin="8" CornerRadius="12" Background="White" ClipToBounds="True">
+                        <Border Margin="8" CornerRadius="12" Background="White" ClipToBounds="True" MouseLeftButtonDown="CameraGrid_MouseLeftButtonDown">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="BorderBrush" Value="#E2E8F0"/>
@@ -195,7 +195,7 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- 1. VIDEO LAYER (Row 0) -->
-                                <Grid Grid.Row="0" Background="#F1F5F9" ClipToBounds="True">
+                                <Grid Grid.Row="0" ClipToBounds="True">
                                     
                                     <!-- No Signal Placeholder (Light Theme) -->
                                     <Grid x:Name="NoSignalOverlay" Visibility="{Binding IsConnected, Converter={StaticResource InverseBoolToVisConverter}}">
@@ -269,6 +269,8 @@
                                                           Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                           IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
 
+
+
                                     <!-- TOP BADGES -->
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10"
                                                 Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -291,8 +293,9 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/> <!-- Added for Full Window Button -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Audio Icon -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Full Window Button -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Menu Button -->
                                     </Grid.ColumnDefinitions>
                                     
                                     <!-- Status Dot (Pulsing) -->
@@ -308,8 +311,32 @@
                                         </TextBlock>
                                     </StackPanel>
 
+                                    <!-- Audio Indicator -->
+                                    <TextBlock Grid.Column="2" 
+                                               FontSize="15" 
+                                               Margin="0,0,10,0"
+                                               FontFamily="Segoe UI Emoji" 
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding HasAudioCapability, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="🔇" />
+                                                <Setter Property="Foreground" Value="#94A3B8" /> 
+                                                <Setter Property="ToolTip" Value="Camera has audio (Muted)" />
+                                                
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsAudioPlaying}" Value="True">
+                                                        <Setter Property="Text" Value="🔊" />
+                                                        <Setter Property="Foreground" Value="#10B981" /> 
+                                                        <Setter Property="ToolTip" Value="Audio Actively Playing" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
                                     <!-- Full Window Button -->
-                                    <Button Grid.Column="2" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,4,0"
+                                    <Button Grid.Column="3" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,4,0"
                                             Command="{Binding DataContext.EnterFullScreenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
                                             CommandParameter="{Binding}"
                                             ToolTip="Full Window">
@@ -337,7 +364,7 @@
                                     </Button>
 
                                     <!-- Menu Button -->
-                                    <Button Grid.Column="3" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,-4,0"
+                                    <Button Grid.Column="4" Width="28" Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand" Margin="0,0,-4,0"
                                             ToolTip="More Options">
                                         <Path Data="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" 
                                               Fill="#CBD5E1" Stretch="Uniform" Width="4" Height="16"/>
@@ -370,7 +397,9 @@
 
 
         <Grid Visibility="{Binding IsFullScreen, Converter={StaticResource BooleanToVisibilityConverter}}" 
-              Background="Black" x:Name="FullScreenGrid">
+              x:Name="FullScreenGrid">
+            
+            <Border Background="Black" /> <!-- Underlying theater background -->
             
             <controls:VideoCanvas x:Name="FullScreenPlayer" 
                                    HorizontalAlignment="Stretch"

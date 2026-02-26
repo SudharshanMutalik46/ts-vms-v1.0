@@ -67,6 +67,8 @@ namespace TSVmsDesktop
         protected override void OnStartup(StartupEventArgs e)
         {
             Console.WriteLine("DEBUG: OnStartup Started");
+            // Force GStreamer to ignore D3D12 decoders and use D3D11 instead
+            Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE");
             base.OnStartup(e);
 
             try

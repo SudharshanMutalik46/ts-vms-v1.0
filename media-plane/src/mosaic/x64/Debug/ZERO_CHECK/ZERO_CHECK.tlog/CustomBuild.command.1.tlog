@@ -1,0 +1,10 @@
+^C:\USERS\SUDHA\DESKTOP\TS_VMS_1.0\MEDIA-PLANE\SRC\MOSAIC\CMAKEFILES\F75DB9849C17BF7C0352D1E1681292A7\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic -BC:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic/vms-mosaic.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

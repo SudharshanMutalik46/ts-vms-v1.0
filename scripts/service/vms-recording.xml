@@ -1,0 +1,8 @@
+<service>
+  <id>ts-vms-recording</id>
+  <name>TS-VMS Recording Service</name>
+  <description>Manages continuous and event-triggered video recording threads for TS-VMS.</description>
+  <executable>%BASE%\vms-recording-bin.exe</executable>
+  <log mode="roll"></log>
+  <onfailure action="restart" delay="10 sec"/>
+</service>

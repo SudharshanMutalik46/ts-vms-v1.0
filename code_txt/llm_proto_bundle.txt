@@ -1,0 +1,362 @@
+﻿=== PROTO LLM Bundle (ts_vms_1.0\\proto) ===
+Generated: 2026-02-26T18:15:23
+Root: C:\Users\sudha\Desktop\ts_vms_1.0\proto
+
+
+================ FILE: ts\vms\ai\v1\ai.proto ================
+
+syntax = "proto3";
+
+package ts.vms.ai.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/ai/v1;aiv1";
+
+service AiService {
+  rpc UpdateModelConfig(UpdateModelConfigRequest) returns (UpdateModelConfigResponse);
+  rpc GetModelList(GetModelListRequest) returns (GetModelListResponse);
+}
+
+message UpdateModelConfigRequest {
+  string camera_id = 1;
+  bool enabled = 2;
+  repeated string active_models = 3; // e.g. ["yolo-v8-n", "face-rec-v1"]
+  map<string, float> confidence_thresholds = 4;
+}
+
+message UpdateModelConfigResponse {
+  bool success = 1;
+}
+
+message GetModelListRequest {}
+
+message GetModelListResponse {
+  repeated Model models = 1;
+}
+
+message Model {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  repeated string capabilities = 4; // "person", "vehicle"
+}
+
+
+================ FILE: ts\vms\common\v1\common.proto ================
+
+syntax = "proto3";
+
+package ts.vms.common.v1;
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/common/v1;commonv1";
+
+// Standard Error Model for gRPC
+message Error {
+  int32 code = 1;      // HTTP-like status code (e.g., 400, 404, 500)
+  string message = 2;  // Developer-facing error message
+  string request_id = 3; // Trace ID for debugging
+}
+
+// Pagination Request
+message PaginationRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// Pagination Response
+message PaginationResponse {
+  string next_page_token = 1;
+  int32 total_items = 2; // Optional: Total count if expensive to calculate
+}
+
+// Time Range
+message TimeRange {
+  string start_time = 1; // ISO 8601 RFC 3339
+  string end_time = 2;   // ISO 8601 RFC 3339
+}
+
+// Geo Location (for cameras/sites)
+message GeoLocation {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+
+================ FILE: ts\vms\control\v1\control.proto ================
+
+syntax = "proto3";
+
+package ts.vms.control.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/control/v1;controlv1";
+
+service ControlService {
+  // Service Health Check
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+
+  // Camera Onboarding Orchestration
+  // Called by Admin/UI to start an ONVIF scan or add a camera
+  rpc StartDiscovery(StartDiscoveryRequest) returns (StartDiscoveryResponse);
+  rpc AddCamera(AddCameraRequest) returns (AddCameraResponse);
+
+  // Session Management
+  // Called by Media Plane or UI to validate session
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+}
+
+message GetHealthRequest {}
+message GetHealthResponse {
+  string status = 1; // "SERVING", "NOT_SERVING"
+  string version = 2;
+}
+
+message StartDiscoveryRequest {
+  string subnet = 1; // CIDR (e.g., 192.168.1.0/24)
+}
+
+message StartDiscoveryResponse {
+  string scan_id = 1; // ID to subscribe to WS events
+}
+
+message AddCameraRequest {
+  string name = 1;
+  string ip_address = 2;
+  string username = 3;
+  string password = 4;
+  int32 port = 5;
+}
+
+message AddCameraResponse {
+  string camera_id = 1;
+  ts.vms.common.v1.Error error = 2;
+}
+
+message ValidateSessionRequest {
+  string token = 1;
+}
+
+message ValidateSessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  repeated string scopes = 3;
+}
+
+
+================ FILE: ts\vms\events\v1\events.proto ================
+
+syntax = "proto3";
+
+package ts.vms.events.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/events/v1;eventsv1";
+
+// For Internal Ingestion (AI -> NATS -> Control)
+// This message structure corresponds to the JSON payload on NATS.
+message Event {
+  string id = 1;
+  string camera_id = 2;
+  string type = 3; // "person_detected", "line_crossed", "device_offline"
+  int64 timestamp = 4; // Unix millis
+  map<string, string> metadata = 5; // Flexible key-value pairs
+  Region region = 6; // Optional bounding box
+}
+
+message Region {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+}
+
+
+================ FILE: ts\vms\media\v1\media.proto ================
+
+syntax = "proto3";
+
+package ts.vms.media.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/media/v1;mediav1";
+
+service MediaService {
+  // Pipeline Management
+  rpc StartIngest(StartIngestRequest) returns (StartIngestResponse);
+  rpc StopIngest(StopIngestRequest) returns (StopIngestResponse);
+  
+  // Stats & Discovery
+  rpc GetIngestStatus(GetIngestStatusRequest) returns (GetIngestStatusResponse);
+  rpc ListIngests(ListIngestsRequest) returns (ListIngestsResponse);
+  
+  // Snapshot
+  rpc CaptureSnapshot(CaptureSnapshotRequest) returns (CaptureSnapshotResponse);
+
+  // Health
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // SFU Egress (Phase 3.4)
+  rpc StartSfuRtpEgress(StartSfuRtpEgressRequest) returns (StartSfuRtpEgressResponse);
+  rpc StopSfuRtpEgress(StopSfuRtpEgressRequest) returns (StopSfuRtpEgressResponse);
+}
+
+message StartIngestRequest {
+  string camera_id = 1;
+  string rtsp_url = 2;
+  string variant = 3;
+  bool prefer_tcp = 4;
+  int32 timeout_ms = 5;
+}
+
+message StartIngestResponse {
+  string pipeline_id = 1;
+  bool already_running = 2;
+  ts.vms.common.v1.Error error = 3;
+}
+
+message StopIngestRequest {
+  string camera_id = 1;
+}
+
+message StopIngestResponse {
+  bool success = 1;
+}
+
+message GetIngestStatusRequest {
+  string camera_id = 1;
+}
+
+message GetIngestStatusResponse {
+  bool running = 1;
+  string state = 2; // STARTING, RUNNING, RECONNECTING, DEGRADED
+  int32 fps = 3;
+  int64 last_frame_age_ms = 4;
+  int32 reconnect_attempts = 5;
+  
+  // HLS Status (Phase 3.2+)
+  string session_id = 6;
+  string hls_state = 7; // OK, DEGRADED, STOPPED
+  int64 last_segment_seq = 8;
+  int64 last_write_time = 9; // Unix timestamp
+  string recent_error_code = 10;
+  int64 disk_free_bytes = 11;
+  string required_action = 12; // e.g., "Clean Disk"
+
+  // Phase 3.5 Metrics
+  int64 ingest_latency_ms = 13;
+  int64 frames_processed = 14;
+  int64 frames_dropped = 15;
+  int64 bitrate_bps = 16;
+  uint64 bytes_in_total = 17;
+  uint32 pipeline_restarts_total = 18;
+  uint64 last_frame_ts_ms = 19; // Unix ms of last buffer presentation ts
+  string camera_id = 20;
+}
+
+message ListIngestsRequest {}
+
+message ListIngestsResponse {
+  repeated GetIngestStatusResponse ingests = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool ok = 1;
+  string status = 2;
+}
+
+message CaptureSnapshotRequest {
+  string camera_id = 1;
+}
+
+message CaptureSnapshotResponse {
+  bytes image_data = 1; // JPEG binary
+  string mime_type = 2; // "image/jpeg"
+  int64 timestamp = 3;
+}
+
+message StartSfuRtpEgressRequest {
+  string camera_id = 1;
+  string room_id = 2; // tenant_id:camera_id
+  uint32 ssrc = 3;
+  uint32 pt = 4; // Payload Type
+  string dst_ip = 5;
+  int32 dst_port = 6;
+}
+
+message StartSfuRtpEgressResponse {
+  bool already_running = 1;
+  ts.vms.common.v1.Error error = 2;
+}
+
+message StopSfuRtpEgressRequest {
+  string camera_id = 1;
+}
+
+message StopSfuRtpEgressResponse {
+  bool success = 1;
+}
+
+
+================ FILE: ts\vms\recording\v1\recording.proto ================
+
+syntax = "proto3";
+
+package ts.vms.recording.v1;
+
+import "ts/vms/common/v1/common.proto";
+
+option go_package = "github.com/technosupport/ts-vms/gen/go/recording/v1;recordingv1";
+
+service RecordingService {
+  // Config
+  rpc StartRecording(StartRecordingRequest) returns (StartRecordingResponse);
+  rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
+
+  // Export
+  rpc CreateExportJob(CreateExportJobRequest) returns (CreateExportJobResponse);
+  rpc GetExportJobStatus(GetExportJobStatusRequest) returns (GetExportJobStatusResponse);
+}
+
+message StartRecordingRequest {
+  string camera_id = 1;
+  string retention_policy_id = 2; // Optional override
+}
+
+message StartRecordingResponse {
+  bool success = 1;
+}
+
+message StopRecordingRequest {
+  string camera_id = 1;
+}
+
+message StopRecordingResponse {
+  bool success = 1;
+}
+
+message CreateExportJobRequest {
+  string camera_id = 1;
+  ts.vms.common.v1.TimeRange range = 2;
+  string format = 3; // "mp4", "mkv"
+}
+
+message CreateExportJobResponse {
+  string job_id = 1;
+}
+
+message GetExportJobStatusRequest {
+  string job_id = 1;
+}
+
+message GetExportJobStatusResponse {
+  string status = 1; // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  string download_url = 2; // Populated when COMPLETED
+  int32 progress_percent = 3;
+}
+

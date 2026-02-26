@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using TSVmsDesktop.Services;
 using TSVmsDesktop.Models;
 
+using System.Collections.Concurrent;
+
 namespace TSVmsDesktop.ViewModels
 {
     public partial class CameraSlot : ObservableObject
@@ -41,6 +43,11 @@ namespace TSVmsDesktop.ViewModels
         public IntPtr PipelineHandle { get; set; } = IntPtr.Zero;
         public IntPtr WindowHandle { get; set; } = IntPtr.Zero; // Added to match with StreamError
         public string RtspUrl { get; set; } = ""; 
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        
+        [ObservableProperty] private bool _hasAudioCapability = false;
+        [ObservableProperty] private bool _isAudioPlaying = false;
     }
 
     public partial class LiveViewModel : ObservableObject
@@ -129,6 +136,7 @@ namespace TSVmsDesktop.ViewModels
         }
 
         [ObservableProperty] private string _fullScreenUrl = "";
+        [ObservableProperty] private bool _fullScreenHasAudio = false;
         [ObservableProperty] private bool _isFullScreen = false;
         [ObservableProperty] private string _selectedCameraName = "";
         [ObservableProperty] private bool _isSyncing = false;
@@ -180,8 +188,8 @@ namespace TSVmsDesktop.ViewModels
                         
                         // We don't block heavily on this, if it fails we might still try RTSP
                         // but strictly we should wait.
-                        // DEBUG: Commenting out to prevent 401/403 triggering logout
-                        // await _apiClient.PostAsync(url, body);
+                        // DEBUG: Uncommented to ensure backend knows the stream started
+                        await _apiClient.PostAsync(url, body);
                         System.Diagnostics.Debug.WriteLine($"[Live] Session started for {slot.CameraName}");
                     }
                     catch (Exception ex)
@@ -198,6 +206,7 @@ namespace TSVmsDesktop.ViewModels
                     await Task.Delay(600);
                 }
             }
+            UpdateAudioStates();
             OnPropertyChanged(nameof(ActiveStreamCount));
         }
 
@@ -212,7 +221,9 @@ namespace TSVmsDesktop.ViewModels
                     System.Diagnostics.Debug.WriteLine($"[DEBUG] Fetched creds for {cam.IpAddress}: {creds.Username} / {creds.Password}");
                     cam.Username = creds.Username;
                     cam.Password = creds.Password;
-                    slot.RtspUrl = cam.EffectiveRtspUrl ?? ""; // Update slot URL with injected creds
+                    slot.Username = creds.Username;
+                    slot.Password = creds.Password;
+                    slot.RtspUrl = cam.SubStreamUrl ?? ""; // Update slot URL with injected creds (SUBSTREAM)
                 }
                 else 
                 {
@@ -222,7 +233,9 @@ namespace TSVmsDesktop.ViewModels
                      {
                          cam.Username = "admin";
                          cam.Password = "123456";
-                         slot.RtspUrl = cam.EffectiveRtspUrl;
+                         slot.Username = "admin";
+                         slot.Password = "123456";
+                         slot.RtspUrl = cam.SubStreamUrl; // (SUBSTREAM)
                          System.Diagnostics.Debug.WriteLine($"[DEBUG] Restored default fallback for {cam.IpAddress}");
                      }
                 }
@@ -313,6 +326,13 @@ namespace TSVmsDesktop.ViewModels
             // 2. Add or Update cameras
             foreach (var cam in uniqueCameras)
             {
+                // ADD THIS SAFEGUARD: Skip modifying the slot if it's currently in full screen
+                // We use SelectedCameraName to properly skip over the Active camera.
+                if (IsFullScreen && cam.Name == SelectedCameraName)
+                {
+                    continue;
+                }
+
                 var existing = CameraGrid.FirstOrDefault(s => s.Id == cam.Id);
                 if (existing == null)
                 {
@@ -320,10 +340,11 @@ namespace TSVmsDesktop.ViewModels
                     {
                         Id = cam.Id,
                         CameraName = cam.Name,
-                        RtspUrl = cam.EffectiveRtspUrl,
+                        RtspUrl = cam.SubStreamUrl,
                         OverlayText = cam.Name,
                         BackendStatus = cam.Status ?? "Offline",
-                        IsConnected = false
+                        IsConnected = false,
+                        HasAudioCapability = cam.Capabilities?.HasAudio ?? false
                     };
                     
                     UpdateIp(slot, cam);
@@ -355,10 +376,11 @@ namespace TSVmsDesktop.ViewModels
                     }
 
                     // Only update URL if it changed significantly (prevents unnecessary restarts)
-                    if (existing.RtspUrl != cam.EffectiveRtspUrl && !string.IsNullOrEmpty(cam.EffectiveRtspUrl))
+                    if (existing.RtspUrl != cam.SubStreamUrl && !string.IsNullOrEmpty(cam.SubStreamUrl))
                     {
-                         existing.RtspUrl = cam.EffectiveRtspUrl;
+                         existing.RtspUrl = cam.SubStreamUrl;
                     }
+                    existing.HasAudioCapability = cam.Capabilities?.HasAudio ?? false;
                     UpdateIp(existing, cam);
                 }
             }
@@ -367,6 +389,7 @@ namespace TSVmsDesktop.ViewModels
             // AUTO-START: Detect newly online cameras during polling and connect them.
             // This is idempotent; it won't restart already-connected slots.
             await ConnectAll();
+            UpdateAudioStates();
         }
 
         private void UpdateIp(CameraSlot slot, CameraModel cam)
@@ -386,33 +409,131 @@ namespace TSVmsDesktop.ViewModels
         }
 
         // --- Full Screen Mode ---
+        private ConcurrentDictionary<string, string> _mainStreamCache = new();
+        private ConcurrentDictionary<string, string> _subStreamCache = new();
+
+        private async Task<string> GetMainStreamUrlAsync(CameraSlot slot)
+        {
+            if (_mainStreamCache.TryGetValue(slot.Id, out var cached))
+                return cached;
+
+            var cam = _cameraService.AllCameras.FirstOrDefault(c => c.Id == slot.Id);
+            if (cam == null) return slot.RtspUrl;
+
+            string mainUrl = "";
+
+            try
+            {
+                // Prioritize backend MediaService mapping if the API is available
+                // Note: since MediaService isn't in scope we safely look for alternative if provided or omit API call assuming user logic requested generic wrapper here.
+                // Assuming "MediaService" is available in the real DI container, else wrap it in try-catch. Let's try to resolve it.
+                // In context: The user provided code requiring MediaService gRPC wrapper
+                var mediaService = _serviceProvider.GetService<MediaService>();
+                if (mediaService != null)
+                {
+                    var mediaInfo = await mediaService.GetMediaInfoAsync(slot.Id);
+                    
+                    if (mediaInfo != null && !string.IsNullOrEmpty(mediaInfo.Selection?.MainRtsp))
+                    {
+                        mainUrl = mediaInfo.Selection.MainRtsp;
+                        
+                        // Safely inject credentials if missing
+                        if (!string.IsNullOrEmpty(slot.Username) && !mainUrl.Contains("@"))
+                        {
+                            if (mainUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+                            {
+                                mainUrl = $"rtsp://{slot.Username}:{slot.Password}@{mainUrl.Substring(7)}";
+                            }
+                        }
+                    }
+                }
+            }
+            catch 
+            { 
+                // Ignore API lookup errors and gracefully fall through
+            }
+
+            // Fallback to reversed local logic
+            if (string.IsNullOrEmpty(mainUrl)) mainUrl = cam.MainStreamUrl;
+            // Ultimate fallback to existing URL
+            if (string.IsNullOrEmpty(mainUrl)) mainUrl = slot.RtspUrl;
+
+            _mainStreamCache[slot.Id] = mainUrl;
+            return mainUrl;
+        }
 
         // --- Dashboard Stats ---
         public int ActiveStreamCount => CameraGrid.Count(c => c.IsConnected);
 
         [RelayCommand]
-        public void EnterFullScreen(CameraSlot slot)
+        public async Task EnterFullScreen(CameraSlot slot)
         {
-            System.Diagnostics.Debug.WriteLine($"[LiveVM] EnterFullScreen for: {slot?.CameraName}");
+            Console.WriteLine($"[LiveVM] EnterFullScreen for: {slot?.CameraName}");
             if (slot == null || string.IsNullOrEmpty(slot.RtspUrl)) return;
-            FullScreenUrl = slot.RtspUrl;
+            
+            // IMMEDIATELY raise the shield against the background loop
             SelectedCameraName = slot.CameraName;
             IsFullScreen = true;
-            
-            // LAZY RESOLVE MainViewModel to avoid Circular Dependency
+
+            string mainUrl = await GetMainStreamUrlAsync(slot);
+
+            // 1. Cache the grid's sub-stream URL and kill the grid connection
+            _subStreamCache[slot.Id] = slot.RtspUrl;
+            slot.RtspUrl = string.Empty; 
+
+            // 2. Give the IP camera 800ms to physically teardown the old socket
+            Console.WriteLine($"[LiveVM] Waiting for {slot.CameraName} to release socket...");
+            await Task.Delay(800); 
+
+            // 3. Request the new stream
+            if (!string.IsNullOrEmpty(mainUrl) && mainUrl != _subStreamCache[slot.Id])
+            {
+                Console.WriteLine($"[LiveVM] Selected stream for FullScreen: [MAIN]");
+                FullScreenUrl = mainUrl;
+            }
+            else
+            {
+                Console.WriteLine($"[LiveVM] Selected stream for FullScreen: [SUB/IDENTICAL]");
+                FullScreenUrl = _subStreamCache[slot.Id];
+            }
+
+            FullScreenHasAudio = slot.HasAudioCapability;
+
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
-            mainVm.IsKioskMode = true; // Hide Chrome & Maximize
-            System.Diagnostics.Debug.WriteLine($"[LiveVM] IsKioskMode set to: {mainVm.IsKioskMode}");
+            mainVm.IsKioskMode = true; 
+            UpdateAudioStates();
         }
 
         [RelayCommand]
-        public void ExitFullScreen()
+        public async Task ExitFullScreen() 
         {
+            Console.WriteLine($"[LiveVM] Exiting FullScreen");
+            
+            // 1. Kill the MAIN stream to free up the camera connection
+            FullScreenUrl = string.Empty;
+            
+            var activeSlot = CameraGrid.FirstOrDefault(s => s.CameraName == SelectedCameraName);
+
+            // 2. Add delay before restarting the sub-stream
+            // The background loop is STILL BLOCKED during this delay
+            await Task.Delay(800);
+            
+            // 3. Restore its SUB stream connection
+            if (activeSlot != null && _subStreamCache.TryGetValue(activeSlot.Id, out var subUrl))
+            {
+                Console.WriteLine($"[LiveVM] Restoring grid stream...");
+                activeSlot.RtspUrl = subUrl; 
+            }
+
+            // 4. NOW we can unblock the background loop and hide the UI
             IsFullScreen = false;
-            FullScreenUrl = "";
+
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
-            mainVm.IsKioskMode = false; // Restore Chrome & Normal Window
+            mainVm.IsKioskMode = false;
+            UpdateAudioStates();
         }
+
+
 
         [RelayCommand]
         public void Snapshot(string cameraName)
@@ -421,20 +542,61 @@ namespace TSVmsDesktop.ViewModels
             System.Diagnostics.Debug.WriteLine($"[Snapshot] Taking snapshot of {cameraName}");
         }
 
+        public void UpdateAudioStates()
+        {
+            foreach (var slot in CameraGrid)
+            {
+                if (slot.PipelineHandle == IntPtr.Zero) continue;
+                    
+                bool shouldPlayAudio = false;
+
+                if (slot.HasAudioCapability)
+                {
+                    if (IsFullScreen)
+                        shouldPlayAudio = (FullScreenUrl == slot.RtspUrl);
+
+                    // Tell GStreamer to set volume
+                    _videoService.SetVolume(slot.PipelineHandle, shouldPlayAudio ? 1.0 : 0.0);
+                }
+
+                // Tell the XAML UI to update the icon (Green vs Grey)
+                slot.IsAudioPlaying = shouldPlayAudio; 
+            }
+        }
+
         private void OnStreamError(IntPtr windowHandle, string message)
         {
-            // Find the slot that belongs to this window handle
+            // 1. Handle Grid Camera Error
             var slot = CameraGrid.FirstOrDefault(s => s.WindowHandle == windowHandle);
             if (slot != null)
             {
                 System.Diagnostics.Debug.WriteLine($"[LiveVM] Stream Error for {slot.CameraName}: {message}");
-                
-                // Switch back to "No Signal" overlay
                 slot.IsConnected = false;
                 slot.IsStreamFailed = true;
                 slot.StreamErrorMessage = message;
                 
                 OnPropertyChanged(nameof(ActiveStreamCount));
+                return;
+            }
+
+            // 2. Handle Full Screen Error / Fallback (Triggered if pipeline fails on H.264/Unreachable Main)
+            if (IsFullScreen)
+            {
+                var activeSlot = CameraGrid.FirstOrDefault(s => s.CameraName == SelectedCameraName);
+                if (activeSlot != null && FullScreenUrl != activeSlot.RtspUrl)
+                {
+                    if (message.ToLower().Contains("h264") || message.ToLower().Contains("codec"))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LiveVM] MAIN stream codec issue (H.264?). App expects H.265. Falling back to SUB stream.");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LiveVM] FullScreen MAIN stream failed: {message}. Falling back to SUB stream.");
+                    }
+                    
+                    // Setting FullScreenUrl instantly forces WPF to re-evaluate and restart the canvas under the Sub URL.
+                    FullScreenUrl = activeSlot.RtspUrl;
+                }
             }
         }
 

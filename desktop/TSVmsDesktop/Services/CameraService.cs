@@ -178,6 +178,18 @@ namespace TSVmsDesktop.Services
             return await _api.PutAsync($"/api/v1/camera-groups/{groupId}/members", new { member_ids = memberIds });
         }
 
+        public async Task<bool> DeleteGroupAsync(string groupId) => await _api.DeleteAsync($"/api/v1/camera-groups/{groupId}");
+
+        public async Task<HealthStatusDto?> GetSingleCameraHealthAsync(string id) => 
+            await _api.GetAsync<HealthStatusDto>($"/api/v1/cameras/{id}/health");
+
+        // Assuming a dynamic list of history records
+        public async Task<object?> GetCameraHealthHistoryAsync(string id) => 
+            await _api.GetAsync<object>($"/api/v1/cameras/{id}/health/history");
+
+        public async Task<bool> ManualHealthRecheckAsync(string id) => 
+            await _api.PostAsync($"/api/v1/cameras/{id}/health-recheck", new { });
+
         public async Task CheckServerHealthAsync()
         {
              // This might be redundant if we just reload cameras, but keeping for compatibility if needed or logic adjustments

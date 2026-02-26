@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Continue"
 
 Write-Host "Stopping Services..." -ForegroundColor Yellow
-Stop-Process -Name "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -Force -ErrorAction SilentlyContinue
 
 Start-Sleep -Seconds 2
 
@@ -63,6 +63,15 @@ else {
     Write-Error "vms-media.exe not found at $MediaExe"
 }
 
+Write-Host "Starting Mosaic Server..." -ForegroundColor Cyan
+$MosaicExe = "$Root\media-plane\src\mosaic\Debug\vms-mosaic.exe"
+if (Test-Path $MosaicExe) {
+    Start-Process $MosaicExe -ArgumentList "`"$Root\config\mosaic_8x8.yaml`"" -WorkingDirectory "$Root\media-plane\src\mosaic\Debug" -WindowStyle Hidden -RedirectStandardOutput "$LogDir\mosaic.log" -RedirectStandardError "$LogDir\mosaic_err.log"
+}
+else {
+    Write-Warning "vms-mosaic.exe not found at $MosaicExe. Skipping."
+}
+
 Write-Host "Starting SFU..." -ForegroundColor Cyan
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:SFU_SECRET='sfu-internal-secret'; `$env:PORT='8085'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0\sfu'; node dist/main.js > '..\logs\sfu.log' 2>&1"
 
@@ -84,4 +93,4 @@ else {
 }
 
 Write-Host "All Services Restarted." -ForegroundColor Green
-Get-Process -Name "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime

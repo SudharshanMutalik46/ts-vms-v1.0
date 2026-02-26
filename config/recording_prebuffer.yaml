@@ -1,0 +1,11 @@
+prebuffer:
+  global:
+    prebuffer_seconds_default: 30
+    prebuffer_max_total_mb: 2048
+    prebuffer_persist_enabled: false
+    prebuffer_persist_path: "C:\\TS_VMS_CACHE\\prebuffer.dat"
+  cameras:
+    - camera_id: "cam-01"
+      prebuffer_enabled: true
+      prebuffer_seconds: 60  # Override to 1 minute
+      prebuffer_max_mb: 200

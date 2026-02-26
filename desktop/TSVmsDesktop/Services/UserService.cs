@@ -132,6 +132,19 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public async Task<bool> CompletePasswordResetAsync(string token, string newPassword)
+        {
+            try
+            {
+                var body = new { token, new_password = newPassword };
+                return await _api.PostAsync("/api/v1/auth/complete-reset", body);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public async Task<bool> SetPasswordAsync(string userId, string newPassword)
         {
             try

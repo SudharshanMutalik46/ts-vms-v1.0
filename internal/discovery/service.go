@@ -244,7 +244,8 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 	} else {
 		fmt.Printf("[PROBE] Media URI for %s: %s\n", dev.IPAddress, mediaURI)
 	}
-	dev.Capabilities, _ = json.Marshal(capsMap) // Cap size check needed logically
+	// Temporarily marshal capsMap into dev.Capabilities in case GetProfiles fails.
+	dev.Capabilities, _ = json.Marshal(capsMap)
 
 	// C. Profiles (Authoritative)
 	if mediaURI != "" {
@@ -256,6 +257,10 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 			// Detailed check would inspect config types.
 			// Let's assume Success = Profile S supported at least.
 			dev.SupportsProfileS = true
+
+			// Parse Audio/PTZ capabilities from profiles
+			devCaps := DetermineCapabilities(profiles)
+			dev.Capabilities, _ = json.Marshal(devCaps)
 
 			// Store raw profiles summary
 			dev.MediaProfiles, _ = json.Marshal(profiles)
@@ -339,6 +344,28 @@ func (s *Service) failProbe(ctx context.Context, dev *data.DiscoveredDevice, cod
 }
 
 // Helpers
+func DetermineCapabilities(profiles []MediaProfile) data.CameraCapabilities {
+	caps := data.CameraCapabilities{
+		HasAudio: false,
+		PTZ:      false,
+	}
+
+	for _, profile := range profiles {
+		// If the ONVIF profile contains an AudioSource or AudioEncoder configuration,
+		// it means the camera physically has a microphone enabled.
+		if profile.AudioSourceConfiguration != nil || profile.AudioEncoderConfiguration != nil {
+			caps.HasAudio = true
+		}
+
+		// Check for PTZ while we are looping
+		if profile.PTZConfiguration != nil {
+			caps.PTZ = true
+		}
+	}
+
+	return caps
+}
+
 func stripCredentials(uri string) string {
 	// Parse as URL? RTSP isn't always standard URL parseable if quirky, but typically yes.
 	// Manual string manip often safer for RTSP to preserve query params etc exactly.

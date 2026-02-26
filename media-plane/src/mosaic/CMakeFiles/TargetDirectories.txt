@@ -1,0 +1,3 @@
+C:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic/CMakeFiles/vms-mosaic.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic/CMakeFiles/ALL_BUILD.dir
+C:/Users/sudha/Desktop/ts_vms_1.0/media-plane/src/mosaic/CMakeFiles/ZERO_CHECK.dir

@@ -1,0 +1,29 @@
+storage:
+  volumes:
+    - id: "vol-hot-1"
+      path: "C:\\ts_vms_storage\\hot"
+      tier: "hot"
+      priority: 1
+      max_usage_percent: 85.0
+      reserved_free_gb: 50.0
+      enabled: true
+
+    - id: "vol-warm-1"
+      path: "D:\\ts_vms_storage\\warm"
+      tier: "warm"
+      priority: 2
+      max_usage_percent: 90.0
+      reserved_free_gb: 100.0
+      enabled: true
+
+  quotas:
+    tenant_limits:
+      "tenant-alpha": 1000.0 # GB
+      "tenant-beta": 500.0
+    site_limits:
+      "site-hqusa": 500.0 # GB
+
+  alerts:
+    warn_at_percent: 75.0
+    crit_at_percent: 85.0
+    check_interval_seconds: 60

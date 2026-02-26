@@ -1,0 +1,12 @@
+disk_io:
+  enabled: true
+  block_size_mb: 4                # batch size target (4MB blocks)
+  max_inflight_mb_per_camera: 64   # safety
+  max_inflight_mb_total: 2048      # safety
+  slow_write_ms_threshold: 100
+  slow_write_alert_cooldown_sec: 30
+  queue_depth_warn: 2
+  queue_depth_crit: 5
+  metrics_interval_sec: 5
+  io_priority: "background"        # background|normal
+  coalesce_adjacent_writes: true

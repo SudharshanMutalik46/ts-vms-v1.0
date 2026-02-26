@@ -50,10 +50,31 @@ namespace TSVmsDesktop.Services
             => await _api.GetAsync<List<NvrEvent>>($"/api/v1/nvrs/{id}/adapter/events") ?? new();
 
         // Phase 2.9: Health
+        // Phase 2.9: Health
         public async Task<NvrHealthSummary?> GetHealthAsync(string id) 
-            // Note: results.txt has /api/v1/health/nvrs/summary (global) and /nvrs/{id}/channels (specific).
-            // We'll use summary or mock a specific endpoint if needed. Assuming specific endpoint exists or we filter summary.
-            // Using a specific mocked endpoint pattern based on Phase 2.9 requirements:
             => await _api.GetAsync<NvrHealthSummary>($"/api/v1/nvrs/{id}/health") ?? new NvrHealthSummary { Status = "Unknown" }; 
+
+        public async Task<NvrModel?> GetNvrAsync(string id) => await _api.GetAsync<NvrModel>($"/api/v1/nvrs/{id}");
+
+        // NVR Cameras Linked
+        public async Task<bool> UpsertNvrCamerasAsync(string id, object data) => await _api.PutAsync($"/api/v1/nvrs/{id}/cameras", data);
+        public async Task<object?> GetNvrCamerasAsync(string id) => await _api.GetAsync<object>($"/api/v1/nvrs/{id}/cameras");
+        public async Task<bool> DeleteNvrCamerasAsync(string id) => await _api.DeleteAsync($"/api/v1/nvrs/{id}/cameras");
+
+        // NVR Credentials
+        public async Task<object?> GetNvrCredentialsAsync(string id) => await _api.GetAsync<object>($"/api/v1/nvrs/{id}/credentials");
+        public async Task<bool> DeleteNvrCredentialsAsync(string id) => await _api.DeleteAsync($"/api/v1/nvrs/{id}/credentials");
+
+        // Adapter specific
+        public async Task<object?> GetAdapterDeviceInfoAsync(string id) => await _api.GetAsync<object>($"/api/v1/nvrs/{id}/adapter/device-info");
+        public async Task<object?> GetAdapterChannelsAsync(string id) => await _api.GetAsync<object>($"/api/v1/nvrs/{id}/adapter/channels");
+
+        // Advanced Channel validation & bulk
+        public async Task<bool> ValidateChannelsAsync(string id, object data) => await _api.PostAsync($"/api/v1/nvrs/{id}/validate-channels", data);
+        public async Task<bool> BulkChannelOpAsync(string id, object data) => await _api.PostAsync($"/api/v1/nvrs/{id}/channels/bulk", data);
+
+        // Real Health Endpoints
+        public async Task<object?> GetGlobalNvrHealthSummaryAsync() => await _api.GetAsync<object>("/api/v1/health/nvrs/summary");
+        public async Task<object?> GetNvrChannelHealthAsync(string id) => await _api.GetAsync<object>($"/api/v1/health/nvrs/{id}/channels");
     }
 }

@@ -33,11 +33,16 @@ namespace TSVmsDesktop.Views
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
+            if (e.OldValue is LiveViewModel oldVm)
+            {
+                oldVm.PropertyChanged -= Vm_PropertyChanged;
+            }
             if (DataContext is LiveViewModel vm)
             {
                 vm.PropertyChanged += Vm_PropertyChanged;
             }
         }
+
 
         // Listen for Full Screen state changes
         private void Vm_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -50,7 +55,38 @@ namespace TSVmsDesktop.Views
                     // STOP FULL SCREEN
                     StopFullScreenStream();
                 }
-                // START is handled by FullScreenPlayer_IsVisibleChanged
+                else
+                {
+                    // Ensure the stream starts if we enter full screen while the control is already loaded
+                    if (FullScreenPlayer.IsLoaded && FullScreenPlayer.Visibility == Visibility.Visible) 
+                    {
+                        StartFullScreenStream(FullScreenPlayer);
+                    }
+                }
+            }
+            // If the URL changes while already in Full Screen (e.g., from Double Click or another selection method)
+            if (e.PropertyName == "FullScreenUrl")
+            {
+                var vm = (LiveViewModel)DataContext;
+                if (vm.IsFullScreen && FullScreenPlayer.IsLoaded && FullScreenPlayer.Visibility == Visibility.Visible)
+                {
+                    StopFullScreenStream();
+                    StartFullScreenStream(FullScreenPlayer);
+                }
+            }
+        }
+
+        private async void CameraGrid_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                if (sender is FrameworkElement element && element.DataContext is CameraSlot slot)
+                {
+                    if (this.DataContext is LiveViewModel vm)
+                    {
+                        await vm.EnterFullScreen(slot);
+                    }
+                }
             }
         }
 
@@ -117,7 +153,7 @@ namespace TSVmsDesktop.Views
                     System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
 
                     slot.WindowHandle = canvas.Handle;
-                    slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay);
+                    slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay, slot.Username, slot.Password, slot.HasAudioCapability);
 
                 }, System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
@@ -166,7 +202,7 @@ namespace TSVmsDesktop.Views
             var videoService = App.Current.Services.GetRequiredService<VideoService>();
             
             System.Diagnostics.Debug.WriteLine($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
-            _fullScreenPipeline = videoService.StartStream(canvas.Handle, vm.FullScreenUrl);
+            _fullScreenPipeline = videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio);
         }
 
         private void StopFullScreenStream()
@@ -183,6 +219,7 @@ namespace TSVmsDesktop.Views
                 System.Diagnostics.Debug.WriteLine("[TS-VMS] Full Screen Stream Stopped.");
             }
         }
+
 
         // 5. Cleanup when leaving the view
         private void UserControl_Unloaded(object sender, RoutedEventArgs e)
