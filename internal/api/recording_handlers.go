@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/technosupport/ts-vms/internal/middleware"
 	"github.com/technosupport/ts-vms/internal/recording"
 )
 
@@ -12,10 +13,13 @@ type RecordingAPI struct {
 	DB recording.IMetadataDB
 }
 
-// Ensure caller has valid JWT claims. (Stubbed here, assumes middleware.WithAuthContext wrapped the router)
+// Ensure caller has valid JWT claims.
 func checkRBAC(r *http.Request, requiredPermission string) bool {
-	auth := r.Header.Get("Authorization")
-	return auth == "Bearer debug-admin-token" // Simplification for Verification Script
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		return false
+	}
+	return ac.HasPermission(requiredPermission) || ac.HasRole("admin")
 }
 
 func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Request) {
@@ -24,9 +28,23 @@ func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	camID := r.URL.Query().Get("camera_id")
-	from, _ := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
-	to, _ := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+	camID := r.PathValue("id")
+	if camID == "" {
+		camID = r.URL.Query().Get("camera_id")
+	}
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+
+	from, _ := time.Parse(time.RFC3339, fromStr)
+	to, _ := time.Parse(time.RFC3339, toStr)
+
+	// If no time range provided, default to last 24h
+	if from.IsZero() {
+		from = time.Now().Add(-24 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
 
 	segments, err := api.DB.GetSegments(r.Context(), camID, from, to)
 	if err != nil {

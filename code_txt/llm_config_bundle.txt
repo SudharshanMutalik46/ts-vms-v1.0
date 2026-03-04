@@ -1,5 +1,5 @@
 ﻿=== CONFIG LLM Bundle (ts_vms_1.0\\config) ===
-Generated: 2026-02-26T18:14:36
+Generated: 2026-03-04T11:16:58
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\config
 
 
@@ -53,9 +53,10 @@ events:
 # TS-VMS Phase 3.10 Mosaic Configuration
 # Add up to 64 SUB-STREAM URLs below.
 urls:
-  - rtsp://admin:pass@192.168.1.101:554/Streaming/Channels/102
-  - rtsp://admin:pass@192.168.1.102:554/cam/realmonitor?channel=1&subtype=1
-  # ... Add remaining 62 cameras here
+  - rtsp://admin:123456@192.168.1.127:554/stream
+  - rtsp://admin:123456@192.168.1.46:554/stream
+  - rtsp://admin:pass@192.168.1.73:554/stream
+  - rtsp://admin:pass@192.168.1.199:554/stream
 
 
 ================ FILE: recording.yaml ================
@@ -63,11 +64,15 @@ urls:
 global:
   segment_duration_sec: 60
   health_port: 8082
-  api_base_url: "http://localhost:8080"
+  api_base_url: "http://localhost:8082"
   dev_rbac_bypass: true
+  storage_root: "C:\\ts_vms_storage"
+  export_root: "C:\\ts_vms_exports"
+  ffmpeg_path: "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  gst_launch_path: "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\bin\\gst-launch-1.0.exe"
+  default_tenant_id: "tenant_sys"
+  default_site_id: "site_hq"
 
-limits:
-  max_recording_cameras: 2
 
 cameras:
   - id: "cam_01"
@@ -140,6 +145,21 @@ performance:
     # Avoid file fragmentation by pre-allocating segment size on disk
     preallocate_files: true       
 
+recording:
+  prebuffer_seconds: 15
+  segment_duration_seconds: 60
+  max_restarts_per_minute: 5
+  storage_tiers:
+    - name: "hot"
+      path: "C:\\ts_vms_storage\\hot"
+      max_size_gb: 1000
+      pressure_threshold_pct: 85
+  retention:
+    default_days: 30
+    protect_events: true
+  health:
+    bind_addr: "localhost:8091"
+
 
 ================ FILE: recording_diskio.yaml ================
 
@@ -177,11 +197,13 @@ prebuffer:
 segment_writer:
   segment_duration_sec: 300
   tmp_ext: ".tmp"
-  final_ext: ".mp4"
+  final_ext: ".mkv"
   tmp_ttl_minutes: 10
   enable_checksum: true
   prefer_tcp: true
   latency_ms: 200
+
+
 
 
 ================ FILE: retention.yaml ================

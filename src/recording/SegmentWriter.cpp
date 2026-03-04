@@ -45,8 +45,7 @@ bool SegmentWriter::Start(const std::string& camera_id, const std::string& rtsp_
              << " drop-on-latency=true ! "
              << "rtph265depay ! h265parse ! "
              << "splitmuxsink name=smux max-size-time=" 
-             << (opts.segment_duration_sec * 1000000000ULL) 
-             << " muxer=mp4mux";
+             << (opts.segment_duration_sec * 1000000000ULL);
 
     GError* err = nullptr;
     pipeline_ = gst_parse_launch(pipe_str.str().c_str(), &err);
@@ -57,6 +56,13 @@ bool SegmentWriter::Start(const std::string& camera_id, const std::string& rtsp_
     }
 
     GstElement* smux = gst_bin_get_by_name(GST_BIN(pipeline_), "smux");
+    
+    // NEW CODE: Use Matroska for crash-resilient segments
+    GstElement* muxer = gst_element_factory_make("matroskamux", "mux");
+    // Ensure fragment-duration or streamable properties are set if needed for live-tailing MKV
+    g_object_set(G_OBJECT(muxer), "streamable", TRUE, NULL); 
+    
+    g_object_set(G_OBJECT(smux), "muxer", muxer, NULL);
     g_signal_connect(smux, "format-location", G_CALLBACK(format_location_cb), this);
     gst_object_unref(smux);
 

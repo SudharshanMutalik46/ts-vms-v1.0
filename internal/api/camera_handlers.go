@@ -1,11 +1,18 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/cameras"
@@ -14,11 +21,19 @@ import (
 )
 
 type CameraHandler struct {
-	Service *cameras.Service
+	Service                  *cameras.Service
+	RecordingInternalBaseURL string
+	RecordingServiceKey      string
+	Client                   *http.Client
 }
 
 func NewCameraHandler(svc *cameras.Service) *CameraHandler {
-	return &CameraHandler{Service: svc}
+	return &CameraHandler{
+		Service:                  svc,
+		RecordingInternalBaseURL: strings.TrimRight(os.Getenv("TS_VMS_RECORDING_INTERNAL_URL"), "/"),
+		RecordingServiceKey:      os.Getenv("TS_VMS_SERVICE_KEY"),
+		Client:                   &http.Client{Timeout: 5 * time.Second},
+	}
 }
 
 // Helpers
@@ -30,6 +45,66 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+func effectiveRecordingRTSPURL(raw string, ip net.IP, port int) string {
+	if strings.TrimSpace(raw) != "" {
+		return strings.TrimSpace(raw)
+	}
+	if ip == nil {
+		return ""
+	}
+	if port <= 0 {
+		port = 554
+	}
+	return fmt.Sprintf("rtsp://%s:%d/live/0/MAIN", ip.String(), port)
+}
+
+func (h *CameraHandler) syncRecorder(ctx context.Context, cam *data.Camera) error {
+	if h == nil || h.Client == nil || h.RecordingInternalBaseURL == "" || cam == nil {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{
+		"rtsp_url": effectiveRecordingRTSPURL(cam.RtspUrl, cam.IPAddress, cam.Port),
+		"enabled":  cam.IsEnabled,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.RecordingInternalBaseURL+"/internal/recording/cameras/"+cam.ID.String()+"/sync", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Service-Key", h.RecordingServiceKey)
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("recording sync failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+func (h *CameraHandler) deleteRecorderCamera(ctx context.Context, cameraID uuid.UUID) error {
+	if h == nil || h.Client == nil || h.RecordingInternalBaseURL == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.RecordingInternalBaseURL+"/internal/recording/cameras/"+cameraID.String()+"/delete", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Service-Key", h.RecordingServiceKey)
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("recording delete failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
 }
 
 // POST /api/v1/cameras
@@ -110,6 +185,20 @@ func (h *CameraHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if c.IsEnabled {
+		if err := h.syncRecorder(r.Context(), c); err != nil {
+			// Keep DB and recorder consistent: rollback to disabled if recorder attach failed.
+			_ = h.Service.DisableCamera(r.Context(), c.ID, c.TenantID)
+			c.IsEnabled = false
+			respondJSON(w, http.StatusBadGateway, map[string]any{
+				"camera":  c,
+				"warning": "camera created, but recorder attach failed; camera was disabled",
+				"error":   err.Error(),
+			})
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, c)
@@ -274,6 +363,16 @@ func (h *CameraHandler) Enable(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), id.String())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.syncRecorder(r.Context(), cam); err != nil {
+		_ = h.Service.DisableCamera(r.Context(), id, uuid.MustParse(ac.TenantID))
+		respondError(w, http.StatusBadGateway, "camera enabled in DB but recorder attach failed: "+err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
 }
 
@@ -290,6 +389,18 @@ func (h *CameraHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), id.String())
+	if err == nil {
+		cam.IsEnabled = false
+		if syncErr := h.syncRecorder(r.Context(), cam); syncErr != nil {
+			respondJSON(w, http.StatusOK, map[string]any{
+				"status":          "disabled",
+				"warning":         "camera disabled in DB, but recorder stop failed",
+				"recording_error": syncErr.Error(),
+			})
+			return
+		}
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
@@ -408,6 +519,14 @@ func (h *CameraHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	tenantID := uuid.MustParse(ac.TenantID)
 	if err := h.Service.DeleteCamera(r.Context(), cameraID, tenantID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.deleteRecorderCamera(r.Context(), cameraID); err != nil {
+		respondJSON(w, http.StatusOK, map[string]any{
+			"status":          "deleted",
+			"warning":         "camera deleted in DB, but recorder detach failed",
+			"recording_error": err.Error(),
+		})
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

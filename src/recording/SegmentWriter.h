@@ -10,7 +10,7 @@ namespace recording {
 struct WriterOptions {
     int segment_duration_sec = 300;
     std::string tmp_ext = ".tmp";
-    std::string final_ext = ".mp4";
+    std::string final_ext = ".mkv";
     bool enable_checksum = false;
     bool prefer_tcp = true;
     int latency_ms = 200;

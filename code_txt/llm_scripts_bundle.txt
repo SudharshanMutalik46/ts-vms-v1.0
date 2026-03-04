@@ -1,5 +1,5 @@
 ﻿=== SCRIPTS LLM Bundle (ts_vms_1.0\\scripts) ===
-Generated: 2026-02-26T18:15:24
+Generated: 2026-03-04T11:17:55
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\scripts
 
 
@@ -296,7 +296,7 @@ pause
 $ErrorActionPreference = "Continue"
 
 Write-Host "Stopping Services..." -ForegroundColor Yellow
-Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server", "vms-recording-bin", "gst-launch-1.0" -Force -ErrorAction SilentlyContinue
 
 Start-Sleep -Seconds 2
 
@@ -319,6 +319,9 @@ $env:MASTER_KEYS = '[{"kid":"dev-1","material":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIz
 $env:ACTIVE_MASTER_KID = "dev-1"
 $env:AI_SERVICE_TOKEN = "dev_ai_secret"
 $env:SFU_SECRET = "sfu-internal-secret"
+$env:TS_VMS_SERVICE_KEY = "your_shared_service_key"
+$env:TS_VMS_RECORDING_INTERNAL_URL = "http://127.0.0.1:8087"
+$env:TS_VMS_DSN = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
 
 Write-Host "Starting Redis..." -ForegroundColor Cyan
 if (!(Get-Process redis-server -ErrorAction SilentlyContinue)) {
@@ -387,8 +390,22 @@ else {
     Write-Error "Failed to build vms-hlsd.exe"
 }
 
+Write-Host "Starting Recording Engine (Phase 4)..." -ForegroundColor Cyan
+Write-Host "Rebuilding Recording Engine..." -ForegroundColor DarkGray
+if (Test-Path "$Root\bin\vms-recording-bin.exe") { Remove-Item "$Root\bin\vms-recording-bin.exe" -Force }
+pushd $Root
+go build -o bin/vms-recording-bin.exe ./cmd/vms-recording
+popd
+
+if (Test-Path "$Root\bin\vms-recording-bin.exe") {
+    Start-Process "$Root\bin\vms-recording-bin.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\recording.log" -RedirectStandardError "$LogDir\recording_err.log"
+}
+else {
+    Write-Error "Failed to build vms-recording-bin.exe"
+}
+
 Write-Host "All Services Restarted." -ForegroundColor Green
-Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server", "vms-recording-bin" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
 
 
 ================ FILE: dev-stop.ps1 ================
@@ -403,6 +420,9 @@ $processes = @(
     "server", 
     "vms-media", 
     "vms-hlsd", 
+    "vms-recording-bin",
+    "vms-mosaic",
+    "gst-launch-1.0",
     "node", 
     "vms-ai", 
     "nats-server",
@@ -1202,7 +1222,7 @@ else {
 }
 
 # 5. HLS Daemon
-$HlsPath = "$Root/vms-hlsd.exe"
+$HlsPath = "$Root/bin/vms-hlsd.exe"
 if (Test-Path $HlsPath) {
     Write-Host "Starting HLS Daemon..." -ForegroundColor Green
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root'; & '$HlsPath'"
@@ -1211,7 +1231,17 @@ else {
     Write-Warning "HLS Daemon not found at $HlsPath"
 }
 
-# 6. SFU Service (Node.js)
+# 6. Recording Engine
+$RecPath = "$Root/bin/vms-recording-bin.exe"
+if (Test-Path $RecPath) {
+    Write-Host "Starting Recording Engine..." -ForegroundColor Green
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root'; & '$RecPath'"
+}
+else {
+    Write-Warning "Recording Engine not found at $RecPath"
+}
+
+# 7. SFU Service (Node.js)
 $SfuDir = "$Root/sfu"
 if (Test-Path $SfuDir) {
     Write-Host "Starting SFU Service..." -ForegroundColor Green
@@ -1492,9 +1522,9 @@ switch ($Action) {
 Write-Host "TS-VMS Phase 4.1 Storage Architecture Verification" -ForegroundColor Cyan
 
 # 1. Load config
-$schema = ".\config\storage.yaml"
+$schema = "$PSScriptRoot\..\config\storage.yaml"
 if (!(Test-Path $schema)) {
-    Write-Error "storage.yaml not found!"
+    Write-Error "storage.yaml not found at $schema!"
     exit 1
 }
 Write-Host "[x] Config $schema found." -ForegroundColor Green
@@ -1536,7 +1566,7 @@ foreach ($v in $volumes) {
 
 # 4. Run Go unit tests
 Write-Host "`n[x] Running Go Planner Unit Tests:" -ForegroundColor Green
-pushd ".\internal\storage"
+pushd "$PSScriptRoot\..\internal\storage"
 $testOutput = go test -v
 Write-Host ($testOutput | Out-String)
 if ($LASTEXITCODE -ne 0) {
@@ -1553,7 +1583,7 @@ Write-Host "All Phase 4.1 Storage Verification Checks complete." -ForegroundColo
 $ErrorActionPreference = "Stop"
 
 Write-Host "Building Phase 4.10 Failover Test Harness..." -ForegroundColor Cyan
-go build -o vms-recovery-test.exe .\cmd\vms-recovery-test\main.go
+go build -o vms-recovery-test.exe "$PSScriptRoot\..\cmd\vms-recovery-test\main.go"
 
 function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
     Write-Host "`n=== Running Scenario: $Name ===" -ForegroundColor Yellow
@@ -1581,7 +1611,7 @@ function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
     }
     else {
         try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:8082/readyz" -UseBasicParsing
+            $resp = Invoke-WebRequest -Uri "http://localhost:8099/readyz" -UseBasicParsing
             if ($resp.StatusCode -eq 200 -and $ExpectedHttp -eq 200) {
                 Write-Host "[OK] Readiness is 200 OK!" -ForegroundColor Green
             }
@@ -1608,7 +1638,7 @@ function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
             Write-Error "Failed to find expected log: $ExpectedLog"
         }
 
-        Stop-Process -Id $proc.Id -Force
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1646,6 +1676,8 @@ go test ./internal/recording/...
 
 # 3. Start Service in Background
 Write-Host "Starting Background Service..." -ForegroundColor Yellow
+$env:TS_VMS_DSN = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
+$env:TS_VMS_SERVICE_KEY = "your_shared_service_key"
 $process = Start-Process -FilePath ".\bin\vms-recording-bin.exe" -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 3 # Wait for boot
 
@@ -1679,7 +1711,7 @@ try {
 }
 finally {
     Write-Host "Cleaning up service..."
-    Stop-Process -Id $process.Id -Force
+    if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host "Verification Complete!" -ForegroundColor Cyan
@@ -2212,7 +2244,7 @@ Write-Host "`n[SUCCESS] Phase 4.8 Windows Overlapped I/O Integration Complete!" 
 $ErrorActionPreference = "Stop"
 
 Write-Host "Building Test Harness..." -ForegroundColor Cyan
-go build -o vms-recorder-health.exe .\cmd\vms-recorder-health\main.go
+go build -o vms-recorder-health.exe "$PSScriptRoot\..\cmd\vms-recorder-health\main.go"
 
 function Run-TestScenario ($Name, $ScenarioArgs, $ExpectedLogs) {
     Write-Host "`n=== Running Scenario: $Name ===" -ForegroundColor Yellow
@@ -2227,7 +2259,7 @@ function Run-TestScenario ($Name, $ScenarioArgs, $ExpectedLogs) {
 
     Write-Host "Waiting 12 seconds for rolling windows to fill and alerts to trigger..."
     for ($i = 1; $i -le 3; $i++) {
-        $status = Invoke-RestMethod -Uri "http://localhost:8080/status"
+        $status = Invoke-RestMethod -Uri "http://localhost:8089/status"
         $cam = $status.cameras."cam-test-01"
         Write-Host "  Tick $i -> MB/s: $([math]::Round($cam.write_mbps_avg, 2)), Drop%: $([math]::Round($cam.frame_drop_rate_pct_window, 2))"
         Start-Sleep -Seconds 4

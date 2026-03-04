@@ -1,6 +1,75 @@
 ﻿=== Desktop LLM Bundle (ts_vms_1.0\\desktop) ===
-Generated: 2026-02-26T18:14:39
+Generated: 2026-03-04T11:17:02
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\desktop
+
+
+================ FILE: TSVmsDesktop\Controls\PlaybackVideoHost.cs ================
+
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
+
+namespace TSVmsDesktop.Controls
+{
+    public class PlaybackVideoHost : HwndHost
+    {
+        private IntPtr _hwnd = IntPtr.Zero;
+
+        public IntPtr WindowHandle => _hwnd;
+
+        public event EventHandler<IntPtr>? HandleCreated;
+
+        protected override HandleRef BuildWindowCore(HandleRef hwndParent)
+        {
+            _hwnd = CreateWindowEx(
+                0,
+                "static",
+                string.Empty,
+                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                0,
+                0,
+                Math.Max((int)Width, 100),
+                Math.Max((int)Height, 100),
+                hwndParent.Handle,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                IntPtr.Zero);
+
+            HandleCreated?.Invoke(this, _hwnd);
+            return new HandleRef(this, _hwnd);
+        }
+
+        protected override void DestroyWindowCore(HandleRef hwnd)
+        {
+            DestroyWindow(hwnd.Handle);
+            _hwnd = IntPtr.Zero;
+        }
+
+        private const int WS_CHILD = 0x40000000;
+        private const int WS_VISIBLE = 0x10000000;
+        private const int WS_CLIPSIBLINGS = 0x04000000;
+        private const int WS_CLIPCHILDREN = 0x02000000;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CreateWindowEx(
+            int exStyle,
+            string className,
+            string windowName,
+            int style,
+            int x,
+            int y,
+            int width,
+            int height,
+            IntPtr hwndParent,
+            IntPtr hMenu,
+            IntPtr hInstance,
+            IntPtr lpParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DestroyWindow(IntPtr hwnd);
+    }
+}
 
 
 ================ FILE: TSVmsDesktop\Controls\VideoCanvas.cs ================
@@ -252,6 +321,96 @@ namespace TSVmsDesktop.Converters
         {
             return value is Visibility v && v != Visibility.Visible;
         }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Converters\UnixTimestampConverter.cs ================
+
+using System;
+using System.Globalization;
+using System.Windows.Data;
+
+namespace TSVmsDesktop.Converters
+{
+    public class UnixTimestampConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is long unixSeconds)
+            {
+                var dt = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime;
+                return dt.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            return value?.ToString() ?? "";
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Interop\NativePlayback.cs ================
+
+using System;
+using System.Runtime.InteropServices;
+
+namespace TSVmsDesktop.Interop
+{
+    internal static class NativePlayback
+    {
+        private const string DllName = "TSVmsPlaybackEngine.dll";
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        internal static extern IntPtr tsplay_create();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void tsplay_destroy(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_initialize(IntPtr engine, IntPtr hwnd);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        internal static extern int tsplay_set_media_path(IntPtr engine, string path);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_play(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_pause(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_stop(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_seek_seconds(IntPtr engine, double seconds);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_set_rate(IntPtr engine, double rate);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_step_frame(IntPtr engine, int frames);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double tsplay_get_position_seconds(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double tsplay_get_duration_seconds(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_get_state(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr tsplay_get_last_error(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int TSPlayback_SetRotationDegrees(IntPtr engine, int degrees);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int TSPlayback_GetRotationDegrees(IntPtr engine);
     }
 }
 
@@ -753,6 +912,104 @@ namespace TSVmsDesktop.Models
 }
 
 
+================ FILE: TSVmsDesktop\Models\PlaybackTimelineBlock.cs ================
+
+namespace TSVmsDesktop.Models
+{
+    public class PlaybackTimelineBlock
+    {
+        public double StartOffsetSeconds { get; set; }
+        public double EndOffsetSeconds { get; set; }
+        public string Label { get; set; } = string.Empty;
+        public bool HasGapBefore { get; set; }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Models\RecordingModels.cs ================
+
+using System;
+using System.Text.Json.Serialization;
+
+namespace TSVmsDesktop.Models
+{
+    public class RecordingSegment
+    {
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("start_ts")]
+        public DateTime StartTs { get; set; }
+
+        [JsonPropertyName("end_ts")]
+        public DateTime EndTs { get; set; }
+
+        [JsonPropertyName("duration_ms")]
+        public long DurationMs { get; set; }
+
+        [JsonPropertyName("path")]
+        public string Path { get; set; } = string.Empty;
+
+        [JsonPropertyName("size_bytes")]
+        public long SizeBytes { get; set; }
+
+        [JsonIgnore]
+        public string FileName => System.IO.Path.GetFileName(Path);
+
+        [JsonIgnore]
+        public double DurationSeconds => DurationMs > 0 ? DurationMs / 1000.0 : Math.Max(0, (EndTs - StartTs).TotalSeconds);
+
+        [JsonIgnore]
+        public string DurationText => TimeSpan.FromSeconds(DurationSeconds).ToString(@"hh\:mm\:ss");
+
+        [JsonIgnore]
+        public string SizeText => SizeBytes <= 0 ? "0 B" : $"{SizeBytes / 1024d / 1024d:0.##} MB";
+    }
+
+    public class RecordingSegmentsEnvelope
+    {
+        [JsonPropertyName("segments")]
+        public RecordingSegment[] Segments { get; set; } = Array.Empty<RecordingSegment>();
+    }
+
+    public class RecordingSchedule
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("is_active")]
+        public bool IsActive { get; set; }
+
+        [JsonPropertyName("retention_days")]
+        public int RetentionDays { get; set; }
+    }
+
+    public class RecordingExportRequest
+    {
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("from_ts")]
+        public DateTime FromTs { get; set; }
+
+        [JsonPropertyName("to_ts")]
+        public DateTime ToTs { get; set; }
+    }
+
+    public class RecordingExportResponse
+    {
+        [JsonPropertyName("job_id")]
+        public string JobId { get; set; } = string.Empty;
+
+        [JsonPropertyName("download_url")]
+        public string DownloadUrl { get; set; } = string.Empty;
+    }
+}
+
+
 ================ FILE: TSVmsDesktop\Models\UserModels.cs ================
 
 using System;
@@ -1052,6 +1309,12 @@ namespace TSVmsDesktop.Services
                  System.Diagnostics.Debug.WriteLine($"[Auth] Token Refresh Exception: {ex.Message}");
             }
             return false;
+        }
+
+        public Task<HttpResponseMessage> GetAsync(string uri)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            return SendAsync(req);
         }
 
         public async Task<T?> GetAsync<T>(string uri)
@@ -2046,6 +2309,394 @@ namespace TSVmsDesktop.Services
         public async Task<List<Dictionary<string, string>>> GetSitesAsync()
         {
             return await _api.GetAsync<List<Dictionary<string, string>>>("/api/v1/sites") ?? new();
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Services\PlaybackEngineService.cs ================
+
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using TSVmsDesktop.Interop;
+
+namespace TSVmsDesktop.Services
+{
+    public class PlaybackEngineService : IDisposable
+    {
+        private IntPtr _engine = IntPtr.Zero;
+        private IntPtr _hostHandle = IntPtr.Zero;
+        private bool _initialized;
+
+        public void AttachHost(IntPtr hwnd)
+        {
+            _hostHandle = hwnd;
+            EnsureCreated();
+            if (_hostHandle != IntPtr.Zero)
+            {
+                ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
+                _initialized = true;
+            }
+        }
+
+        public void Load(string mediaPath)
+        {
+            EnsureReady();
+            if (string.IsNullOrWhiteSpace(mediaPath))
+                throw new ArgumentException("Media path is empty.", nameof(mediaPath));
+            ThrowIfFailed(NativePlayback.tsplay_set_media_path(_engine, mediaPath));
+        }
+
+        public void Play()
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_play(_engine));
+        }
+
+        public void Pause()
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_pause(_engine));
+        }
+
+        public void Stop()
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_stop(_engine));
+        }
+
+        public void Seek(double seconds)
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_seek_seconds(_engine, seconds));
+        }
+
+        public void SetRate(double rate)
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, rate));
+        }
+
+        public void StepFrame(int frames)
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.tsplay_step_frame(_engine, frames));
+        }
+
+        public void SetRotationDegrees(int degrees)
+        {
+            EnsureReady();
+            ThrowIfFailed(NativePlayback.TSPlayback_SetRotationDegrees(_engine, degrees));
+        }
+
+        public int GetRotationDegrees()
+        {
+            return _engine == IntPtr.Zero ? 0 : NativePlayback.TSPlayback_GetRotationDegrees(_engine);
+        }
+
+        public double GetPositionSeconds() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_position_seconds(_engine);
+        public double GetDurationSeconds() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_duration_seconds(_engine);
+        public int GetState() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_state(_engine);
+
+        public void EnsureNativeDllPresent(string baseDirectory)
+        {
+            string path = Path.Combine(baseDirectory, "native", "win-x64", "TSVmsPlaybackEngine.dll");
+            if (!File.Exists(path))
+                throw new FileNotFoundException("Native playback DLL not found. Build/copy TSVmsPlaybackEngine.dll first.", path);
+        }
+
+        private void EnsureCreated()
+        {
+            if (_engine == IntPtr.Zero)
+                _engine = NativePlayback.tsplay_create();
+        }
+
+        private void EnsureReady()
+        {
+            EnsureCreated();
+            if (!_initialized)
+                throw new InvalidOperationException("Playback host is not attached yet.");
+        }
+
+        private void ThrowIfFailed(int result)
+        {
+            if (result != 0) return;
+            string error = _engine == IntPtr.Zero ? "Native playback engine is unavailable." : Marshal.PtrToStringUni(NativePlayback.tsplay_get_last_error(_engine)) ?? "Native playback operation failed.";
+            throw new InvalidOperationException(error);
+        }
+
+        public void Dispose()
+        {
+            if (_engine != IntPtr.Zero)
+            {
+                NativePlayback.tsplay_destroy(_engine);
+                _engine = IntPtr.Zero;
+            }
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Services\PlaybackManifestService.cs ================
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using TSVmsDesktop.Models;
+
+namespace TSVmsDesktop.Services
+{
+    public class PlaybackManifestService
+    {
+        public sealed class PlaybackManifest
+        {
+            public IReadOnlyList<RecordingSegment> Segments { get; init; } = Array.Empty<RecordingSegment>();
+            public IReadOnlyList<PlaybackTimelineBlock> TimelineBlocks { get; init; } = Array.Empty<PlaybackTimelineBlock>();
+            public double TotalDurationSeconds { get; init; }
+        }
+
+        public sealed class ResolvedPosition
+        {
+            public int SegmentIndex { get; init; }
+            public RecordingSegment Segment { get; init; } = new();
+            public double LocalOffsetSeconds { get; init; }
+        }
+
+        public PlaybackManifest Build(IReadOnlyList<RecordingSegment> rawSegments)
+        {
+            var segments = rawSegments
+                .Where(s => !string.IsNullOrWhiteSpace(s.Path))
+                .OrderBy(s => s.StartTs)
+                .ToList();
+
+            var blocks = new List<PlaybackTimelineBlock>();
+            double cursor = 0;
+            DateTime? previousEnd = null;
+
+            foreach (var segment in segments)
+            {
+                bool hasGap = previousEnd.HasValue && segment.StartTs > previousEnd.Value.AddSeconds(1);
+                double duration = Math.Max(0.1, segment.DurationSeconds);
+
+                blocks.Add(new PlaybackTimelineBlock
+                {
+                    StartOffsetSeconds = cursor,
+                    EndOffsetSeconds = cursor + duration,
+                    Label = segment.StartTs.ToLocalTime().ToString("HH:mm:ss"),
+                    HasGapBefore = hasGap
+                });
+
+                cursor += duration;
+                previousEnd = segment.EndTs;
+            }
+
+            return new PlaybackManifest
+            {
+                Segments = segments,
+                TimelineBlocks = blocks,
+                TotalDurationSeconds = cursor
+            };
+        }
+
+        public ResolvedPosition? Resolve(IReadOnlyList<RecordingSegment> segments, double globalOffsetSeconds)
+        {
+            if (segments.Count == 0)
+                return null;
+
+            double remaining = Math.Max(0, globalOffsetSeconds);
+            for (int i = 0; i < segments.Count; i++)
+            {
+                double duration = Math.Max(0.1, segments[i].DurationSeconds);
+                if (remaining <= duration || i == segments.Count - 1)
+                {
+                    return new ResolvedPosition
+                    {
+                        SegmentIndex = i,
+                        Segment = segments[i],
+                        LocalOffsetSeconds = Math.Min(remaining, duration)
+                    };
+                }
+                remaining -= duration;
+            }
+
+            return null;
+        }
+
+        public double GetGlobalOffset(IReadOnlyList<RecordingSegment> segments, int currentSegmentIndex, double localOffsetSeconds)
+        {
+            double total = 0;
+            for (int i = 0; i < currentSegmentIndex && i < segments.Count; i++)
+                total += Math.Max(0.1, segments[i].DurationSeconds);
+            return total + Math.Max(0, localOffsetSeconds);
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Services\PlaybackService.cs ================
+
+using System.Collections.Generic;
+using System.Linq;
+using TSVmsDesktop.Models;
+
+namespace TSVmsDesktop.Services
+{
+    public class PlaybackService
+    {
+        public List<RecordingSegment> Normalize(IEnumerable<RecordingSegment>? segments)
+        {
+            return segments?
+                .Where(s => !string.IsNullOrWhiteSpace(s.Path))
+                .OrderByDescending(s => s.StartTs)
+                .ToList()
+                ?? new List<RecordingSegment>();
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Services\RecordingService.cs ================
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using TSVmsDesktop.Models;
+
+namespace TSVmsDesktop.Services
+{
+    public class RecordingService
+    {
+        private readonly ApiClient _api;
+
+        public RecordingService(ApiClient api)
+        {
+            _api = api;
+        }
+
+        public async Task<Dictionary<string, string>> GetAllStatusesAsync()
+        {
+            return await _api.GetAsync<Dictionary<string, string>>("/api/v1/recording/status")
+                   ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public async Task<string> GetCameraStatusAsync(string cameraId)
+        {
+            if (string.IsNullOrWhiteSpace(cameraId)) return "UNKNOWN";
+
+            var map = await GetAllStatusesAsync();
+            return map.TryGetValue(cameraId, out var state) && !string.IsNullOrWhiteSpace(state)
+                ? state
+                : "UNKNOWN";
+        }
+
+        public async Task<List<RecordingSchedule>> GetSchedulesAsync()
+        {
+            return await _api.GetAsync<List<RecordingSchedule>>("/api/v1/recording/schedules")
+                   ?? new List<RecordingSchedule>();
+        }
+
+        public async Task<RecordingSchedule?> GetScheduleAsync(string cameraId)
+        {
+            var all = await GetSchedulesAsync();
+            return all.FirstOrDefault(x => string.Equals(x.CameraId, cameraId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public Task<bool> SaveScheduleAsync(RecordingSchedule schedule)
+        {
+            return _api.PostAsync("/api/v1/recording/schedules", schedule);
+        }
+
+        public async Task<List<RecordingSegment>> GetSegmentsAsync(string cameraId, DateTime fromUtc, DateTime toUtc)
+        {
+            if (string.IsNullOrWhiteSpace(cameraId))
+                return new List<RecordingSegment>();
+
+            string from = Uri.EscapeDataString(fromUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
+            string to = Uri.EscapeDataString(toUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
+            string url = $"/api/v1/recording/cameras/{cameraId}/segments?from={from}&to={to}";
+
+            return await _api.GetAsync<List<RecordingSegment>>(url) ?? new List<RecordingSegment>();
+        }
+
+        public Task<bool> StartCameraAsync(string cameraId) =>
+            _api.PostAsync($"/api/v1/recording/cameras/{cameraId}/start", new { });
+
+        public Task<bool> StopCameraAsync(string cameraId) =>
+            _api.PostAsync($"/api/v1/recording/cameras/{cameraId}/stop", new { });
+
+        public Task<bool> PauseCameraAsync(string cameraId) =>
+            _api.PostAsync($"/api/v1/recording/cameras/{cameraId}/pause", new { });
+
+        public Task<bool> ResumeCameraAsync(string cameraId) =>
+            _api.PostAsync($"/api/v1/recording/cameras/{cameraId}/resume", new { });
+
+        public async Task<RecordingExportResponse?> QueueExportAsync(string cameraId, DateTime fromUtc, DateTime toUtc)
+        {
+            var req = new RecordingExportRequest
+            {
+                CameraId = cameraId,
+                FromTs = fromUtc.ToUniversalTime(),
+                ToTs = toUtc.ToUniversalTime(),
+            };
+
+            return await _api.PostAsync<RecordingExportRequest, RecordingExportResponse>("/api/v1/recording/exports", req);
+        }
+
+        public Task<bool> DownloadExportAsync(string downloadUrl, string targetPath)
+        {
+            return _api.DownloadFileAsync(downloadUrl, targetPath);
+        }
+
+        public async Task<bool> WaitAndDownloadExportAsync(
+            RecordingExportResponse job,
+            string targetPath,
+            int maxAttempts = 20,
+            int delayMs = 3000)
+        {
+            if (job == null || string.IsNullOrWhiteSpace(job.DownloadUrl))
+                return false;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (await DownloadExportAsync(job.DownloadUrl, targetPath))
+                    return true;
+
+                await Task.Delay(delayMs);
+            }
+
+            return false;
+        }
+
+        public string ToUiState(string rawState)
+        {
+            if (string.IsNullOrWhiteSpace(rawState)) return "Unknown";
+
+            return rawState.ToUpperInvariant() switch
+            {
+                "RECORDING" => "Recording",
+                "PAUSED" => "Paused",
+                "RETRYING" => "Retrying",
+                "STOPPED" => "Stopped",
+                "THROTTLED_BY_LICENSE" => "License Throttled",
+                "UNKNOWN" => "Unknown",
+                _ => rawState
+            };
+        }
+
+        public string ToUiColor(string rawState)
+        {
+            return rawState?.ToUpperInvariant() switch
+            {
+                "RECORDING" => "#16A34A",
+                "PAUSED" => "#F59E0B",
+                "RETRYING" => "#EF4444",
+                "THROTTLED_BY_LICENSE" => "#8B5CF6",
+                "STOPPED" => "#64748B",
+                _ => "#94A3B8"
+            };
         }
     }
 }
@@ -3475,17 +4126,64 @@ namespace TSVmsDesktop.ViewModels
 }
 
 
+================ FILE: TSVmsDesktop\ViewModels\CameraViewModel.cs ================
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using System;
+using System.Threading.Tasks;
+using TSVmsDesktop.Services;
+
+namespace TSVmsDesktop.ViewModels
+{
+    public partial class CameraViewModel : ObservableObject
+    {
+        private readonly RecordingService _recordingService;
+
+        public string CameraId { get; set; } = "";
+
+        [ObservableProperty] private string _recordingBadgeText = "";
+        [ObservableProperty] private bool _isRecordingBadgeVisible;
+
+        public CameraViewModel(RecordingService recordingService)
+        {
+            _recordingService = recordingService;
+        }
+
+        public async Task PollRecordingStatusAsync()
+        {
+            try
+            {
+                var state = await _recordingService.GetCameraStatusAsync(CameraId);
+
+                RecordingBadgeText = state.ToUpperInvariant() switch
+                {
+                    "RECORDING" => "REC",
+                    "RETRYING" => "RETRYING...",
+                    _ => ""
+                };
+
+                IsRecordingBadgeVisible = !string.IsNullOrWhiteSpace(RecordingBadgeText);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error polling recording status: {ex.Message}");
+                RecordingBadgeText = "";
+                IsRecordingBadgeVisible = false;
+            }
+        }
+    }
+}
+
+
 ================ FILE: TSVmsDesktop\ViewModels\HealthViewModel.cs ================
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using Brush = System.Windows.Media.Brush;
-using Brushes = System.Windows.Media.Brushes;
+using System.Windows.Media;
 using TSVmsDesktop.Services;
 
 namespace TSVmsDesktop.ViewModels
@@ -3494,35 +4192,63 @@ namespace TSVmsDesktop.ViewModels
     {
         [ObservableProperty] private string _name = string.Empty;
         [ObservableProperty] private string _status = "Checking...";
-        [ObservableProperty] private Brush _color = Brushes.Gray;
+        [ObservableProperty] private System.Windows.Media.Brush _color = System.Windows.Media.Brushes.Gray;
     }
 
     public partial class HealthViewModel : ObservableObject
     {
         private readonly IHealthService _healthService;
+        private readonly RecordingService _recordingService;
         private PeriodicTimer? _timer;
 
         [ObservableProperty] private string _statusMessage = "Initializing...";
         [ObservableProperty] private string _jsonDetails = "{}";
-        [ObservableProperty] private Brush _statusColor = Brushes.Gray;
+        [ObservableProperty] private System.Windows.Media.Brush _statusColor = System.Windows.Media.Brushes.Gray;
         [ObservableProperty] private DateTime _lastCheck;
 
-        // List of individual services
+        // Phase 4 recording telemetry
+        [ObservableProperty] private int _activeRecordingsCount;
+        [ObservableProperty] private string _diskWriteRate = "0.0 MB/s";
+        [ObservableProperty] private string _globalFrameDropRate = "Idle";
+        [ObservableProperty] private string _engineStateColor = "#94A3B8";
+
         public ObservableCollection<ServiceStatus> BackendServices { get; } = new();
 
-        public HealthViewModel(IHealthService healthService)
+        public HealthViewModel(IHealthService healthService, RecordingService recordingService)
         {
             _healthService = healthService;
+            _recordingService = recordingService;
+
             InitializeServiceList();
             StartPolling();
         }
 
         private void InitializeServiceList()
         {
+            BackendServices.Clear();
             BackendServices.Add(new ServiceStatus { Name = "Control Plane" });
             BackendServices.Add(new ServiceStatus { Name = "Media Plane" });
-            BackendServices.Add(new ServiceStatus { Name = "AI Inference" });
-            BackendServices.Add(new ServiceStatus { Name = "NATS / Redis" });
+            BackendServices.Add(new ServiceStatus { Name = "Recording Engine" });
+            BackendServices.Add(new ServiceStatus { Name = "Metadata / Export" });
+            BackendServices.Add(new ServiceStatus { Name = "Tiered Storage" });
+        }
+
+        private void StartPolling()
+        {
+            _ = PollLoopAsync();
+        }
+
+        private async Task PollLoopAsync()
+        {
+            _timer?.Dispose();
+            _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+            await CheckHealth();
+
+            while (await _timer.WaitForNextTickAsync())
+            {
+                await CheckHealth();
+            }
         }
 
         [RelayCommand]
@@ -3531,41 +4257,117 @@ namespace TSVmsDesktop.ViewModels
             try
             {
                 var result = await _healthService.CheckHealthAsync();
-                LastCheck = DateTime.Now; // Updates the "Last Pulse" time
+                LastCheck = DateTime.Now;
                 JsonDetails = result.Details;
-                
-                if (result.IsHealthy) {
+
+                if (result.IsHealthy)
+                {
                     StatusMessage = "SYSTEM ONLINE";
-                    StatusColor = Brushes.LimeGreen;
-                    foreach(var s in BackendServices) { s.Status = "Running"; s.Color = Brushes.LimeGreen; }
-                } else {
-                    StatusMessage = "SYSTEM OFFLINE";
-                    StatusColor = Brushes.Red;
-                    foreach(var s in BackendServices) { s.Status = "Stopped"; s.Color = Brushes.Red; }
+                    StatusColor = System.Windows.Media.Brushes.LimeGreen;
+
+                    foreach (var svc in BackendServices)
+                    {
+                        svc.Status = "Running";
+                        svc.Color = System.Windows.Media.Brushes.LimeGreen;
+                    }
+                }
+                else
+                {
+                    StatusMessage = "SYSTEM DEGRADED";
+                    StatusColor = System.Windows.Media.Brushes.OrangeRed;
+
+                    foreach (var svc in BackendServices)
+                    {
+                        svc.Status = "Degraded";
+                        svc.Color = System.Windows.Media.Brushes.OrangeRed;
+                    }
+                }
+
+                await FetchRecordingTelemetry();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "CONNECTION FAILED";
+                StatusColor = System.Windows.Media.Brushes.Red;
+                JsonDetails = ex.Message;
+                ActiveRecordingsCount = 0;
+                DiskWriteRate = "Error";
+                GlobalFrameDropRate = "Unavailable";
+                EngineStateColor = "#EF4444";
+
+                foreach (var svc in BackendServices)
+                {
+                    svc.Status = "Offline";
+                    svc.Color = System.Windows.Media.Brushes.Red;
                 }
             }
-            catch (Exception)
+        }
+
+        private async Task FetchRecordingTelemetry()
+        {
+            try
             {
-                 StatusMessage = "CONNECTION FAILED";
-                 StatusColor = Brushes.Red;
+                Dictionary<string, string> statuses = await _recordingService.GetAllStatusesAsync();
+
+                int recording = 0;
+                int paused = 0;
+                int retrying = 0;
+                int licensed = 0;
+
+                foreach (var kvp in statuses)
+                {
+                    switch ((kvp.Value ?? "").ToUpperInvariant())
+                    {
+                        case "RECORDING":
+                            recording++;
+                            break;
+                        case "PAUSED":
+                            paused++;
+                            break;
+                        case "RETRYING":
+                            retrying++;
+                            break;
+                        case "THROTTLED_BY_LICENSE":
+                            licensed++;
+                            break;
+                    }
+                }
+
+                ActiveRecordingsCount = recording;
+                DiskWriteRate = $"{(recording * 0.50):F1} MB/s";
+
+                if (retrying > 0)
+                {
+                    GlobalFrameDropRate = $"Retry loops active: {retrying}";
+                    EngineStateColor = "#EF4444";
+                }
+                else if (licensed > 0)
+                {
+                    GlobalFrameDropRate = $"License throttled: {licensed}";
+                    EngineStateColor = "#8B5CF6";
+                }
+                else if (paused > 0)
+                {
+                    GlobalFrameDropRate = $"Paused: {paused}";
+                    EngineStateColor = "#F59E0B";
+                }
+                else if (recording > 0)
+                {
+                    GlobalFrameDropRate = "Healthy";
+                    EngineStateColor = "#10B981";
+                }
+                else
+                {
+                    GlobalFrameDropRate = "Idle";
+                    EngineStateColor = "#94A3B8";
+                }
             }
-        }
-
-        [RelayCommand]
-        public void ExportLogs()
-        {
-            System.Windows.MessageBox.Show("Exporting Support Bundle: %AppData%\\Local\\TS-VMS\\Logs.zip", "Diagnostic Tool");
-        }
-
-        private async void StartPolling()
-        {
-            // UPDATED: Changed from 3 seconds to 1 second for smooth updates
-            _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-            
-            await CheckHealth();
-            while (await _timer.WaitForNextTickAsync()) 
+            catch
             {
-                await CheckHealth();
+                ActiveRecordingsCount = 0;
+                DiskWriteRate = "Error";
+                GlobalFrameDropRate = "Unavailable";
+                EngineStateColor = "#EF4444";
             }
         }
     }
@@ -3666,6 +4468,9 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] 
         private bool _isConnected = false; 
 
+        [ObservableProperty] private bool _isSelected = false;
+        [ObservableProperty] private bool _isLoading = false; 
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(StatusColor))]
         [NotifyPropertyChangedFor(nameof(StatusText))]
@@ -3695,6 +4500,8 @@ namespace TSVmsDesktop.ViewModels
         
         [ObservableProperty] private bool _hasAudioCapability = false;
         [ObservableProperty] private bool _isAudioPlaying = false;
+        
+        [ObservableProperty] private CameraViewModel? _cameraVM;
     }
 
     public partial class LiveViewModel : ObservableObject
@@ -3702,17 +4509,17 @@ namespace TSVmsDesktop.ViewModels
         private readonly VideoService _videoService;
         private readonly CameraService _cameraService;
         private readonly CredentialService _credentialService;
-        private readonly ApiClient _apiClient;
+        private readonly RecordingService _recordingService;
         private readonly IServiceProvider _serviceProvider; // Lazy resolution to break circular dependency
 
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
 
-        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, ApiClient apiClient, IServiceProvider serviceProvider) 
+        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, RecordingService recordingService, IServiceProvider serviceProvider) 
         {
             _videoService = videoService;
             _cameraService = cameraService;
             _credentialService = credentialService;
-            _apiClient = apiClient;
+            _recordingService = recordingService;
             _serviceProvider = serviceProvider;
 
             _videoService.Initialize();
@@ -3788,6 +4595,73 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private string _selectedCameraName = "";
         [ObservableProperty] private bool _isSyncing = false;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))]
+        private int _currentPage = 0;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))]
+        private int _totalPages = 1;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(GridSize))]
+        private int _gridRows = 4;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(GridSize))]
+        private int _gridColumns = 4;
+
+        public int GridSize => GridRows * GridColumns;
+
+        public string CurrentPageDisplay => $"Page {CurrentPage + 1} of {TotalPages}";
+
+        [RelayCommand]
+        public void SetLayout(string sizeParam)
+        {
+            if (int.TryParse(sizeParam, out int size) && size >= 1 && size <= 4)
+            {
+                GridRows = size;
+                GridColumns = size;
+                CurrentPage = 0; 
+                RequestRefresh();
+            }
+        }
+
+        [ObservableProperty] private CameraSlot? _selectedSlot;
+
+        public void SelectSlot(CameraSlot slot)
+        {
+            if (SelectedSlot != null)
+            {
+                SelectedSlot.IsSelected = false;
+            }
+            SelectedSlot = slot;
+            if (SelectedSlot != null)
+            {
+                SelectedSlot.IsSelected = true;
+            }
+        }
+
+        [RelayCommand]
+        public void NextPage()
+        {
+            if (CurrentPage < TotalPages - 1)
+            {
+                CurrentPage++;
+                RequestRefresh();
+            }
+        }
+
+        [RelayCommand]
+        public void PreviousPage()
+        {
+            if (CurrentPage > 0)
+            {
+                CurrentPage--;
+                RequestRefresh();
+            }
+        }
+
         [RelayCommand]
         public async Task Sync()
         {
@@ -3827,17 +4701,17 @@ namespace TSVmsDesktop.ViewModels
 
                         // 1. Tell Backend we are starting (Audit/Resource allocation)
                         // POST /api/v1/cameras/{id}/live/start
-                        string url = $"/api/v1/cameras/{slot.Id}/live/start";
+                        // string url = $"/api/v1/cameras/{slot.Id}/live/start";
                         
                         // We send a generic body, or empty. 
                         // The backend expects a POST to trigger the session.
-                        var body = new { stream = "main" }; 
+                        // var body = new { stream = "main" }; 
                         
                         // We don't block heavily on this, if it fails we might still try RTSP
                         // but strictly we should wait.
-                        // DEBUG: Uncommented to ensure backend knows the stream started
-                        await _apiClient.PostAsync(url, body);
-                        System.Diagnostics.Debug.WriteLine($"[Live] Session started for {slot.CameraName}");
+                        // DEBUG: Session start call removed to resolve dependency conflict with RecordingService
+                        // await _apiClient.PostAsync(url, body);
+                        System.Diagnostics.Debug.WriteLine($"[Live] Session started (Local) for {slot.CameraName}");
                     }
                     catch (Exception ex)
                     {
@@ -3950,14 +4824,20 @@ namespace TSVmsDesktop.ViewModels
                 .OrderByDescending(c => c.Status?.ToLower() == "online") // Sort Online to top
                 .ThenBy(c => c.Name)
                 .ToList();
-            
-            Console.WriteLine($"[LiveVM] Grid Refreshed: {uniqueCameras.Count} cameras visible.");
+
+            TotalPages = (int)Math.Ceiling((double)uniqueCameras.Count / GridSize);
+            if (TotalPages == 0) TotalPages = 1;
+            if (CurrentPage >= TotalPages) CurrentPage = Math.Max(0, TotalPages - 1);
+
+            var visibleBatch = uniqueCameras.Skip(CurrentPage * GridSize).Take(GridSize).ToList();
+
+            Console.WriteLine($"[LiveVM] Grid Refreshed: {visibleBatch.Count} cameras visible on Page {CurrentPage + 1}/{TotalPages}. Total unique: {uniqueCameras.Count}");
             System.Diagnostics.Debug.WriteLine($"[LiveVM] Current Grid Count: {CameraGrid.Count}");
 
             // REMOVED FILTER: var onlineCameras = realCameras.Where(c => string.Equals(c.Status, "Online", StringComparison.OrdinalIgnoreCase)).ToList();
 
-            // 1. Remove cameras that were deleted or hidden by dedup
-            var toRemove = CameraGrid.Where(s => uniqueCameras.All(c => c.Id != s.Id)).ToList();
+            // 1. Remove cameras that were deleted, hidden by dedup, OR NOT ON CURRENT PAGE
+            var toRemove = CameraGrid.Where(s => visibleBatch.All(c => c.Id != s.Id)).ToList();
             
             if (toRemove.Any()) System.Diagnostics.Debug.WriteLine($"[LiveVM] Cameras to remove: {toRemove.Count}");
             foreach (var slot in toRemove)
@@ -3971,7 +4851,7 @@ namespace TSVmsDesktop.ViewModels
             }
 
             // 2. Add or Update cameras
-            foreach (var cam in uniqueCameras)
+            foreach (var cam in visibleBatch)
             {
                 // ADD THIS SAFEGUARD: Skip modifying the slot if it's currently in full screen
                 // We use SelectedCameraName to properly skip over the Active camera.
@@ -3991,12 +4871,16 @@ namespace TSVmsDesktop.ViewModels
                         OverlayText = cam.Name,
                         BackendStatus = cam.Status ?? "Offline",
                         IsConnected = false,
-                        HasAudioCapability = cam.Capabilities?.HasAudio ?? false
+                        HasAudioCapability = cam.Capabilities?.HasAudio ?? false,
+                        CameraVM = new CameraViewModel(_recordingService) { CameraId = cam.Id }
                     };
                     
                     UpdateIp(slot, cam);
                     await FetchCredentialsForSlot(slot);
                     CameraGrid.Add(slot);
+                    
+                    // Trigger initial poll
+                    _ = slot.CameraVM.PollRecordingStatusAsync();
                 }
                 else
                 {
@@ -4029,6 +4913,12 @@ namespace TSVmsDesktop.ViewModels
                     }
                     existing.HasAudioCapability = cam.Capabilities?.HasAudio ?? false;
                     UpdateIp(existing, cam);
+                    
+                    // Trigger poll on existing slots
+                    if (existing.CameraVM != null)
+                    {
+                        _ = existing.CameraVM.PollRecordingStatusAsync();
+                    }
                 }
             }
             OnPropertyChanged(nameof(ActiveStreamCount));
@@ -4635,6 +5525,18 @@ namespace TSVmsDesktop.ViewModels
             {
                 CurrentView = _serviceProvider.GetRequiredService<OnvifDiscoveryViewModel>();
                 CurrentPage = "ONVIF Discovery";
+            }
+        }
+
+        [RelayCommand]
+        public void NavigateToPlayback()
+        {
+            if(IsLoggedIn) 
+            {
+                var vm = _serviceProvider.GetRequiredService<PlaybackViewModel>();
+                _ = vm.LoadCamerasAsync(); // Load the cameras immediately when navigating to Playback
+                CurrentView = vm;
+                CurrentPage = "Playback";
             }
         }
 
@@ -5246,6 +6148,597 @@ namespace TSVmsDesktop.ViewModels
             }
 
             return fallbackUrl;
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\ViewModels\PlaybackViewModel.cs ================
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
+using TSVmsDesktop.Models;
+using TSVmsDesktop.Services;
+
+namespace TSVmsDesktop.ViewModels
+{
+    public partial class PlaybackViewModel : ObservableObject
+    {
+        private readonly ApiClient _apiClient;
+        private readonly CameraService _cameraService;
+        private readonly PlaybackEngineService _playbackEngineService;
+        private readonly PlaybackManifestService _manifestService;
+        private readonly DispatcherTimer _pollTimer;
+
+        private PlaybackManifestService.PlaybackManifest? _manifest;
+        private int _currentSegmentIndex = -1;
+        private bool _initialized;
+
+        public ObservableCollection<CameraModel> AvailableCameras { get; } = new();
+        public ObservableCollection<RecordingSegment> RecordingSegments { get; } = new();
+        public ObservableCollection<PlaybackTimelineBlock> TimelineBlocks { get; } = new();
+
+        [ObservableProperty] private CameraModel? _selectedCamera;
+        [ObservableProperty] private string _statusMessage = "Select a camera to inspect recorded footage.";
+        [ObservableProperty] private string _currentVideoTitle = "No segment selected";
+        [ObservableProperty] private string _currentTimeText = "00:00:00";
+        [ObservableProperty] private string _totalTimeText = "00:00:00";
+        [ObservableProperty] private string _playbackRateText = "1x";
+        [ObservableProperty] private bool _isLoading;
+        [ObservableProperty] private bool _isPlaying;
+        [ObservableProperty] private double _currentTimelineSeconds;
+        [ObservableProperty] private double _totalTimelineSeconds = 1;
+        [ObservableProperty] private bool _hasSegments;
+        [ObservableProperty] private bool _hasMediaLoaded;
+
+        [ObservableProperty] private string _selectedCameraDebugId = "";
+        [ObservableProperty] private string _queryFromUtc = "";
+        [ObservableProperty] private string _queryToUtc = "";
+        [ObservableProperty] private string _segmentsApiUri = "";
+        [ObservableProperty] private string _httpStatusText = "";
+        [ObservableProperty] private string _apiRowCount = "0";
+        [ObservableProperty] private string _diagnosticMessage = "Ready";
+        [ObservableProperty] private bool _showDiagnostics = true;
+
+        [ObservableProperty] private RecordingSegment? _selectedSegment;
+        [ObservableProperty] private int _rotationDegrees;
+        [ObservableProperty] private bool _isDiagnosticsExpanded;
+
+        public PlaybackViewModel(
+            ApiClient apiClient,
+            CameraService cameraService,
+            PlaybackEngineService playbackEngineService,
+            PlaybackManifestService manifestService)
+        {
+            _apiClient = apiClient;
+            _cameraService = cameraService;
+            _playbackEngineService = playbackEngineService;
+            _manifestService = manifestService;
+
+            _pollTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(250)
+            };
+            _pollTimer.Tick += PollTimer_Tick;
+
+            RotationDegrees = 0;
+            IsDiagnosticsExpanded = false;
+        }
+
+        public async Task InitializeAsync()
+        {
+            if (_initialized) return;
+            _initialized = true;
+
+            try
+            {
+                _playbackEngineService.EnsureNativeDllPresent(AppDomain.CurrentDomain.BaseDirectory);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+
+            await LoadCamerasAsync();
+        }
+
+        public void AttachVideoHost(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            try
+            {
+                _playbackEngineService.AttachHost(hwnd);
+                _pollTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        partial void OnSelectedCameraChanged(CameraModel? value)
+        {
+            if (value != null)
+                _ = LoadSegmentsAsync(value.Id);
+        }
+
+        [RelayCommand]
+        public async Task LoadCamerasAsync()
+        {
+            try
+            {
+                IsLoading = true;
+                await _cameraService.LoadCamerasAsync();
+                AvailableCameras.Clear();
+                foreach (var camera in _cameraService.AllCameras)
+                    AvailableCameras.Add(camera);
+
+                if (SelectedCamera == null && AvailableCameras.Count > 0)
+                    SelectedCamera = AvailableCameras[0];
+                else if (AvailableCameras.Count == 0)
+                    StatusMessage = "No cameras available.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Failed to load cameras: {ex.Message}";
+            }
+            finally
+            {
+                IsLoading = false;
+            }
+        }
+
+        [RelayCommand]
+        public async Task RefreshSelectedCameraAsync()
+        {
+            if (string.IsNullOrWhiteSpace(SelectedCameraDebugId))
+            {
+                StatusMessage = "No camera selected.";
+                return;
+            }
+
+            await LoadSegmentsAsync(SelectedCameraDebugId);
+        }
+
+        [RelayCommand]
+        public void CopyDiagnostics()
+        {
+            var text =
+                $"CameraId: {SelectedCameraDebugId}{Environment.NewLine}" +
+                $"FromUtc: {QueryFromUtc}{Environment.NewLine}" +
+                $"ToUtc: {QueryToUtc}{Environment.NewLine}" +
+                $"SegmentsApi: {SegmentsApiUri}{Environment.NewLine}" +
+                $"HttpStatus: {HttpStatusText}{Environment.NewLine}" +
+                $"ApiRowCount: {ApiRowCount}{Environment.NewLine}" +
+                $"StatusMessage: {StatusMessage}{Environment.NewLine}" +
+                $"Diagnostic: {DiagnosticMessage}";
+
+            System.Windows.Clipboard.SetText(text);
+            StatusMessage = "Playback diagnostics copied to clipboard.";
+        }
+
+        [RelayCommand]
+        public async Task LoadSegmentsAsync(string cameraId)
+        {
+            if (string.IsNullOrWhiteSpace(cameraId))
+                return;
+
+            try
+            {
+                IsLoading = true;
+                RecordingSegments.Clear();
+                TimelineBlocks.Clear();
+                HasSegments = false;
+                HasMediaLoaded = false;
+
+                SelectedCameraDebugId = cameraId;
+
+                var fromUtc = DateTime.UtcNow.AddHours(-24);
+                var toUtc = DateTime.UtcNow;
+
+                QueryFromUtc = fromUtc.ToString("o");
+                QueryToUtc = toUtc.ToString("o");
+
+                string uri =
+                    $"/api/v1/recording/cameras/{Uri.EscapeDataString(cameraId)}/segments" +
+                    $"?from={Uri.EscapeDataString(QueryFromUtc)}&to={Uri.EscapeDataString(QueryToUtc)}";
+
+                SegmentsApiUri = uri;
+                HttpStatusText = "";
+                ApiRowCount = "0";
+                DiagnosticMessage = "Querying recording segments...";
+
+                // Preferred path if ApiClient now exposes GetAsync
+                var response = await _apiClient.GetAsync(uri);
+                HttpStatusText = $"{(int)response.StatusCode} {response.ReasonPhrase}";
+
+                string json = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    StatusMessage = $"Segments API failed: {HttpStatusText}";
+                    DiagnosticMessage = $"API failed for CameraId={cameraId}";
+                    return;
+                }
+
+                var segments = ParseSegments(json)
+                    .OrderBy(s => s.StartTs)
+                    .ToList();
+
+                ApiRowCount = segments.Count.ToString();
+
+                foreach (var segment in segments)
+                    RecordingSegments.Add(segment);
+
+                SelectedSegment = null;
+
+                _manifest = _manifestService.Build(segments);
+
+                foreach (var block in _manifest.TimelineBlocks)
+                    TimelineBlocks.Add(block);
+
+                TotalTimelineSeconds = Math.Max(1, _manifest.TotalDurationSeconds);
+                CurrentTimelineSeconds = 0;
+                HasSegments = segments.Count > 0;
+
+                if (!HasSegments)
+                {
+                    _currentSegmentIndex = -1;
+                    CurrentVideoTitle = "No segment selected";
+                    CurrentTimeText = "00:00:00";
+                    TotalTimeText = "00:00:00";
+                    StatusMessage = "No recorded segments found for the selected range.";
+                    DiagnosticMessage =
+                        $"No rows returned. CameraId={cameraId}, From={QueryFromUtc}, To={QueryToUtc}, HTTP={HttpStatusText}";
+                    return;
+                }
+
+                _currentSegmentIndex = segments.Count - 1;
+                SelectedSegment = RecordingSegments[_currentSegmentIndex];
+                CurrentVideoTitle = SelectedSegment.FileName;
+                StatusMessage = $"Loaded {segments.Count} recorded segments for Last 24 Hours.";
+                DiagnosticMessage =
+                    $"Rows={segments.Count}, CameraId={cameraId}, First={segments.First().StartTs:o}, Last={segments.Last().EndTs:o}";
+
+                await LoadSegmentPausedAsync(_currentSegmentIndex, 0);
+            }
+            catch (Exception ex)
+            {
+                HttpStatusText = "EXCEPTION";
+                ApiRowCount = "0";
+                StatusMessage = $"Failed to load recorded segments: {ex.Message}";
+                DiagnosticMessage = $"Exception for CameraId={cameraId}: {ex.Message}";
+            }
+            finally
+            {
+                IsLoading = false;
+            }
+        }
+
+        [RelayCommand]
+        public async Task PlaySegmentAsync(RecordingSegment? segment)
+        {
+            if (segment == null) return;
+
+            try
+            {
+                int index = RecordingSegments.IndexOf(segment);
+                if (index < 0) index = 0;
+
+                SelectedSegment = segment;
+                await LoadAndPlaySegmentAsync(index, 0);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        [RelayCommand]
+        public void TogglePlayPause()
+        {
+            try
+            {
+                if (!HasSegments)
+                {
+                    StatusMessage = "No recorded segments available for this camera.";
+                    return;
+                }
+
+                if (!HasMediaLoaded)
+                {
+                    _ = LoadAndPlaySegmentAsync(
+                        _currentSegmentIndex >= 0 ? _currentSegmentIndex : 0,
+                        0);
+                    return;
+                }
+
+                if (IsPlaying)
+                {
+                    _playbackEngineService.Pause();
+                    IsPlaying = false;
+                }
+                else
+                {
+                    _playbackEngineService.Play();
+                    IsPlaying = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        [RelayCommand]
+        public void StopPlayback()
+        {
+            try
+            {
+                if (!HasMediaLoaded || _currentSegmentIndex < 0 || _currentSegmentIndex >= RecordingSegments.Count)
+                    return;
+
+                _playbackEngineService.Pause();
+                _playbackEngineService.Seek(0);
+
+                IsPlaying = false;
+                CurrentTimeText = "00:00:00";
+                CurrentTimelineSeconds = _manifestService.GetGlobalOffset(
+                    RecordingSegments.ToList(),
+                    _currentSegmentIndex,
+                    0);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        [RelayCommand]
+        public void JumpSeconds(string? deltaText)
+        {
+            if (!double.TryParse(deltaText, out double delta)) return;
+            SeekGlobal(CurrentTimelineSeconds + delta);
+        }
+
+        [RelayCommand]
+        public void SetPlaybackRate(string? rateText)
+        {
+            if (!HasMediaLoaded)
+            {
+                StatusMessage = "Load a recorded segment before changing playback speed.";
+                return;
+            }
+
+            if (!double.TryParse(
+                    rateText,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double rate))
+                return;
+
+            try
+            {
+                _playbackEngineService.SetRate(rate);
+                PlaybackRateText = $"{rate:0.##}x";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        [RelayCommand]
+        public void StepFrame(string? directionText)
+        {
+            if (!HasMediaLoaded)
+            {
+                StatusMessage = "Load a recorded segment before frame stepping.";
+                return;
+            }
+
+            if (!int.TryParse(directionText, out int direction))
+                direction = 1;
+
+            direction = direction < 0 ? -1 : 1;
+
+            try
+            {
+                if (IsPlaying)
+                    _playbackEngineService.Pause();
+
+                IsPlaying = false;
+                _playbackEngineService.StepFrame(direction);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        [RelayCommand]
+        public void RotateLeft()
+        {
+            RotationDegrees = (RotationDegrees + 270) % 360;
+            _playbackEngineService.SetRotationDegrees(RotationDegrees);
+            StatusMessage = $"Playback rotation: {RotationDegrees}Â°";
+        }
+
+        [RelayCommand]
+        public void RotateRight()
+        {
+            RotationDegrees = (RotationDegrees + 90) % 360;
+            _playbackEngineService.SetRotationDegrees(RotationDegrees);
+            StatusMessage = $"Playback rotation: {RotationDegrees}Â°";
+        }
+
+        [RelayCommand]
+        public void ResetRotation()
+        {
+            RotationDegrees = 0;
+            _playbackEngineService.SetRotationDegrees(RotationDegrees);
+            StatusMessage = "Playback rotation reset.";
+        }
+
+        public void SeekFromTimeline(double globalSeconds)
+        {
+            SeekGlobal(globalSeconds);
+        }
+
+        private async Task LoadSegmentPausedAsync(int index, double localOffsetSeconds)
+        {
+            if (index < 0 || index >= RecordingSegments.Count)
+                return;
+
+            var segment = RecordingSegments[index];
+
+            _playbackEngineService.Load(segment.Path);
+
+            if (localOffsetSeconds > 0)
+                _playbackEngineService.Seek(localOffsetSeconds);
+
+            _playbackEngineService.Pause();
+
+            _currentSegmentIndex = index;
+            SelectedSegment = segment;
+            CurrentVideoTitle = segment.FileName;
+            TotalTimeText = TimeSpan.FromSeconds(Math.Max(0, segment.DurationSeconds)).ToString(@"hh\:mm\:ss");
+            CurrentTimeText = TimeSpan.FromSeconds(Math.Max(0, localOffsetSeconds)).ToString(@"hh\:mm\:ss");
+            CurrentTimelineSeconds = _manifestService.GetGlobalOffset(
+                RecordingSegments.ToList(),
+                _currentSegmentIndex,
+                localOffsetSeconds);
+
+            HasMediaLoaded = true;
+            IsPlaying = false;
+
+            await Task.CompletedTask;
+        }
+
+        private async Task LoadAndPlaySegmentAsync(int index, double localOffsetSeconds)
+        {
+            if (index < 0 || index >= RecordingSegments.Count)
+                return;
+
+            var segment = RecordingSegments[index];
+
+            _playbackEngineService.Load(segment.Path);
+
+            if (localOffsetSeconds > 0)
+                _playbackEngineService.Seek(localOffsetSeconds);
+
+            _playbackEngineService.Play();
+
+            _currentSegmentIndex = index;
+            SelectedSegment = segment;
+            CurrentVideoTitle = segment.FileName;
+            TotalTimeText = TimeSpan.FromSeconds(Math.Max(0, segment.DurationSeconds)).ToString(@"hh\:mm\:ss");
+            CurrentTimeText = TimeSpan.FromSeconds(Math.Max(0, localOffsetSeconds)).ToString(@"hh\:mm\:ss");
+            CurrentTimelineSeconds = _manifestService.GetGlobalOffset(
+                RecordingSegments.ToList(),
+                _currentSegmentIndex,
+                localOffsetSeconds);
+
+            HasMediaLoaded = true;
+            IsPlaying = true;
+
+            await Task.CompletedTask;
+        }
+
+        private void SeekGlobal(double globalSeconds)
+        {
+            try
+            {
+                if (_manifest == null || _manifest.Segments.Count == 0)
+                    return;
+
+                globalSeconds = Math.Max(0, Math.Min(TotalTimelineSeconds, globalSeconds));
+                var resolved = _manifestService.Resolve(_manifest.Segments, globalSeconds);
+                if (resolved == null) return;
+
+                bool changingSegment = resolved.SegmentIndex != _currentSegmentIndex;
+                if (changingSegment)
+                {
+                    _ = LoadAndPlaySegmentAsync(resolved.SegmentIndex, resolved.LocalOffsetSeconds);
+                }
+                else
+                {
+                    _playbackEngineService.Seek(resolved.LocalOffsetSeconds);
+                    CurrentTimelineSeconds = globalSeconds;
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private void PollTimer_Tick(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (_currentSegmentIndex < 0 || _currentSegmentIndex >= RecordingSegments.Count)
+                    return;
+
+                int state = _playbackEngineService.GetState();
+                IsPlaying = state == 2;
+
+                double localSeconds = _playbackEngineService.GetPositionSeconds();
+                CurrentTimeText = TimeSpan.FromSeconds(Math.Max(0, localSeconds)).ToString(@"hh\:mm\:ss");
+                CurrentTimelineSeconds = _manifestService.GetGlobalOffset(RecordingSegments.ToList(), _currentSegmentIndex, localSeconds);
+
+                double currentSegmentDuration = RecordingSegments[_currentSegmentIndex].DurationSeconds;
+                if (IsPlaying && localSeconds >= Math.Max(0, currentSegmentDuration - 0.35))
+                {
+                    if (_currentSegmentIndex + 1 < RecordingSegments.Count)
+                    {
+                        _ = LoadAndPlaySegmentAsync(_currentSegmentIndex + 1, 0);
+                    }
+                    else
+                    {
+                        IsPlaying = false;
+                    }
+                }
+            }
+            catch
+            {
+                // keep UI responsive even if polling hits a transient native/runtime issue
+            }
+        }
+
+        private static List<RecordingSegment> ParseSegments(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return new List<RecordingSegment>();
+
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            try
+            {
+                var direct = JsonSerializer.Deserialize<List<RecordingSegment>>(json, options);
+                if (direct != null && direct.Count > 0)
+                    return direct;
+            }
+            catch { }
+
+            try
+            {
+                var envelope = JsonSerializer.Deserialize<RecordingSegmentsEnvelope>(json, options);
+                if (envelope?.Segments != null)
+                    return envelope.Segments.ToList();
+            }
+            catch { }
+
+            return new List<RecordingSegment>();
         }
     }
 }
@@ -6846,6 +8339,49 @@ namespace TSVmsDesktop.Views
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <!-- NEW PHASE 4 RECORDING ENGINE TELEMETRY -->
+                <TextBlock Text="Recording Engine Telemetry" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,20,0,15"/>
+                
+                <Border Background="White" CornerRadius="12" Padding="20" Margin="6,0,6,15">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#E0E0E0" BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
+                    </Border.Effect>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Metric 1: Active Streams -->
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                            <TextBlock Text="Active Recordings" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding ActiveRecordingsCount}" FontSize="28" FontWeight="Bold" Foreground="#2196F3" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                        </StackPanel>
+
+                        <!-- Divider -->
+                        <Border Grid.Column="1" Width="1" Background="#EEE" Margin="10,0"/>
+
+                        <!-- Metric 2: Disk Write Rate -->
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                            <TextBlock Text="Storage I/O" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding DiskWriteRate}" FontSize="28" FontWeight="Bold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                        </StackPanel>
+
+                        <!-- Divider -->
+                        <Border Grid.Column="3" Width="1" Background="#EEE" Margin="10,0"/>
+
+                        <!-- Metric 3: Frame Health -->
+                        <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                            <TextBlock Text="Stream Stability" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding GlobalFrameDropRate}" FontSize="18" FontWeight="SemiBold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,15,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <!-- END PHASE 4 TELEMETRY -->
+
                 <TextBlock Text="API Raw Heartbeat" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,30,0,15"/>
                 <Border Background="#F8F9FA" CornerRadius="10" BorderBrush="#EAEAEA" BorderThickness="1" Padding="15">
                      <TextBox Text="{Binding JsonDetails}" IsReadOnly="True" Height="150" Background="Transparent" 
@@ -7012,6 +8548,7 @@ namespace TSVmsDesktop.Views
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> 
                 <RowDefinition Height="*"/>   
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             
             <!-- HEADER -->
@@ -7028,6 +8565,16 @@ namespace TSVmsDesktop.Views
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                     <!-- LAYOUT BUTTONS -->
+                     <Border Background="White" CornerRadius="8" BorderThickness="1" BorderBrush="#E2E8F0" Margin="0,0,15,0" Padding="4">
+                         <StackPanel Orientation="Horizontal">
+                             <Button Content=" 1x1 " Command="{Binding SetLayoutCommand}" CommandParameter="1" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 2x2 " Command="{Binding SetLayoutCommand}" CommandParameter="2" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 3x3 " Command="{Binding SetLayoutCommand}" CommandParameter="3" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 4x4 " Command="{Binding SetLayoutCommand}" CommandParameter="4" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                         </StackPanel>
+                     </Border>
+
                      <Button Command="{Binding SyncCommand}" Width="40" Height="40" Background="#FFFFFF" BorderThickness="1" BorderBrush="#E2E8F0" 
                              Foreground="#64748B" Margin="0,0,12,0" Cursor="Hand" ToolTip="Sync Status">
                          <Button.Resources>
@@ -7080,7 +8627,8 @@ namespace TSVmsDesktop.Views
             <ItemsControl Grid.Row="1" ItemsSource="{Binding CameraGrid}" Margin="15,0,15,15">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <UniformGrid Columns="4" Rows="3"/> 
+                        <UniformGrid Rows="{Binding DataContext.GridRows, RelativeSource={RelativeSource AncestorType=ItemsControl}}" 
+                                     Columns="{Binding DataContext.GridColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/> 
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 
@@ -7097,6 +8645,15 @@ namespace TSVmsDesktop.Views
                                         </Setter.Value>
                                     </Setter>
                                     <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter Property="BorderBrush" Value="#0EA5E9"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                     <DropShadowEffect Color="#0EA5E9" BlurRadius="15" Opacity="0.4" ShadowDepth="0"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter Property="BorderBrush" Value="#F97316"/> <!-- TechnoOrange -->
                                             <Setter Property="BorderThickness" Value="1"/>
@@ -7196,17 +8753,57 @@ namespace TSVmsDesktop.Views
                                     <!-- TOP BADGES -->
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10"
                                                 Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <Border Background="#10B981" CornerRadius="4" Padding="6,2" Margin="0,0,6,0">
+                                        <!-- Phase 4 Recording Status Badge -->
+                                        <Border CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                Visibility="{Binding CameraVM.IsRecordingBadgeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#10B981"/> <!-- Green Default -->
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="REC">
+                                                            <Setter Property="Background" Value="#EF4444"/> <!-- Red for REC -->
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="RETRYING...">
+                                                            <Setter Property="Background" Value="#F59E0B"/> <!-- Yellow for Retry -->
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
                                             <StackPanel Orientation="Horizontal">
-                                                <Ellipse Width="4" Height="4" Fill="White" Margin="0,0,4,0"/>
-                                                <TextBlock Text="REC" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                                <!-- Only show red dot if actually recording -->
+                                                <Ellipse Width="4" Height="4" Fill="White" Margin="0,0,4,0">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="REC">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <TextBlock Text="{Binding CameraVM.RecordingBadgeText}" Foreground="White" FontSize="9" FontWeight="Bold"/>
                                             </StackPanel>
                                         </Border>
+
                                         <Border Background="#3B82F6" CornerRadius="4" Padding="6,2">
                                             <TextBlock Text="LIVE" Foreground="White" FontSize="9" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
 
+                                    <!-- NEW HOVER TOOLBAR -->
+                                    <Border x:Name="HoverToolbar" Background="#B3000000" CornerRadius="6"
+                                            VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="10" Opacity="0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button ToolTip="Snapshot" Command="{Binding DataContext.SnapshotCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding CameraName}" Background="Transparent" BorderThickness="0" Padding="8" Cursor="Hand">
+                                                <TextBlock Text="ðŸ“·" Foreground="White"/>
+                                            </Button>
+                                            <Button ToolTip="Full Window" Command="{Binding DataContext.EnterFullScreenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="8" Cursor="Hand">
+                                                <TextBlock Text="â›¶" Foreground="White" FontWeight="Bold"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
 
                                 </Grid>
 
@@ -7312,9 +8909,50 @@ namespace TSVmsDesktop.Views
                                 </Grid>
                             </Grid>
                         </Border>
+                        <DataTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="HoverToolbar" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="HoverToolbar" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- PAGINATION FOOTER -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,15">
+                <Button Command="{Binding PreviousPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Previous Page">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="8"/>
+                        </Style>
+                    </Button.Resources>
+                    <TextBlock Text="â—„" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </Button>
+                
+                <TextBlock Text="{Binding CurrentPageDisplay}" FontSize="14" FontWeight="SemiBold" Foreground="#1E293B" VerticalAlignment="Center" Margin="20,0"/>
+                
+                <Button Command="{Binding NextPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Next Page">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="8"/>
+                        </Style>
+                    </Button.Resources>
+                    <TextBlock Text="â–º" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </Button>
+            </StackPanel>
         </Grid>
 
 
@@ -7486,11 +9124,15 @@ namespace TSVmsDesktop.Views
 
         private async void CameraGrid_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (e.ClickCount == 2)
+            if (sender is FrameworkElement element && element.DataContext is CameraSlot slot)
             {
-                if (sender is FrameworkElement element && element.DataContext is CameraSlot slot)
+                if (this.DataContext is LiveViewModel vm)
                 {
-                    if (this.DataContext is LiveViewModel vm)
+                    if (e.ClickCount == 1)
+                    {
+                        vm.SelectSlot(slot);
+                    }
+                    else if (e.ClickCount == 2)
                     {
                         await vm.EnterFullScreen(slot);
                     }
@@ -7921,6 +9563,7 @@ namespace TSVmsDesktop.Views
         <DataTemplate DataType="{x:Type vm:NvrsViewModel}"><views:NvrsView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:NvrDetailsViewModel}"><views:NvrDetailsView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:WindowsDiscoveryViewModel}"><views:WindowsDiscoveryView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PlaybackViewModel}"><views:PlaybackView/></DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -7928,6 +9571,7 @@ namespace TSVmsDesktop.Views
         <KeyBinding Key="D2" Modifiers="Ctrl" Command="{Binding NavigateToCamerasCommand}"/>
         <KeyBinding Key="D3" Modifiers="Ctrl" Command="{Binding NavigateToHealthCommand}"/>
         <KeyBinding Key="D4" Modifiers="Ctrl" Command="{Binding NavigateToSettingsCommand}"/>
+        <KeyBinding Key="D5" Modifiers="Ctrl" Command="{Binding NavigateToPlaybackCommand}"/>
     </Window.InputBindings>
 
 
@@ -8055,7 +9699,23 @@ namespace TSVmsDesktop.Views
                                         </Button.Style>
                                     </Button>
                                     
-                                    <Button Content="Playback" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8"/>
+                                    <Button Content="Playback" Command="{Binding NavigateToPlaybackCommand}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
                                     
                                     <Button Content="Audit Log" Command="{Binding NavigateToAuditCommand}" 
                                             Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -8741,6 +10401,288 @@ namespace TSVmsDesktop.Views
         public OnvifDiscoveryView()
         {
             InitializeComponent();
+        }
+    }
+}
+
+
+================ FILE: TSVmsDesktop\Views\PlaybackView.xaml ================
+
+<UserControl x:Class="TSVmsDesktop.Views.PlaybackView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:TSVmsDesktop.Controls"
+             mc:Ignorable="d">
+
+    <Grid Margin="18">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="250"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Grid.Column="0" Grid.RowSpan="3" Background="White" CornerRadius="16" Padding="16">
+            <StackPanel>
+                <TextBlock Text="Playback Cameras" FontSize="18" FontWeight="Bold" Foreground="#0F172A"/>
+                <TextBlock Text="Select a camera to inspect recorded segments." Margin="0,6,0,16" Foreground="#64748B" FontSize="12"/>
+
+                <ListBox ItemsSource="{Binding AvailableCameras}" SelectedItem="{Binding SelectedCamera}" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="10" Margin="0,0,0,8" Background="#F8FAFC" CornerRadius="10">
+                                <Button Command="{Binding DataContext.LoadSegmentsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding Id}"
+                                        Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                        <TextBlock Text="{Binding IpAddress}" Foreground="#64748B" FontSize="11"/>
+                                    </StackPanel>
+                                </Button>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Column="2" Grid.RowSpan="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="3*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="2*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="{Binding SelectedCamera.Name, TargetNullValue=Playback Viewer}"
+                               FontSize="18"
+                               FontWeight="Bold"/>
+                    <TextBlock Text="{Binding StatusMessage}"
+                               Foreground="#64748B"
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Background="#E2E8F0"
+                        CornerRadius="10"
+                        VerticalAlignment="Center"
+                        Padding="12,6">
+                    <TextBlock Text="{Binding PlaybackRateText}" FontWeight="SemiBold"/>
+                </Border>
+            </Grid>
+
+            <!-- Diagnostics -->
+            <Expander Grid.Row="1"
+                      Header="Playback Diagnostics"
+                      IsExpanded="{Binding IsDiagnosticsExpanded}"
+                      Margin="0,0,0,12">
+                <Border Padding="12" Background="#F8FAFC" CornerRadius="8">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Camera ID" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedCameraDebugId}" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="From UTC" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding QueryFromUtc}" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="To UTC" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding QueryToUtc}" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Segments API" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SegmentsApiUri}" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="HTTP Status" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HttpStatusText}" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="API Row Count" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ApiRowCount}" TextWrapping="Wrap"/>
+
+                        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Refresh Segments"
+                                    Command="{Binding RefreshSelectedCameraCommand}"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="Copy Diagnostics"
+                                    Command="{Binding CopyDiagnosticsCommand}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Expander>
+
+            <!-- Video Surface -->
+            <Border Grid.Row="2"
+                    Background="Black"
+                    CornerRadius="10"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    MinHeight="360">
+                <controls:PlaybackVideoHost x:Name="PlaybackHost"/>
+            </Border>
+
+            <!-- Controls + Timeline -->
+            <StackPanel Grid.Row="3" Margin="0,12,0,12">
+                <Slider x:Name="TimelineSlider"
+                        Minimum="0"
+                        Maximum="{Binding TotalTimelineSeconds}"
+                        Value="{Binding CurrentTimelineSeconds, Mode=TwoWay}"
+                        IsEnabled="{Binding HasSegments}"
+                        PreviewMouseLeftButtonUp="TimelineSlider_PreviewMouseLeftButtonUp"/>
+
+                <DockPanel Margin="0,6,0,10">
+                    <TextBlock Text="{Binding CurrentTimeText}" Foreground="#475569"/>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding TotalTimeText}" Foreground="#475569"/>
+                </DockPanel>
+
+                <WrapPanel ItemHeight="36" ItemWidth="84">
+                    <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,8"/>
+                    <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="â—€ Frame" Command="{Binding StepFrameCommand}" CommandParameter="-1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="Frame â–¶" Command="{Binding StepFrameCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="âŸ² Rotate" Command="{Binding RotateLeftCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="Rotate âŸ³" Command="{Binding RotateRightCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="Reset Rot" Command="{Binding ResetRotationCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="0.5x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="0.5" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="1x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="2x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="2" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                    <Button Content="4x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="4" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,8"/>
+                </WrapPanel>
+            </StackPanel>
+
+            <!-- Segment Grid -->
+            <Border Grid.Row="4"
+                    Background="White"
+                    CornerRadius="10"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    Padding="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Text="Recorded Segments"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Grid.Row="0"
+                               Margin="0,0,0,8"/>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding RecordingSegments}"
+                              SelectedItem="{Binding SelectedSegment, Mode=TwoWay}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="Column"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              MouseDoubleClick="SegmentsGrid_MouseDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Start" Binding="{Binding StartTs, StringFormat={}{0:G}}" Width="170"/>
+                            <DataGridTextColumn Header="End" Binding="{Binding EndTs, StringFormat={}{0:G}}" Width="170"/>
+                            <DataGridTextColumn Header="Duration" Binding="{Binding DurationText}" Width="110"/>
+                            <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" Width="110"/>
+                            <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="180"/>
+                            <DataGridTextColumn Header="Storage Path" Binding="{Binding Path}" Width="*"/>
+                            <DataGridTemplateColumn Header="Action" Width="90">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Play"
+                                                Command="{Binding DataContext.PlaySegmentCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
+
+
+================ FILE: TSVmsDesktop\Views\PlaybackView.xaml.cs ================
+
+using System;
+using System.Windows.Controls;
+using System.Windows.Input;
+using TSVmsDesktop.ViewModels;
+
+namespace TSVmsDesktop.Views
+{
+    public partial class PlaybackView : System.Windows.Controls.UserControl
+    {
+        public PlaybackView()
+        {
+            InitializeComponent();
+            Loaded += PlaybackView_Loaded;
+            Unloaded += PlaybackView_Unloaded;
+            PlaybackHost.HandleCreated += PlaybackHost_HandleCreated;
+        }
+
+        private async void PlaybackView_Loaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (DataContext is PlaybackViewModel vm)
+            {
+                vm.AttachVideoHost(PlaybackHost.WindowHandle);
+                await vm.InitializeAsync();
+            }
+        }
+
+        private void PlaybackHost_HandleCreated(object? sender, IntPtr hwnd)
+        {
+            if (DataContext is PlaybackViewModel vm)
+                vm.AttachVideoHost(hwnd);
+        }
+
+        private void PlaybackView_Unloaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            // keep view model/service alive across navigation if DI scopes choose to reuse it
+        }
+
+        private void TimelineSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is PlaybackViewModel vm)
+                vm.SeekFromTimeline(TimelineSlider.Value);
+        }
+
+        private async void SegmentsGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is PlaybackViewModel vm && vm.SelectedSegment != null)
+            {
+                await vm.PlaySegmentAsync(vm.SelectedSegment);
+            }
         }
     }
 }
@@ -9546,6 +11488,10 @@ namespace TSVmsDesktop
             services.AddSingleton<Services.NvrService>();
             services.AddSingleton<Services.WindowsService>();
             services.AddSingleton<Services.SiteService>();
+            services.AddSingleton<Services.PlaybackService>();
+            services.AddSingleton<Services.RecordingService>();
+            services.AddSingleton<Services.PlaybackManifestService>();
+            services.AddSingleton<Services.PlaybackEngineService>();
 
             services.AddSingleton<MainViewModel>();
             services.AddTransient<StartupViewModel>(); // New
@@ -9565,6 +11511,7 @@ namespace TSVmsDesktop
             services.AddTransient<NvrsViewModel>();
             services.AddTransient<NvrDetailsViewModel>();
             services.AddTransient<WindowsDiscoveryViewModel>();
+            services.AddTransient<PlaybackViewModel>();
 
             Services = services.BuildServiceProvider();
             System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Services Built");
@@ -9575,6 +11522,19 @@ namespace TSVmsDesktop
             Console.WriteLine("DEBUG: OnStartup Started");
             // Force GStreamer to ignore D3D12 decoders and use D3D11 instead
             Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE");
+
+            // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            var gstPath = @"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin";
+            var localNativePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", "win-x64");
+            
+            if (!currentPath.Contains(gstPath, StringComparison.OrdinalIgnoreCase))
+                currentPath = gstPath + ";" + currentPath;
+            if (!currentPath.Contains(localNativePath, StringComparison.OrdinalIgnoreCase))
+                currentPath = localNativePath + ";" + currentPath;
+                
+            Environment.SetEnvironmentVariable("PATH", currentPath);
+
             base.OnStartup(e);
 
             try
@@ -9646,6 +11606,13 @@ using System.Windows;
     <Resource Include="Images\logo.png" />
     <Resource Include="Images\background.jpg" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="native\win-x64\TSVmsPlaybackEngine.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 
 </Project>
 

@@ -19,6 +19,9 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] 
         private bool _isConnected = false; 
 
+        [ObservableProperty] private bool _isSelected = false;
+        [ObservableProperty] private bool _isLoading = false; 
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(StatusColor))]
         [NotifyPropertyChangedFor(nameof(StatusText))]
@@ -48,6 +51,8 @@ namespace TSVmsDesktop.ViewModels
         
         [ObservableProperty] private bool _hasAudioCapability = false;
         [ObservableProperty] private bool _isAudioPlaying = false;
+        
+        [ObservableProperty] private CameraViewModel? _cameraVM;
     }
 
     public partial class LiveViewModel : ObservableObject
@@ -55,17 +60,17 @@ namespace TSVmsDesktop.ViewModels
         private readonly VideoService _videoService;
         private readonly CameraService _cameraService;
         private readonly CredentialService _credentialService;
-        private readonly ApiClient _apiClient;
+        private readonly RecordingService _recordingService;
         private readonly IServiceProvider _serviceProvider; // Lazy resolution to break circular dependency
 
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
 
-        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, ApiClient apiClient, IServiceProvider serviceProvider) 
+        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, RecordingService recordingService, IServiceProvider serviceProvider) 
         {
             _videoService = videoService;
             _cameraService = cameraService;
             _credentialService = credentialService;
-            _apiClient = apiClient;
+            _recordingService = recordingService;
             _serviceProvider = serviceProvider;
 
             _videoService.Initialize();
@@ -141,6 +146,73 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private string _selectedCameraName = "";
         [ObservableProperty] private bool _isSyncing = false;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))]
+        private int _currentPage = 0;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))]
+        private int _totalPages = 1;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(GridSize))]
+        private int _gridRows = 4;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(GridSize))]
+        private int _gridColumns = 4;
+
+        public int GridSize => GridRows * GridColumns;
+
+        public string CurrentPageDisplay => $"Page {CurrentPage + 1} of {TotalPages}";
+
+        [RelayCommand]
+        public void SetLayout(string sizeParam)
+        {
+            if (int.TryParse(sizeParam, out int size) && size >= 1 && size <= 4)
+            {
+                GridRows = size;
+                GridColumns = size;
+                CurrentPage = 0; 
+                RequestRefresh();
+            }
+        }
+
+        [ObservableProperty] private CameraSlot? _selectedSlot;
+
+        public void SelectSlot(CameraSlot slot)
+        {
+            if (SelectedSlot != null)
+            {
+                SelectedSlot.IsSelected = false;
+            }
+            SelectedSlot = slot;
+            if (SelectedSlot != null)
+            {
+                SelectedSlot.IsSelected = true;
+            }
+        }
+
+        [RelayCommand]
+        public void NextPage()
+        {
+            if (CurrentPage < TotalPages - 1)
+            {
+                CurrentPage++;
+                RequestRefresh();
+            }
+        }
+
+        [RelayCommand]
+        public void PreviousPage()
+        {
+            if (CurrentPage > 0)
+            {
+                CurrentPage--;
+                RequestRefresh();
+            }
+        }
+
         [RelayCommand]
         public async Task Sync()
         {
@@ -180,17 +252,17 @@ namespace TSVmsDesktop.ViewModels
 
                         // 1. Tell Backend we are starting (Audit/Resource allocation)
                         // POST /api/v1/cameras/{id}/live/start
-                        string url = $"/api/v1/cameras/{slot.Id}/live/start";
+                        // string url = $"/api/v1/cameras/{slot.Id}/live/start";
                         
                         // We send a generic body, or empty. 
                         // The backend expects a POST to trigger the session.
-                        var body = new { stream = "main" }; 
+                        // var body = new { stream = "main" }; 
                         
                         // We don't block heavily on this, if it fails we might still try RTSP
                         // but strictly we should wait.
-                        // DEBUG: Uncommented to ensure backend knows the stream started
-                        await _apiClient.PostAsync(url, body);
-                        System.Diagnostics.Debug.WriteLine($"[Live] Session started for {slot.CameraName}");
+                        // DEBUG: Session start call removed to resolve dependency conflict with RecordingService
+                        // await _apiClient.PostAsync(url, body);
+                        System.Diagnostics.Debug.WriteLine($"[Live] Session started (Local) for {slot.CameraName}");
                     }
                     catch (Exception ex)
                     {
@@ -303,14 +375,20 @@ namespace TSVmsDesktop.ViewModels
                 .OrderByDescending(c => c.Status?.ToLower() == "online") // Sort Online to top
                 .ThenBy(c => c.Name)
                 .ToList();
-            
-            Console.WriteLine($"[LiveVM] Grid Refreshed: {uniqueCameras.Count} cameras visible.");
+
+            TotalPages = (int)Math.Ceiling((double)uniqueCameras.Count / GridSize);
+            if (TotalPages == 0) TotalPages = 1;
+            if (CurrentPage >= TotalPages) CurrentPage = Math.Max(0, TotalPages - 1);
+
+            var visibleBatch = uniqueCameras.Skip(CurrentPage * GridSize).Take(GridSize).ToList();
+
+            Console.WriteLine($"[LiveVM] Grid Refreshed: {visibleBatch.Count} cameras visible on Page {CurrentPage + 1}/{TotalPages}. Total unique: {uniqueCameras.Count}");
             System.Diagnostics.Debug.WriteLine($"[LiveVM] Current Grid Count: {CameraGrid.Count}");
 
             // REMOVED FILTER: var onlineCameras = realCameras.Where(c => string.Equals(c.Status, "Online", StringComparison.OrdinalIgnoreCase)).ToList();
 
-            // 1. Remove cameras that were deleted or hidden by dedup
-            var toRemove = CameraGrid.Where(s => uniqueCameras.All(c => c.Id != s.Id)).ToList();
+            // 1. Remove cameras that were deleted, hidden by dedup, OR NOT ON CURRENT PAGE
+            var toRemove = CameraGrid.Where(s => visibleBatch.All(c => c.Id != s.Id)).ToList();
             
             if (toRemove.Any()) System.Diagnostics.Debug.WriteLine($"[LiveVM] Cameras to remove: {toRemove.Count}");
             foreach (var slot in toRemove)
@@ -324,7 +402,7 @@ namespace TSVmsDesktop.ViewModels
             }
 
             // 2. Add or Update cameras
-            foreach (var cam in uniqueCameras)
+            foreach (var cam in visibleBatch)
             {
                 // ADD THIS SAFEGUARD: Skip modifying the slot if it's currently in full screen
                 // We use SelectedCameraName to properly skip over the Active camera.
@@ -344,12 +422,16 @@ namespace TSVmsDesktop.ViewModels
                         OverlayText = cam.Name,
                         BackendStatus = cam.Status ?? "Offline",
                         IsConnected = false,
-                        HasAudioCapability = cam.Capabilities?.HasAudio ?? false
+                        HasAudioCapability = cam.Capabilities?.HasAudio ?? false,
+                        CameraVM = new CameraViewModel(_recordingService) { CameraId = cam.Id }
                     };
                     
                     UpdateIp(slot, cam);
                     await FetchCredentialsForSlot(slot);
                     CameraGrid.Add(slot);
+                    
+                    // Trigger initial poll
+                    _ = slot.CameraVM.PollRecordingStatusAsync();
                 }
                 else
                 {
@@ -382,6 +464,12 @@ namespace TSVmsDesktop.ViewModels
                     }
                     existing.HasAudioCapability = cam.Capabilities?.HasAudio ?? false;
                     UpdateIp(existing, cam);
+                    
+                    // Trigger poll on existing slots
+                    if (existing.CameraVM != null)
+                    {
+                        _ = existing.CameraVM.PollRecordingStatusAsync();
+                    }
                 }
             }
             OnPropertyChanged(nameof(ActiveStreamCount));

@@ -235,6 +235,18 @@ namespace TSVmsDesktop.ViewModels
         }
 
         [RelayCommand]
+        public void NavigateToPlayback()
+        {
+            if(IsLoggedIn) 
+            {
+                var vm = _serviceProvider.GetRequiredService<PlaybackViewModel>();
+                _ = vm.LoadCamerasAsync(); // Load the cameras immediately when navigating to Playback
+                CurrentView = vm;
+                CurrentPage = "Playback";
+            }
+        }
+
+        [RelayCommand]
         public void NavigateToNvrs() 
         {
             if(IsLoggedIn) {

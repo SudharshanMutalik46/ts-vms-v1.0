@@ -24,4 +24,11 @@
     <Resource Include="Images\background.jpg" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="native\win-x64\TSVmsPlaybackEngine.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+
 </Project>

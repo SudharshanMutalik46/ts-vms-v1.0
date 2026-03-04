@@ -90,6 +90,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> 
                 <RowDefinition Height="*"/>   
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             
             <!-- HEADER -->
@@ -106,6 +107,16 @@
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                     <!-- LAYOUT BUTTONS -->
+                     <Border Background="White" CornerRadius="8" BorderThickness="1" BorderBrush="#E2E8F0" Margin="0,0,15,0" Padding="4">
+                         <StackPanel Orientation="Horizontal">
+                             <Button Content=" 1x1 " Command="{Binding SetLayoutCommand}" CommandParameter="1" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 2x2 " Command="{Binding SetLayoutCommand}" CommandParameter="2" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 3x3 " Command="{Binding SetLayoutCommand}" CommandParameter="3" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 4x4 " Command="{Binding SetLayoutCommand}" CommandParameter="4" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                         </StackPanel>
+                     </Border>
+
                      <Button Command="{Binding SyncCommand}" Width="40" Height="40" Background="#FFFFFF" BorderThickness="1" BorderBrush="#E2E8F0" 
                              Foreground="#64748B" Margin="0,0,12,0" Cursor="Hand" ToolTip="Sync Status">
                          <Button.Resources>
@@ -158,7 +169,8 @@
             <ItemsControl Grid.Row="1" ItemsSource="{Binding CameraGrid}" Margin="15,0,15,15">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <UniformGrid Columns="4" Rows="3"/> 
+                        <UniformGrid Rows="{Binding DataContext.GridRows, RelativeSource={RelativeSource AncestorType=ItemsControl}}" 
+                                     Columns="{Binding DataContext.GridColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/> 
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 
@@ -175,6 +187,15 @@
                                         </Setter.Value>
                                     </Setter>
                                     <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter Property="BorderBrush" Value="#0EA5E9"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                            <Setter Property="Effect">
+                                                <Setter.Value>
+                                                     <DropShadowEffect Color="#0EA5E9" BlurRadius="15" Opacity="0.4" ShadowDepth="0"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter Property="BorderBrush" Value="#F97316"/> <!-- TechnoOrange -->
                                             <Setter Property="BorderThickness" Value="1"/>
@@ -274,17 +295,57 @@
                                     <!-- TOP BADGES -->
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10"
                                                 Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <Border Background="#10B981" CornerRadius="4" Padding="6,2" Margin="0,0,6,0">
+                                        <!-- Phase 4 Recording Status Badge -->
+                                        <Border CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                Visibility="{Binding CameraVM.IsRecordingBadgeVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#10B981"/> <!-- Green Default -->
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="REC">
+                                                            <Setter Property="Background" Value="#EF4444"/> <!-- Red for REC -->
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="RETRYING...">
+                                                            <Setter Property="Background" Value="#F59E0B"/> <!-- Yellow for Retry -->
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
                                             <StackPanel Orientation="Horizontal">
-                                                <Ellipse Width="4" Height="4" Fill="White" Margin="0,0,4,0"/>
-                                                <TextBlock Text="REC" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                                <!-- Only show red dot if actually recording -->
+                                                <Ellipse Width="4" Height="4" Fill="White" Margin="0,0,4,0">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CameraVM.RecordingBadgeText}" Value="REC">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <TextBlock Text="{Binding CameraVM.RecordingBadgeText}" Foreground="White" FontSize="9" FontWeight="Bold"/>
                                             </StackPanel>
                                         </Border>
+
                                         <Border Background="#3B82F6" CornerRadius="4" Padding="6,2">
                                             <TextBlock Text="LIVE" Foreground="White" FontSize="9" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
 
+                                    <!-- NEW HOVER TOOLBAR -->
+                                    <Border x:Name="HoverToolbar" Background="#B3000000" CornerRadius="6"
+                                            VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="10" Opacity="0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button ToolTip="Snapshot" Command="{Binding DataContext.SnapshotCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding CameraName}" Background="Transparent" BorderThickness="0" Padding="8" Cursor="Hand">
+                                                <TextBlock Text="📷" Foreground="White"/>
+                                            </Button>
+                                            <Button ToolTip="Full Window" Command="{Binding DataContext.EnterFullScreenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="8" Cursor="Hand">
+                                                <TextBlock Text="⛶" Foreground="White" FontWeight="Bold"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
 
                                 </Grid>
 
@@ -390,9 +451,50 @@
                                 </Grid>
                             </Grid>
                         </Border>
+                        <DataTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="HoverToolbar" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="HoverToolbar" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- PAGINATION FOOTER -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,15">
+                <Button Command="{Binding PreviousPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Previous Page">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="8"/>
+                        </Style>
+                    </Button.Resources>
+                    <TextBlock Text="◄" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </Button>
+                
+                <TextBlock Text="{Binding CurrentPageDisplay}" FontSize="14" FontWeight="SemiBold" Foreground="#1E293B" VerticalAlignment="Center" Margin="20,0"/>
+                
+                <Button Command="{Binding NextPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Next Page">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="8"/>
+                        </Style>
+                    </Button.Resources>
+                    <TextBlock Text="►" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </Button>
+            </StackPanel>
         </Grid>
 
 

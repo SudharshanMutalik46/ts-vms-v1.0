@@ -1,5 +1,5 @@
 ﻿=== INTERNAL LLM Bundle (ts_vms_1.0\\internal) ===
-Generated: 2026-02-26T18:14:52
+Generated: 2026-03-04T11:17:15
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\internal
 
 
@@ -592,11 +592,18 @@ func (h *AuthHandler) failWithLockout(w http.ResponseWriter, r *http.Request, te
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/cameras"
@@ -605,11 +612,19 @@ import (
 )
 
 type CameraHandler struct {
-	Service *cameras.Service
+	Service                  *cameras.Service
+	RecordingInternalBaseURL string
+	RecordingServiceKey      string
+	Client                   *http.Client
 }
 
 func NewCameraHandler(svc *cameras.Service) *CameraHandler {
-	return &CameraHandler{Service: svc}
+	return &CameraHandler{
+		Service:                  svc,
+		RecordingInternalBaseURL: strings.TrimRight(os.Getenv("TS_VMS_RECORDING_INTERNAL_URL"), "/"),
+		RecordingServiceKey:      os.Getenv("TS_VMS_SERVICE_KEY"),
+		Client:                   &http.Client{Timeout: 5 * time.Second},
+	}
 }
 
 // Helpers
@@ -621,6 +636,66 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+func effectiveRecordingRTSPURL(raw string, ip net.IP, port int) string {
+	if strings.TrimSpace(raw) != "" {
+		return strings.TrimSpace(raw)
+	}
+	if ip == nil {
+		return ""
+	}
+	if port <= 0 {
+		port = 554
+	}
+	return fmt.Sprintf("rtsp://%s:%d/live/0/MAIN", ip.String(), port)
+}
+
+func (h *CameraHandler) syncRecorder(ctx context.Context, cam *data.Camera) error {
+	if h == nil || h.Client == nil || h.RecordingInternalBaseURL == "" || cam == nil {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{
+		"rtsp_url": effectiveRecordingRTSPURL(cam.RtspUrl, cam.IPAddress, cam.Port),
+		"enabled":  cam.IsEnabled,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.RecordingInternalBaseURL+"/internal/recording/cameras/"+cam.ID.String()+"/sync", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Service-Key", h.RecordingServiceKey)
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("recording sync failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+func (h *CameraHandler) deleteRecorderCamera(ctx context.Context, cameraID uuid.UUID) error {
+	if h == nil || h.Client == nil || h.RecordingInternalBaseURL == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.RecordingInternalBaseURL+"/internal/recording/cameras/"+cameraID.String()+"/delete", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Service-Key", h.RecordingServiceKey)
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("recording delete failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
 }
 
 // POST /api/v1/cameras
@@ -701,6 +776,20 @@ func (h *CameraHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if c.IsEnabled {
+		if err := h.syncRecorder(r.Context(), c); err != nil {
+			// Keep DB and recorder consistent: rollback to disabled if recorder attach failed.
+			_ = h.Service.DisableCamera(r.Context(), c.ID, c.TenantID)
+			c.IsEnabled = false
+			respondJSON(w, http.StatusBadGateway, map[string]any{
+				"camera":  c,
+				"warning": "camera created, but recorder attach failed; camera was disabled",
+				"error":   err.Error(),
+			})
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, c)
@@ -865,6 +954,16 @@ func (h *CameraHandler) Enable(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), id.String())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.syncRecorder(r.Context(), cam); err != nil {
+		_ = h.Service.DisableCamera(r.Context(), id, uuid.MustParse(ac.TenantID))
+		respondError(w, http.StatusBadGateway, "camera enabled in DB but recorder attach failed: "+err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
 }
 
@@ -881,6 +980,18 @@ func (h *CameraHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), id.String())
+	if err == nil {
+		cam.IsEnabled = false
+		if syncErr := h.syncRecorder(r.Context(), cam); syncErr != nil {
+			respondJSON(w, http.StatusOK, map[string]any{
+				"status":          "disabled",
+				"warning":         "camera disabled in DB, but recorder stop failed",
+				"recording_error": syncErr.Error(),
+			})
+			return
+		}
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
@@ -999,6 +1110,14 @@ func (h *CameraHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	tenantID := uuid.MustParse(ac.TenantID)
 	if err := h.Service.DeleteCamera(r.Context(), cameraID, tenantID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.deleteRecorderCamera(r.Context(), cameraID); err != nil {
+		respondJSON(w, http.StatusOK, map[string]any{
+			"status":          "deleted",
+			"warning":         "camera deleted in DB, but recorder detach failed",
+			"recording_error": err.Error(),
+		})
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -3787,6 +3906,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/technosupport/ts-vms/internal/middleware"
 	"github.com/technosupport/ts-vms/internal/recording"
 )
 
@@ -3794,10 +3914,13 @@ type RecordingAPI struct {
 	DB recording.IMetadataDB
 }
 
-// Ensure caller has valid JWT claims. (Stubbed here, assumes middleware.WithAuthContext wrapped the router)
+// Ensure caller has valid JWT claims.
 func checkRBAC(r *http.Request, requiredPermission string) bool {
-	auth := r.Header.Get("Authorization")
-	return auth == "Bearer debug-admin-token" // Simplification for Verification Script
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		return false
+	}
+	return ac.HasPermission(requiredPermission) || ac.HasRole("admin")
 }
 
 func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Request) {
@@ -3806,9 +3929,23 @@ func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	camID := r.URL.Query().Get("camera_id")
-	from, _ := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
-	to, _ := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+	camID := r.PathValue("id")
+	if camID == "" {
+		camID = r.URL.Query().Get("camera_id")
+	}
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+
+	from, _ := time.Parse(time.RFC3339, fromStr)
+	to, _ := time.Parse(time.RFC3339, toStr)
+
+	// If no time range provided, default to last 24h
+	if from.IsZero() {
+		from = time.Now().Add(-24 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
 
 	segments, err := api.DB.GetSegments(r.Context(), camID, from, to)
 	if err != nil {
@@ -8128,57 +8265,106 @@ func (m *MockCameraRepo) SetGroupMembers(ctx context.Context, groupID, tenantID 
 package control
 
 import (
-	// "bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/technosupport/ts-vms/internal/middleware"
+	"github.com/technosupport/ts-vms/internal/recording"
 )
 
 type PublicRecordingAPI struct {
 	InternalBaseURL string
 	ServiceKey      string
-	// DB *sql.DB - Omitted for harness simplicity
+	DB              *recording.PostgresStore
+	Exporter        *recording.ExportService
+	DefaultTenantID string
+	DefaultSiteID   string
 }
 
-func checkRBAC(r *http.Request, perm string) bool {
-	return r.Header.Get("Authorization") == "Bearer debug-token"
+func requirePermission(r *http.Request, perm string) bool {
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		return false
+	}
+	return ac.HasPermission(perm) || ac.HasRole("admin")
+}
+
+func userIDFromContext(ctx context.Context) string {
+	ac, ok := middleware.GetAuthContext(ctx)
+	if !ok {
+		return "system"
+	}
+	return ac.UserID
+}
+
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, recording.ErrDBUnavailable) {
+		http.Error(w, "recording database unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func (api *PublicRecordingAPI) forwardToInternal(w http.ResponseWriter, path string, method string) {
 	req, _ := http.NewRequest(method, api.InternalBaseURL+path, nil)
 	req.Header.Set("X-Service-Key", api.ServiceKey)
-
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(w, "Failed to contact recording service", 502)
+		http.Error(w, "failed to contact recording service", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func (api *PublicRecordingAPI) forwardToInternalWithBody(w http.ResponseWriter, r *http.Request, path string, method string) {
+	req, _ := http.NewRequest(method, api.InternalBaseURL+path, r.Body)
+	req.Header.Set("X-Service-Key", api.ServiceKey)
+	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "failed to contact recording service", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for k, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func (api *PublicRecordingAPI) HandleAttachCamera(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(r, "recording.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	api.forwardToInternalWithBody(w, r, "/internal/recording/cameras/attach", http.MethodPost)
 }
 
 func (api *PublicRecordingAPI) HandleCameraAction(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.manage") {
-		http.Error(w, "Forbidden", 403)
+	if !requirePermission(r, "recording.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-
-	// Convert /api/v1/recording/cameras/{id}/action -> /internal/recording/cameras/{id}/action
 	internalPath := strings.Replace(r.URL.Path, "/api/v1", "/internal", 1)
 	api.forwardToInternal(w, internalPath, http.MethodPost)
 }
 
 func (api *PublicRecordingAPI) HandleBulkAction(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.manage") {
-		http.Error(w, "Forbidden", 403)
+	if !requirePermission(r, "recording.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	internalPath := strings.Replace(r.URL.Path, "/api/v1", "/internal", 1)
@@ -8186,64 +8372,127 @@ func (api *PublicRecordingAPI) HandleBulkAction(w http.ResponseWriter, r *http.R
 }
 
 func (api *PublicRecordingAPI) HandleStatus(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.view") {
-		http.Error(w, "Forbidden", 403)
+	if !requirePermission(r, "recording.view") {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	api.forwardToInternal(w, "/status", http.MethodGet)
 }
 
 func (api *PublicRecordingAPI) HandleSchedules(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.manage") {
-		http.Error(w, "Forbidden", 403)
+	if !requirePermission(r, "recording.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-
-	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		// 1. Save to DB (Stubbed)
-		// 2. Notify vms-recording to reload
-		req, _ := http.NewRequest("POST", api.InternalBaseURL+"/internal/recording/reload-schedules", nil)
+	switch r.Method {
+	case http.MethodGet:
+		cfgs, err := api.DB.LoadSchedules(r.Context())
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(cfgs)
+	case http.MethodPost, http.MethodPut:
+		var cfg recording.ScheduleConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := api.DB.SaveSchedule(r.Context(), api.DefaultTenantID, api.DefaultSiteID, cfg); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		req, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, api.InternalBaseURL+"/internal/recording/reload-schedules", nil)
 		req.Header.Set("X-Service-Key", api.ServiceKey)
-		http.DefaultClient.Do(req)
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "saved_and_reloaded"})
-	} else if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[{"camera_id":"cam-01", "type":"24x7"}]`))
+		_, _ = http.DefaultClient.Do(req)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "saved_and_reloaded"})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 func (api *PublicRecordingAPI) HandleExport(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.manage") {
-		http.Error(w, "Forbidden", 403)
+	if !requirePermission(r, "export.manage") && !requirePermission(r, "recording.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-
-	if r.Method == http.MethodPost {
-		// Mock Export Job Creation
-		exportID := uuid.NewString()
+	switch r.Method {
+	case http.MethodPost:
+		var req recording.ExportRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.UserID = userIDFromContext(r.Context())
+		job, err := api.Exporter.QueueExport(r.Context(), req)
+		if err != nil {
+			if errors.Is(err, recording.ErrDBUnavailable) {
+				http.Error(w, "recording database unavailable", http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"export_id":    exportID,
-			"state":        "PROCESSING",
-			"download_url": fmt.Sprintf("/api/v1/recording/exports/%s/download", exportID),
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"export_id":    job.ID,
+			"state":        job.State,
+			"download_url": "/api/v1/recording/exports/" + job.ID + "/download",
 		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (api *PublicRecordingAPI) HandleExportDownload(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(r, "export.download") && !requirePermission(r, "export.manage") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	exportID := strings.TrimPrefix(r.URL.Path, "/api/v1/recording/exports/")
+	exportID = strings.TrimSuffix(exportID, "/download")
+	f, job, err := api.DB.OpenExportArtifact(r.Context(), exportID)
+	if err != nil {
+		if errors.Is(err, recording.ErrDBUnavailable) {
+			http.Error(w, "recording database unavailable", http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+		return
+	}
+	if job == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	ext := strings.ToLower(filepath.Ext(job.OutputPath))
+	if ext == "" {
+		ext = ".mkv"
+	}
+	contentType := "application/octet-stream"
+	switch ext {
+	case ".mp4":
+		contentType = "video/mp4"
+	case ".mkv":
+		contentType = "video/x-matroska"
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+job.ID+ext+"\"")
+	w.Header().Set("Content-Type", contentType)
+	_, _ = io.Copy(w, f)
 }
 
 func (api *PublicRecordingAPI) ServeMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/recording/cameras/attach", api.HandleAttachCamera)
 	mux.HandleFunc("/api/v1/recording/cameras/", api.HandleCameraAction)
 	mux.HandleFunc("/api/v1/recording/start-all", api.HandleBulkAction)
 	mux.HandleFunc("/api/v1/recording/stop-all", api.HandleBulkAction)
 	mux.HandleFunc("/api/v1/recording/status", api.HandleStatus)
 	mux.HandleFunc("/api/v1/recording/schedules", api.HandleSchedules)
 	mux.HandleFunc("/api/v1/recording/exports", api.HandleExport)
-	// Snapshot alias
-	mux.HandleFunc("/api/v1/recording/cameras/snapshot", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"download_url": "/api/v1/cameras/snapshot.jpg"}`))
-	})
+	mux.HandleFunc("/api/v1/recording/exports/", api.HandleExportDownload)
 	return mux
 }
 
@@ -23396,7 +23645,12 @@ func (m *Manager) EvaluateResume(cameraID string) ResumePlan {
 
 package recovery
 
-import "log/slog"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 type ScannerReport struct {
 	TmpDeletedCount         int
@@ -23405,7 +23659,13 @@ type ScannerReport struct {
 	DiskUnindexedFilesCount int
 }
 
-// Scanner handles pre-startup orphaned file cleanup
+type FileFinding struct {
+	Path      string
+	Kind      string
+	SizeBytes int64
+	ModTime   time.Time
+}
+
 type Scanner struct {
 	cfg Config
 }
@@ -23414,27 +23674,34 @@ func NewScanner(cfg Config) *Scanner {
 	return &Scanner{cfg: cfg}
 }
 
-func (s *Scanner) RunReconciliation(volumes []string) ScannerReport {
+func (s *Scanner) Scan(volumes []string) ([]FileFinding, ScannerReport, error) {
 	report := ScannerReport{}
+	findings := make([]FileFinding, 0, 128)
 
-	// In a real implementation we would scan directories here
-	// and cross-reference with the MockIndex or actual Postgres DB
-
-	if s.cfg.OrphanReconcileMode == "log_only" {
-		slog.Info("recovery.scanner.reconciliation", "mode", s.cfg.OrphanReconcileMode)
+	for _, root := range volumes {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			switch ext {
+			case ".tmp":
+				findings = append(findings, FileFinding{Path: path, Kind: "tmp", SizeBytes: info.Size(), ModTime: info.ModTime()})
+			case ".mp4", ".mkv":
+				kind := "video"
+				if info.Size() == 0 {
+					kind = "corrupt"
+					report.Mp4QuarantinedCount++
+				}
+				findings = append(findings, FileFinding{Path: path, Kind: kind, SizeBytes: info.Size(), ModTime: info.ModTime()})
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, report, err
+		}
 	}
-
-	// Mocking behavior for tests
-	report.TmpDeletedCount = 2
-	report.DiskUnindexedFilesCount = 1
-
-	slog.Info("recovery.scanner.complete",
-		"tmp_deleted", report.TmpDeletedCount,
-		"mp4_quarantined", report.Mp4QuarantinedCount,
-		"db_missing", report.DbMissingFilesCount,
-		"disk_unindexed", report.DiskUnindexedFilesCount)
-
-	return report
+	return findings, report, nil
 }
 
 
@@ -23442,32 +23709,401 @@ func (s *Scanner) RunReconciliation(volumes []string) ScannerReport {
 
 package recording
 
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
 type Config struct {
 	Global struct {
 		SegmentDurationSec int    `yaml:"segment_duration_sec"`
 		HealthPort         int    `yaml:"health_port"`
-		ApiBaseUrl         string `yaml:"api_base_url"`
+		ApiBaseURL         string `yaml:"api_base_url"`
 		DevRbacBypass      bool   `yaml:"dev_rbac_bypass"`
+		StorageRoot        string `yaml:"storage_root"`
+		ExportRoot         string `yaml:"export_root"`
+		FFmpegPath         string `yaml:"ffmpeg_path"`
+		GstLaunchPath      string `yaml:"gst_launch_path"`
+		DefaultTenantID    string `yaml:"default_tenant_id"`
+		DefaultSiteID      string `yaml:"default_site_id"`
 	} `yaml:"global"`
 	Limits struct {
 		MaxRecordingCameras int `yaml:"max_recording_cameras"`
 	} `yaml:"limits"`
-	Cameras   []CameraConfig   `yaml:"cameras"`
+	Cameras []CameraConfig `yaml:"cameras"`
+
 	Schedules []ScheduleConfig `yaml:"schedules"`
+
+	HealthMonitoring struct {
+		Enabled           bool `yaml:"enabled"`
+		SampleIntervalSec int  `yaml:"sample_interval_sec"`
+		FrameDrop         struct {
+			Enabled         bool    `yaml:"enabled"`
+			WarnDropRatePct float64 `yaml:"warn_drop_rate_pct"`
+			CritDropRatePct float64 `yaml:"crit_drop_rate_pct"`
+			WindowSec       int     `yaml:"window_sec"`
+			Method          string  `yaml:"method"`
+		} `yaml:"frame_drop"`
+		DiskWriteRate struct {
+			Enabled     bool    `yaml:"enabled"`
+			WindowSec   int     `yaml:"window_sec"`
+			WarnMinMBps float64 `yaml:"warn_min_mbps"`
+			CritMinMBps float64 `yaml:"crit_min_mbps"`
+		} `yaml:"disk_write_rate"`
+		Alerts struct {
+			CooldownSec                 int `yaml:"cooldown_sec"`
+			SustainedWindowsForCritical int `yaml:"sustained_windows_for_critical"`
+		} `yaml:"alerts"`
+	} `yaml:"health_monitoring"`
+
+	FailoverRecovery struct {
+		Enabled             bool   `yaml:"enabled"`
+		RestartBackoffSec   int    `yaml:"restart_backoff_sec"`
+		DBRequiredForReady  bool   `yaml:"db_required_for_ready"`
+		OrphanReconcileMode string `yaml:"orphan_reconcile_mode"`
+	} `yaml:"failover_recovery"`
+
+	CircuitBreaker struct {
+		Enabled          bool `yaml:"enabled"`
+		WarnFreeGB       int  `yaml:"warn_free_gb"`
+		CritFreeGB       int  `yaml:"crit_free_gb"`
+		WarnUsagePercent int  `yaml:"warn_usage_percent"`
+		CritUsagePercent int  `yaml:"crit_usage_percent"`
+		CheckIntervalSec int  `yaml:"check_interval_sec"`
+		CooldownSec      int  `yaml:"cooldown_sec"`
+	} `yaml:"circuit_breaker"`
+
+	Performance struct {
+		Pipeline struct {
+			QueueMaxTimeNs     int64 `yaml:"queue_max_time_ns"`
+			FragmentDurationMs int   `yaml:"fragment_duration_ms"`
+			Faststart          bool  `yaml:"faststart"`
+			RTSPSrcLatencyMs   int   `yaml:"rtspsrc_latency_ms"`
+		} `yaml:"pipeline"`
+		IO struct {
+			SegmentWriterBatchBytes int  `yaml:"segment_writer_batch_bytes"`
+			PreallocateFiles        bool `yaml:"preallocate_files"`
+		} `yaml:"io"`
+	} `yaml:"performance"`
 }
 
 type CameraConfig struct {
-	ID      string `yaml:"id"`
-	RtspURL string `yaml:"rtsp_url"`
-	Enabled bool   `yaml:"enabled"`
+	ID            string `yaml:"id" json:"id"`
+	RtspURL       string `yaml:"rtsp_url" json:"rtsp_url"`
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+	Codec         string `yaml:"codec" json:"codec,omitempty"`                   // h264 | h265
+	SegmentFormat string `yaml:"segment_format" json:"segment_format,omitempty"` // mp4 | mkv
+	RTSPTransport string `yaml:"rtsp_transport" json:"rtsp_transport,omitempty"` // tcp | udp
+	Username      string `yaml:"-" json:"-"`                                     // Decrypted internal use
+	Password      string `yaml:"-" json:"-"`                                     // Decrypted internal use
 }
 
 type ScheduleConfig struct {
-	CameraID  string   `yaml:"camera_id"`
-	Type      string   `yaml:"type"` // "24x7", "time_window", "event_triggered"
-	Days      []string `yaml:"days"`
-	StartTime string   `yaml:"start_time"` // "HH:MM"
-	EndTime   string   `yaml:"end_time"`   // "HH:MM"
+	CameraID  string   `yaml:"camera_id" json:"camera_id"`
+	Type      string   `yaml:"type" json:"type"`
+	Days      []string `yaml:"days" json:"days"`
+	StartTime string   `yaml:"start_time" json:"start_time"`
+	EndTime   string   `yaml:"end_time" json:"end_time"`
+}
+
+func (c *Config) ApplyDefaults() {
+	if c.Global.SegmentDurationSec <= 0 {
+		c.Global.SegmentDurationSec = 60
+	}
+	if c.Global.HealthPort <= 0 {
+		c.Global.HealthPort = 8082
+	}
+	if c.FailoverRecovery.RestartBackoffSec <= 0 {
+		c.FailoverRecovery.RestartBackoffSec = 5
+	}
+	if c.HealthMonitoring.SampleIntervalSec <= 0 {
+		c.HealthMonitoring.SampleIntervalSec = 5
+	}
+	if c.CircuitBreaker.CheckIntervalSec <= 0 {
+		c.CircuitBreaker.CheckIntervalSec = 5
+	}
+	if c.Performance.Pipeline.RTSPSrcLatencyMs <= 0 {
+		c.Performance.Pipeline.RTSPSrcLatencyMs = 200
+	}
+	if c.Performance.IO.SegmentWriterBatchBytes <= 0 {
+		c.Performance.IO.SegmentWriterBatchBytes = 4 * 1024 * 1024
+	}
+	if c.Global.DefaultTenantID == "" {
+		c.Global.DefaultTenantID = "tenant-default"
+	}
+	if c.Global.DefaultSiteID == "" {
+		c.Global.DefaultSiteID = "site-default"
+	}
+	if c.Global.FFmpegPath == "" {
+		if v := os.Getenv("TS_VMS_FFMPEG_PATH"); v != "" {
+			c.Global.FFmpegPath = v
+		} else {
+			c.Global.FFmpegPath = "ffmpeg"
+		}
+	}
+	if c.Global.GstLaunchPath == "" {
+		if v := os.Getenv("TS_VMS_GST_LAUNCH_PATH"); v != "" {
+			c.Global.GstLaunchPath = v
+		} else if runtime.GOOS == "windows" {
+			c.Global.GstLaunchPath = "gst-launch-1.0.exe"
+		} else {
+			c.Global.GstLaunchPath = "gst-launch-1.0"
+		}
+	}
+	if c.Global.StorageRoot == "" {
+		if v := os.Getenv("TS_VMS_RECORDING_ROOT"); v != "" {
+			c.Global.StorageRoot = v
+		} else if runtime.GOOS == "windows" {
+			c.Global.StorageRoot = `C:\ProgramData\TechnoSupport\VMS\recordings`
+		} else {
+			c.Global.StorageRoot = "/var/lib/ts-vms/recordings"
+		}
+	}
+	if c.Global.ExportRoot == "" {
+		if v := os.Getenv("TS_VMS_EXPORT_ROOT"); v != "" {
+			c.Global.ExportRoot = v
+		} else if runtime.GOOS == "windows" {
+			c.Global.ExportRoot = `C:\ProgramData\TechnoSupport\VMS\exports`
+		} else {
+			c.Global.ExportRoot = "/var/lib/ts-vms/exports"
+		}
+	}
+	for i := range c.Cameras {
+		c.Cameras[i].Codec = strings.ToLower(strings.TrimSpace(c.Cameras[i].Codec))
+		c.Cameras[i].SegmentFormat = strings.ToLower(strings.TrimSpace(c.Cameras[i].SegmentFormat))
+		c.Cameras[i].RTSPTransport = strings.ToLower(strings.TrimSpace(c.Cameras[i].RTSPTransport))
+
+		if c.Cameras[i].Codec == "" {
+			c.Cameras[i].Codec = "h265"
+		}
+		if c.Cameras[i].SegmentFormat == "" {
+			c.Cameras[i].SegmentFormat = "mkv"
+		}
+		if c.Cameras[i].RTSPTransport == "" {
+			c.Cameras[i].RTSPTransport = "tcp"
+		}
+	}
+	_ = os.MkdirAll(c.Global.StorageRoot, 0o755)
+	_ = os.MkdirAll(c.Global.ExportRoot, 0o755)
+}
+
+func (c *Config) Validate() error {
+	if c.Global.SegmentDurationSec < 5 {
+		return fmt.Errorf("segment_duration_sec must be >= 5")
+	}
+	for _, cam := range c.Cameras {
+		if cam.ID == "" {
+			return fmt.Errorf("camera id cannot be empty")
+		}
+		if cam.Enabled && cam.RtspURL == "" {
+			return fmt.Errorf("camera %s enabled without rtsp_url", cam.ID)
+		}
+		switch cam.Codec {
+		case "", "h264", "h265":
+		default:
+			return fmt.Errorf("camera %s has unsupported codec %q", cam.ID, cam.Codec)
+		}
+		switch cam.SegmentFormat {
+		case "", "mp4", "mkv":
+		default:
+			return fmt.Errorf("camera %s has unsupported segment_format %q", cam.ID, cam.SegmentFormat)
+		}
+		switch cam.RTSPTransport {
+		case "", "tcp", "udp":
+		default:
+			return fmt.Errorf("camera %s has unsupported rtsp_transport %q", cam.ID, cam.RTSPTransport)
+		}
+	}
+	if !filepath.IsAbs(c.Global.StorageRoot) {
+		return fmt.Errorf("storage_root must be absolute: %s", c.Global.StorageRoot)
+	}
+	if !filepath.IsAbs(c.Global.ExportRoot) {
+		return fmt.Errorf("export_root must be absolute: %s", c.Global.ExportRoot)
+	}
+	return nil
+}
+
+
+================ FILE: recording\export.go ================
+
+package recording
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type ExportService struct {
+	Config *Config
+	Store  *PostgresStore
+}
+
+type ExportRequest struct {
+	CameraID string    `json:"camera_id"`
+	FromTS   time.Time `json:"from_ts"`
+	ToTS     time.Time `json:"to_ts"`
+	UserID   string    `json:"user_id"`
+}
+
+func NewExportService(cfg *Config, store *PostgresStore) *ExportService {
+	return &ExportService{Config: cfg, Store: store}
+}
+
+func (e *ExportService) QueueExport(ctx context.Context, req ExportRequest) (*ExportJob, error) {
+	if e == nil || e.Store == nil || !e.Store.Available() {
+		return nil, ErrDBUnavailable
+	}
+	if req.CameraID == "" || req.FromTS.IsZero() || req.ToTS.IsZero() || !req.FromTS.Before(req.ToTS) {
+		return nil, errors.New("invalid export request")
+	}
+	job := &ExportJob{
+		CameraID: req.CameraID,
+		FromTS:   req.FromTS,
+		ToTS:     req.ToTS,
+		State:    "QUEUED",
+	}
+	if err := e.Store.CreateExportJob(ctx, job, req.UserID); err != nil {
+		return nil, err
+	}
+	go e.run(job.ID)
+	return job, nil
+}
+
+func (e *ExportService) run(jobID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	job, err := e.Store.GetExportJob(ctx, jobID)
+	if err != nil || job == nil {
+		return
+	}
+	job.State = "PROCESSING"
+	_ = e.Store.UpdateExportJob(ctx, job)
+
+	segs, err := e.Store.GetSegments(ctx, job.CameraID, job.FromTS, job.ToTS)
+	if err != nil {
+		job.State = "FAILED"
+		job.Error = err.Error()
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+	if len(segs) == 0 {
+		job.State = "FAILED"
+		job.Error = "no segments found"
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+	sort.Slice(segs, func(i, j int) bool { return segs[i].StartTS.Before(segs[j].StartTS) })
+
+	stageDir := filepath.Join(e.Config.Global.ExportRoot, "stage_"+job.ID)
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		job.State = "FAILED"
+		job.Error = err.Error()
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+	defer os.RemoveAll(stageDir)
+
+	valid := 0
+	for _, seg := range segs {
+		if _, err := os.Stat(seg.Path); err == nil {
+			valid++
+		}
+	}
+	if valid == 0 {
+		job.State = "FAILED"
+		job.Error = "segments missing on disk"
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+
+	outName := fmt.Sprintf("%s_%s_%s.mkv", sanitize(job.CameraID), job.FromTS.Format("20060102_150405"), uuid.NewString())
+	outPath := filepath.Join(e.Config.Global.ExportRoot, outName)
+
+	idx := 0
+	for _, seg := range segs {
+		if _, err := os.Stat(seg.Path); err != nil {
+			continue
+		}
+		dst := filepath.Join(stageDir, fmt.Sprintf("fragment_%05d.mkv", idx))
+		if err := copyOrLink(seg.Path, dst); err != nil {
+			job.State = "FAILED"
+			job.Error = err.Error()
+			_ = e.Store.UpdateExportJob(ctx, job)
+			return
+		}
+		idx++
+	}
+	if idx == 0 {
+		job.State = "FAILED"
+		job.Error = "no readable staged fragments"
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+
+	cmd := exec.CommandContext(ctx, e.Config.Global.GstLaunchPath,
+		"-e",
+		"splitmuxsrc", "location="+gstPath(filepath.Join(stageDir, "fragment_*.mkv")),
+		"!",
+		"h265parse",
+		"!",
+		"matroskamux", "streamable=true",
+		"!",
+		"filesink", "location="+gstPath(outPath),
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		job.State = "FAILED"
+		job.Error = fmt.Errorf("concat failed: %v: %s", err, string(output)).Error()
+		_ = e.Store.UpdateExportJob(ctx, job)
+		return
+	}
+
+	job.State = "COMPLETED"
+	job.OutputPath = outPath
+	job.Error = ""
+	_ = e.Store.UpdateExportJob(ctx, job)
+}
+
+func copyOrLink(src, dst string) error {
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+func sanitize(v string) string {
+	v = strings.ReplaceAll(v, "/", "_")
+	v = strings.ReplaceAll(v, "\\", "_")
+	v = strings.ReplaceAll(v, ":", "_")
+	return v
 }
 
 
@@ -23476,66 +24112,134 @@ type ScheduleConfig struct {
 package recording
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
+	"os"
+	"time"
+
+	"github.com/technosupport/ts-vms/internal/middleware"
 )
 
 type HealthServer struct {
 	config     *Config
 	supervisor *Supervisor
 	scheduler  *ScheduleEngine
+	store      *PostgresStore
 }
 
-func NewHealthServer(cfg *Config, sup *Supervisor, sched *ScheduleEngine) *HealthServer {
-	return &HealthServer{config: cfg, supervisor: sup, scheduler: sched}
+func NewHealthServer(cfg *Config, sup *Supervisor, sched *ScheduleEngine, store *PostgresStore) *HealthServer {
+	return &HealthServer{config: cfg, supervisor: sup, scheduler: sched, store: store}
 }
 
 func (h *HealthServer) Start() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-
+	mux.HandleFunc("/healthz", h.handleHealth)
+	mux.HandleFunc("/readyz", h.handleReady)
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(h.supervisor.GetStatus())
+		_ = json.NewEncoder(w).Encode(h.supervisor.GetStatus())
 	})
-
-	// RBAC Protected Trigger Endpoint
 	mux.Handle("/api/v1/recording/trigger", h.rbacMiddleware(http.HandlerFunc(h.handleTrigger)))
-
-	addr := fmt.Sprintf(":%d", h.config.Global.HealthPort)
-	go http.ListenAndServe(addr, mux)
+	go http.ListenAndServe(fmt.Sprintf(":%d", h.config.Global.HealthPort), mux)
 }
 
 func (h *HealthServer) handleTrigger(w http.ResponseWriter, r *http.Request) {
 	camID := r.URL.Query().Get("camera_id")
 	if camID == "" {
-		http.Error(w, "missing camera_id", 400)
+		http.Error(w, "missing camera_id", http.StatusBadRequest)
 		return
 	}
 	h.scheduler.TriggerEvent(camID, h.config.Global.SegmentDurationSec)
-	w.WriteHeader(200)
-	w.Write([]byte("Event triggered successfully"))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
-// rbacMiddleware enforces the recording.manage claim
+func (h *HealthServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	status := map[string]any{
+		"db":      "unknown",
+		"storage": "unknown",
+		"state":   h.supervisor.GetStatus(),
+	}
+	code := http.StatusOK
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if h.store == nil || !h.store.Available() {
+		status["db"] = "disabled"
+	} else if h.store.PingContext(ctx) == nil {
+		status["db"] = "ok"
+	} else {
+		status["db"] = "down"
+		code = http.StatusServiceUnavailable
+	}
+
+	if _, err := os.Stat(h.config.Global.StorageRoot); err == nil {
+		status["storage"] = "ok"
+	} else {
+		status["storage"] = err.Error()
+		code = http.StatusServiceUnavailable
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (h *HealthServer) handleReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if h.config.FailoverRecovery.DBRequiredForReady && (h.store == nil || h.store.PingContext(ctx) != nil) {
+		http.Error(w, "db not ready", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := os.Stat(h.config.Global.StorageRoot); err != nil {
+		http.Error(w, "storage not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ready":true}`))
+}
+
 func (h *HealthServer) rbacMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.config.Global.DevRbacBypass {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		authHeader := r.Header.Get("Authorization")
-		// Stub check: In production, parse JWT and check claims map for `recording.manage`
-		if !strings.Contains(authHeader, "recording.manage") {
-			http.Error(w, "Forbidden: Missing recording.manage permission", http.StatusForbidden)
+		ac, ok := middleware.GetAuthContext(r.Context())
+		if !ok || (!ac.HasPermission("recording.manage") && !ac.HasRole("admin")) {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+
+================ FILE: recording\interfaces.go ================
+
+package recording
+
+import (
+	"context"
+	"time"
+)
+
+type IMetadataDB interface {
+	GetSegments(ctx context.Context, cameraID string, from, to time.Time) ([]Segment, error)
+	CreateEvent(ctx context.Context, ev *Event) error
+	LinkSegmentToEvent(ctx context.Context, eventID, segmentID string) error
+}
+
+type Event struct {
+	ID       string    `json:"id"`
+	CameraID string    `json:"camera_id"`
+	EventTS  time.Time `json:"event_ts"`
+	Type     string    `json:"type"`
+	Data     string    `json:"data"`
 }
 
 
@@ -23544,20 +24248,22 @@ func (h *HealthServer) rbacMiddleware(next http.Handler) http.Handler {
 package recording
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 )
 
 type InternalAPI struct {
-	ServiceKey string
-	Supervisor *SupervisorExt
+	ServiceKey    string
+	Supervisor    *Supervisor
+	ScheduleStore *PostgresStore
 }
 
 func (api *InternalAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Service-Key") != api.ServiceKey {
-			http.Error(w, "Unauthorized Internal API", http.StatusUnauthorized)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -23568,48 +24274,143 @@ func (api *InternalAPI) actionHandler(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(r.URL.Path, "/")
 		if len(parts) < 5 {
-			http.Error(w, "Bad path", 400)
+			http.Error(w, "bad path", http.StatusBadRequest)
 			return
 		}
 		camID := parts[4]
-
-		api.Supervisor.ApplyManualState(camID, action)
+		_ = api.Supervisor.ApplyManualState(camID, action)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "camera_id": camID, "action": action})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "camera_id": camID, "action": action})
 	}
+}
+
+func (api *InternalAPI) syncCameraHandler(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	camID := parts[4]
+
+	var req struct {
+		RtspURL string `json:"rtsp_url"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Enabled && strings.TrimSpace(req.RtspURL) == "" {
+		http.Error(w, "rtsp_url required for enabled camera", http.StatusBadRequest)
+		return
+	}
+
+	api.Supervisor.UpsertCamera(CameraConfig{
+		ID:      camID,
+		RtspURL: strings.TrimSpace(req.RtspURL),
+		Enabled: req.Enabled,
+	})
+	action := "STOP"
+	if req.Enabled {
+		action = "START"
+	}
+	if err := api.Supervisor.ApplyManualState(camID, action); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":    "ok",
+		"camera_id": camID,
+		"enabled":   req.Enabled,
+		"action":    action,
+	})
+}
+
+func (api *InternalAPI) deleteCameraHandler(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	camID := parts[4]
+	api.Supervisor.RemoveCamera(camID)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "camera_id": camID, "action": "DELETE"})
 }
 
 func (api *InternalAPI) bulkHandler(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		api.Supervisor.BulkAction(action)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "bulk_action": action})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "bulk_action": action})
 	}
+}
+
+func (api *InternalAPI) attachCameraHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var cam CameraConfig
+	if err := json.NewDecoder(r.Body).Decode(&cam); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := api.Supervisor.AttachCamera(cam); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":              "ok",
+		"camera_id":           cam.ID,
+		"enabled":             cam.Enabled,
+		"auto_record_started": cam.Enabled,
+	})
 }
 
 func (api *InternalAPI) ServeMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/internal/recording/cameras/attach", api.authMiddleware(api.attachCameraHandler))
 	mux.HandleFunc("/internal/recording/cameras/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/start") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sync"):
+			api.authMiddleware(api.syncCameraHandler)(w, r)
+		case strings.HasSuffix(r.URL.Path, "/delete"):
+			api.authMiddleware(api.deleteCameraHandler)(w, r)
+		case strings.HasSuffix(r.URL.Path, "/start"):
 			api.authMiddleware(api.actionHandler("START"))(w, r)
-		} else if strings.HasSuffix(r.URL.Path, "/stop") {
+		case strings.HasSuffix(r.URL.Path, "/stop"):
 			api.authMiddleware(api.actionHandler("STOP"))(w, r)
-		} else if strings.HasSuffix(r.URL.Path, "/pause") {
+		case strings.HasSuffix(r.URL.Path, "/pause"):
 			api.authMiddleware(api.actionHandler("PAUSE"))(w, r)
-		} else if strings.HasSuffix(r.URL.Path, "/resume") {
+		case strings.HasSuffix(r.URL.Path, "/resume"):
 			api.authMiddleware(api.actionHandler("RESUME"))(w, r)
+		default:
+			http.NotFound(w, r)
 		}
 	})
 	mux.HandleFunc("/internal/recording/start-all", api.authMiddleware(api.bulkHandler("START")))
 	mux.HandleFunc("/internal/recording/stop-all", api.authMiddleware(api.bulkHandler("STOP")))
+
 	mux.HandleFunc("/internal/recording/reload-schedules", api.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		api.Supervisor.ReloadSchedules(nil)
-		w.WriteHeader(200)
+		if api.ScheduleStore == nil || !api.ScheduleStore.Available() {
+			http.Error(w, "recording database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		cfgs, err := api.ScheduleStore.LoadSchedules(context.Background())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		api.Supervisor.ReloadSchedules(cfgs)
+		w.WriteHeader(http.StatusOK)
 	}))
-	// Map public status internally as well
+
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(api.Supervisor.GetStatus())
+		_ = json.NewEncoder(w).Encode(api.Supervisor.GetStatus())
 	})
 	return mux
 }
@@ -23638,7 +24439,7 @@ func (l *LicenseGate) TryAcquire(camID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.activeCount >= l.maxCameras {
+	if l.maxCameras > 0 && l.activeCount >= l.maxCameras {
 		log.Printf("[ALERT] recording.license.denied | camera_id=%s reason=quota_exceeded active=%d max=%d", camID, l.activeCount, l.maxCameras)
 		return false
 	}
@@ -23655,101 +24456,98 @@ func (l *LicenseGate) Release() {
 }
 
 
-================ FILE: recording\metadata.go ================
+================ FILE: recording\reconcile.go ================
 
 package recording
 
 import (
 	"context"
-	"database/sql"
+	"os"
+	"path/filepath"
 	"time"
+
+	rec "github.com/technosupport/ts-vms/internal/recording/recovery"
 )
 
-type Segment struct {
-	ID          string    `json:"id"`
-	TenantID    string    `json:"tenant_id"`
-	SiteID      string    `json:"site_id"`
-	CameraID    string    `json:"camera_id"`
-	StartTS     time.Time `json:"start_ts"`
-	EndTS       time.Time `json:"end_ts"`
-	DurationMs  int64     `json:"duration_ms"`
-	Path        string    `json:"path"`
-	SizeBytes   int64     `json:"size_bytes"`
-	IsProtected bool      `json:"is_protected"`
+type Reconciler struct {
+	Config  *Config
+	Store   *PostgresStore
+	Scanner *rec.Scanner
 }
 
-type Event struct {
-	ID        string    `json:"id"`
-	TenantID  string    `json:"tenant_id"`
-	SiteID    string    `json:"site_id"`
-	CameraID  string    `json:"camera_id"`
-	EventType string    `json:"event_type"`
-	EventTS   time.Time `json:"event_ts"`
+func NewReconciler(cfg *Config, store *PostgresStore) *Reconciler {
+	rcfg := rec.Config{
+		Enabled:             cfg.FailoverRecovery.Enabled,
+		RestartBackoffSec:   cfg.FailoverRecovery.RestartBackoffSec,
+		DBRequiredForReady:  cfg.FailoverRecovery.DBRequiredForReady,
+		OrphanReconcileMode: cfg.FailoverRecovery.OrphanReconcileMode,
+	}
+	return &Reconciler{Config: cfg, Store: store, Scanner: rec.NewScanner(rcfg)}
 }
 
-type IMetadataDB interface {
-	WriteSegment(ctx context.Context, seg *Segment) error
-	GetSegments(ctx context.Context, camID string, from, to time.Time) ([]Segment, error)
-	CreateEvent(ctx context.Context, ev *Event) error
-	LinkSegmentToEvent(ctx context.Context, eventID, segmentID string) error
-}
-
-type PostgresMetadataDB struct {
-	DB *sql.DB
-}
-
-func NewPostgresMetadataDB(db *sql.DB) *PostgresMetadataDB {
-	return &PostgresMetadataDB{DB: db}
-}
-
-func (m *PostgresMetadataDB) WriteSegment(ctx context.Context, seg *Segment) error {
-	query := `
-		INSERT INTO recording_segments (tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (path) DO UPDATE SET 
-			size_bytes = EXCLUDED.size_bytes, 
-			end_ts = EXCLUDED.end_ts
-		RETURNING id;`
-
-	return m.DB.QueryRowContext(ctx, query,
-		seg.TenantID, seg.SiteID, seg.CameraID, seg.StartTS, seg.EndTS,
-		seg.DurationMs, seg.Path, seg.SizeBytes).Scan(&seg.ID)
-}
-
-func (m *PostgresMetadataDB) GetSegments(ctx context.Context, camID string, from, to time.Time) ([]Segment, error) {
-	query := `
-		SELECT s.id, s.tenant_id, s.site_id, s.camera_id, s.start_ts, s.end_ts, s.duration_ms, s.path, s.size_bytes,
-			EXISTS(SELECT 1 FROM recording_event_segments e WHERE e.segment_id = s.id) AS is_protected
-		FROM recording_segments s
-		WHERE s.camera_id = $1 AND s.start_ts >= $2 AND s.start_ts <= $3
-		ORDER BY s.start_ts ASC;`
-
-	rows, err := m.DB.QueryContext(ctx, query, camID, from, to)
+func (r *Reconciler) Run(ctx context.Context) error {
+	findings, _, err := r.Scanner.Scan([]string{r.Config.Global.StorageRoot})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-
-	var results []Segment
-	for rows.Next() {
-		var s Segment
-		if err := rows.Scan(&s.ID, &s.TenantID, &s.SiteID, &s.CameraID, &s.StartTS, &s.EndTS, &s.DurationMs, &s.Path, &s.SizeBytes, &s.IsProtected); err != nil {
-			return nil, err
+	dbEnabled := r.Store != nil && r.Store.Available()
+	seen := make(map[string]struct{}, len(findings))
+	for _, f := range findings {
+		seen[f.Path] = struct{}{}
+		switch f.Kind {
+		case "tmp":
+			_ = os.Remove(f.Path)
+			if dbEnabled {
+				_ = r.Store.AuditRecoveryEvent(ctx, f.Path, "tmp_deleted", "")
+			}
+		case "video":
+			if !dbEnabled {
+				continue
+			}
+			seg := &Segment{
+				TenantID:   r.Config.Global.DefaultTenantID,
+				SiteID:     r.Config.Global.DefaultSiteID,
+				CameraID:   inferCameraIDFromPath(f.Path),
+				StartTS:    f.ModTime.Add(-time.Duration(r.Config.Global.SegmentDurationSec) * time.Second),
+				EndTS:      f.ModTime,
+				DurationMs: int64(r.Config.Global.SegmentDurationSec * 1000),
+				Path:       f.Path,
+				SizeBytes:  f.SizeBytes,
+			}
+			if err := r.Store.UpsertSegmentFromDisk(ctx, seg); err != nil {
+				return err
+			}
+		case "corrupt":
+			qPath := f.Path + ".quarantine"
+			_ = os.Rename(f.Path, qPath)
+			if dbEnabled {
+				_ = r.Store.MarkCorrupt(ctx, f.Path, qPath)
+			}
 		}
-		results = append(results, s)
 	}
-	return results, nil
+	if !dbEnabled {
+		return nil
+	}
+	paths, err := r.Store.ExpectedPathsSince(ctx, time.Now().Add(-72*time.Hour))
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		if _, ok := seen[p]; !ok {
+			if _, err := os.Stat(p); os.IsNotExist(err) {
+				_ = r.Store.MarkMissing(ctx, p)
+			}
+		}
+	}
+	return nil
 }
 
-func (m *PostgresMetadataDB) CreateEvent(ctx context.Context, ev *Event) error {
-	query := `INSERT INTO recording_events (tenant_id, site_id, camera_id, event_type, event_ts) VALUES ($1, $2, $3, $4, $5) RETURNING id;`
-	return m.DB.QueryRowContext(ctx, query, ev.TenantID, ev.SiteID, ev.CameraID, ev.EventType, ev.EventTS).Scan(&ev.ID)
-}
-
-func (m *PostgresMetadataDB) LinkSegmentToEvent(ctx context.Context, eventID, segmentID string) error {
-	query := `INSERT INTO recording_event_segments (event_id, segment_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`
-	_, err := m.DB.ExecContext(ctx, query, eventID, segmentID)
-	return err
+func inferCameraIDFromPath(path string) string {
+	cameraDir := filepath.Base(filepath.Dir(path))
+	if cameraDir != "" && cameraDir != "." && cameraDir != string(filepath.Separator) {
+		return cameraDir
+	}
+	return "unknown"
 }
 
 
@@ -23763,7 +24561,7 @@ import (
 )
 
 func TestScheduler_EventTrigger(t *testing.T) {
-	sched := NewScheduleEngine([]ScheduleConfig{})
+	sched := NewScheduleEngine([]ScheduleConfig{{CameraID: "cam_test", Type: "event_triggered"}})
 	if sched.ShouldRecord("cam_test") {
 		t.Error("Should not record initially")
 	}
@@ -23799,39 +24597,30 @@ func TestLicenseGate(t *testing.T) {
 package recording
 
 import (
+	"context"
 	"log"
 	"os"
 )
 
-type IRecoveryHooks interface {
-	OnStartupScan()
-}
-
-type Phase43RecoveryStub struct{}
-
-func (p *Phase43RecoveryStub) OnStartupScan() {
-	log.Println("[RECOVERY] Phase 4.3 will handle tmp file cleanup and corruption scanning here.")
-}
-
 type RecoveryManager struct {
 	PidPath string
-	Hooks   IRecoveryHooks
+	Run     func(context.Context) error
 }
 
-func (r *RecoveryManager) CheckAndProtect() {
+func (r *RecoveryManager) CheckAndProtect(ctx context.Context) error {
 	if _, err := os.Stat(r.PidPath); err == nil {
-		log.Println("[WARNING] PID file found on boot! Previous shutdown was abnormal (Crash/Power Loss).")
-		log.Println("[RECOVERY] Initiating recovery routines...")
-		r.Hooks.OnStartupScan()
+		log.Println("[WARNING] abnormal previous shutdown detected, running startup recovery")
+		if r.Run != nil {
+			if err := r.Run(ctx); err != nil {
+				return err
+			}
+		}
 	}
-
-	// Create new PID marker
-	_ = os.WriteFile(r.PidPath, []byte("running"), 0644)
+	return os.WriteFile(r.PidPath, []byte("running"), 0o644)
 }
 
 func (r *RecoveryManager) CleanExit() {
 	_ = os.Remove(r.PidPath)
-	log.Println("[INFO] Clean exit, PID file removed.")
 }
 
 
@@ -23851,14 +24640,31 @@ type ScheduleEngine struct {
 }
 
 func NewScheduleEngine(schedules []ScheduleConfig) *ScheduleEngine {
-	cfgMap := make(map[string]ScheduleConfig)
-	for _, s := range schedules {
-		cfgMap[s.CameraID] = s
-	}
-	return &ScheduleEngine{
-		configs:        cfgMap,
+	s := &ScheduleEngine{
+		configs:        make(map[string]ScheduleConfig),
 		eventDeadlines: make(map[string]time.Time),
 	}
+	s.UpdateConfigs(schedules)
+	return s
+}
+
+func (s *ScheduleEngine) UpdateConfigs(schedules []ScheduleConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.configs = make(map[string]ScheduleConfig, len(schedules))
+	for _, cfg := range schedules {
+		s.configs[cfg.CameraID] = cfg
+	}
+}
+
+func (s *ScheduleEngine) Snapshot() []ScheduleConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ScheduleConfig, 0, len(s.configs))
+	for _, cfg := range s.configs {
+		out = append(out, cfg)
+	}
+	return out
 }
 
 func (s *ScheduleEngine) TriggerEvent(cameraID string, durationSec int) {
@@ -23871,28 +24677,25 @@ func (s *ScheduleEngine) ShouldRecord(cameraID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 1. Check Event Overrides first
-	if deadline, exists := s.eventDeadlines[cameraID]; exists {
-		if time.Now().Before(deadline) {
-			return true
-		}
-	}
-
-	cfg, exists := s.configs[cameraID]
-	if !exists {
-		return false
-	}
-
-	if cfg.Type == "24x7" {
+	if deadline, ok := s.eventDeadlines[cameraID]; ok && time.Now().Before(deadline) {
 		return true
 	}
 
+	cfg, ok := s.configs[cameraID]
+	if !ok {
+		return true
+	}
+	if cfg.Type == "24x7" || cfg.Type == "" {
+		return true
+	}
+	if cfg.Type == "event_triggered" {
+		return false
+	}
 	if cfg.Type == "time_window" {
 		now := time.Now()
-		dayStr := now.Weekday().String()
-		dayMatch := false
+		dayMatch := len(cfg.Days) == 0
 		for _, d := range cfg.Days {
-			if d == dayStr {
+			if d == now.Weekday().String() {
 				dayMatch = true
 				break
 			}
@@ -23900,14 +24703,436 @@ func (s *ScheduleEngine) ShouldRecord(cameraID string) bool {
 		if !dayMatch {
 			return false
 		}
+		hhmm := now.Format("15:04")
+		return hhmm >= cfg.StartTime && hhmm <= cfg.EndTime
+	}
+	return false
+}
 
-		currentHHMM := now.Format("15:04")
-		if currentHHMM >= cfg.StartTime && currentHHMM <= cfg.EndTime {
-			return true
+
+================ FILE: recording\store.go ================
+
+package recording
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/technosupport/ts-vms/internal/crypto"
+	"github.com/technosupport/ts-vms/internal/data"
+)
+
+var ErrDBUnavailable = errors.New("recording database unavailable")
+
+type PostgresStore struct {
+	DB *sql.DB
+}
+
+type Segment struct {
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	SiteID     string    `json:"site_id"`
+	CameraID   string    `json:"camera_id"`
+	StartTS    time.Time `json:"start_ts"`
+	EndTS      time.Time `json:"end_ts"`
+	DurationMs int64     `json:"duration_ms"`
+	Path       string    `json:"path"`
+	SizeBytes  int64     `json:"size_bytes"`
+}
+
+func NewPostgresStore(db *sql.DB) *PostgresStore {
+	return &PostgresStore{DB: db}
+}
+
+func (s *PostgresStore) Available() bool {
+	return s != nil && s.DB != nil
+}
+
+func (s *PostgresStore) PingContext(ctx context.Context) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	return s.DB.PingContext(ctx)
+}
+
+func (s *PostgresStore) LoadSchedules(ctx context.Context) ([]ScheduleConfig, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT camera_id, schedule_type, COALESCE(days, '[]'::jsonb), COALESCE(start_time, ''), COALESCE(end_time, '')
+		FROM recording_schedules
+		ORDER BY camera_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ScheduleConfig
+	for rows.Next() {
+		var cfg ScheduleConfig
+		var raw []byte
+		if err := rows.Scan(&cfg.CameraID, &cfg.Type, &raw, &cfg.StartTime, &cfg.EndTime); err != nil {
+			return nil, err
 		}
+		_ = json.Unmarshal(raw, &cfg.Days)
+		out = append(out, cfg)
+	}
+	return out, rows.Err()
+}
+
+func recordingRTSPURL(raw, ip string, port int) string {
+	if raw != "" {
+		return raw
+	}
+	if ip == "" {
+		return ""
+	}
+	if port <= 0 {
+		port = 554
+	}
+	return fmt.Sprintf("rtsp://%s:%d/live/0/MAIN", ip, port)
+}
+
+func (s *PostgresStore) LoadEnabledCameras(ctx context.Context) ([]CameraConfig, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id::text, COALESCE(rtsp_url, ''), COALESCE(ip_address::text, ''), COALESCE(port, 0)
+		FROM cameras
+		WHERE deleted_at IS NULL AND is_enabled = TRUE
+		ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]CameraConfig, 0, 32)
+	for rows.Next() {
+		var cam CameraConfig
+		var rawURL, ip string
+		var port int
+		if err := rows.Scan(&cam.ID, &rawURL, &ip, &port); err != nil {
+			return nil, err
+		}
+		cam.RtspURL = recordingRTSPURL(rawURL, ip, port)
+		cam.Enabled = true
+		if cam.ID == "" || cam.RtspURL == "" {
+			continue
+		}
+		out = append(out, cam)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) GetCredentials(ctx context.Context, cameraID string) (*data.CameraCredential, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
 	}
 
-	return false
+	uid, err := uuid.Parse(cameraID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid camera id: %w", err)
+	}
+
+	query := `
+		SELECT id, tenant_id, camera_id, master_kid, 
+		       dek_nonce, dek_ciphertext, dek_tag, 
+		       data_nonce, data_ciphertext, data_tag
+		FROM camera_credentials
+		WHERE camera_id = $1
+	`
+	var c data.CameraCredential
+	err = s.DB.QueryRowContext(ctx, query, uid).Scan(
+		&c.ID, &c.TenantID, &c.CameraID, &c.MasterKID,
+		&c.DEKNonce, &c.DEKCiphertext, &c.DEKTag,
+		&c.DataNonce, &c.DataCiphertext, &c.DataTag,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found is not an error here, just means no auth
+		}
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (s *PostgresStore) DecryptCredentials(cred *data.CameraCredential, keyring *crypto.Keyring) (string, string, error) {
+	// Construct the same AAD as used in cameras/credentials_service.go
+	// Format: "tenant_uuid:camera_uuid:purpose"
+	aad := []byte(fmt.Sprintf("%s:%s:camera_credential_v1", cred.TenantID.String(), cred.CameraID.String()))
+
+	// 1. Unwrap DEK
+	dek, err := keyring.UnwrapDEK(cred.MasterKID, cred.DEKNonce, cred.DEKCiphertext, cred.DEKTag, aad)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to unwrap DEK: %w", err)
+	}
+
+	// 2. Decrypt Data
+	plaintext, err := crypto.DecryptGCM(dek, cred.DataNonce, cred.DataCiphertext, cred.DataTag, aad)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to decrypt credentials data: %w", err)
+	}
+
+	// 3. Parse JSON (Username, Password)
+	var creds struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(plaintext, &creds); err != nil {
+		return "", "", fmt.Errorf("failed to parse decrypted credentials JSON: %w", err)
+	}
+
+	return creds.Username, creds.Password, nil
+}
+
+func (s *PostgresStore) SaveSchedule(ctx context.Context, tenantID, siteID string, cfg ScheduleConfig) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	raw, err := json.Marshal(cfg.Days)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `
+		INSERT INTO recording_schedules (tenant_id, site_id, camera_id, schedule_type, days, start_time, end_time, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+		ON CONFLICT (camera_id) DO UPDATE SET
+			schedule_type = EXCLUDED.schedule_type,
+			days          = EXCLUDED.days,
+			start_time    = EXCLUDED.start_time,
+			end_time      = EXCLUDED.end_time,
+			updated_at    = NOW()
+	`, tenantID, siteID, cfg.CameraID, cfg.Type, raw, nullIfEmpty(cfg.StartTime), nullIfEmpty(cfg.EndTime))
+	return err
+}
+
+func (s *PostgresStore) FindSegmentByPath(ctx context.Context, path string) (*Segment, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	var seg Segment
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT id, tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes
+		FROM recording_segments
+		WHERE path = $1`, path).
+		Scan(&seg.ID, &seg.TenantID, &seg.SiteID, &seg.CameraID, &seg.StartTS, &seg.EndTS, &seg.DurationMs, &seg.Path, &seg.SizeBytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &seg, nil
+}
+
+func (s *PostgresStore) UpsertSegmentFromDisk(ctx context.Context, seg *Segment) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT INTO recording_segments (tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+		ON CONFLICT (path) DO UPDATE SET
+			start_ts         = EXCLUDED.start_ts,
+			end_ts           = EXCLUDED.end_ts,
+			duration_ms      = EXCLUDED.duration_ms,
+			size_bytes       = EXCLUDED.size_bytes,
+			last_seen_on_disk = NOW(),
+			is_missing_on_disk = FALSE
+	`, seg.TenantID, seg.SiteID, seg.CameraID, seg.StartTS, seg.EndTS, seg.DurationMs, seg.Path, seg.SizeBytes)
+	return err
+}
+
+func (s *PostgresStore) MarkMissing(ctx context.Context, path string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE recording_segments
+		SET is_missing_on_disk = TRUE, updated_at = NOW()
+		WHERE path = $1`, path)
+	if err == nil {
+		_ = s.AuditRecoveryEvent(ctx, path, "missing_on_disk", "")
+	}
+	return err
+}
+
+func (s *PostgresStore) MarkCorrupt(ctx context.Context, path, quarantinePath string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE recording_segments
+		SET is_corrupt = TRUE, quarantine_path = $2, updated_at = NOW()
+		WHERE path = $1`, path, nullIfEmpty(quarantinePath))
+	if err == nil {
+		_ = s.AuditRecoveryEvent(ctx, path, "corrupt", quarantinePath)
+	}
+	return err
+}
+
+func (s *PostgresStore) ExpectedPathsSince(ctx context.Context, since time.Time) ([]string, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT path
+		FROM recording_segments
+		WHERE end_ts >= $1`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, to time.Time) ([]Segment, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes
+		FROM recording_segments
+		WHERE camera_id = $1
+		  AND end_ts > $2
+		  AND start_ts < $3
+		  AND is_missing_on_disk = FALSE
+		  AND is_corrupt = FALSE
+		ORDER BY start_ts ASC`, cameraID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Segment
+	for rows.Next() {
+		var seg Segment
+		if err := rows.Scan(&seg.ID, &seg.TenantID, &seg.SiteID, &seg.CameraID, &seg.StartTS, &seg.EndTS, &seg.DurationMs, &seg.Path, &seg.SizeBytes); err != nil {
+			return nil, err
+		}
+		out = append(out, seg)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) AuditRecoveryEvent(ctx context.Context, path, state, detail string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT INTO recording_recovery_audit (path, state, detail, created_at)
+		VALUES ($1,$2,$3,NOW())`, path, state, detail)
+	return err
+}
+
+type ExportJob struct {
+	ID         string    `json:"id"`
+	CameraID   string    `json:"camera_id"`
+	FromTS     time.Time `json:"from_ts"`
+	ToTS       time.Time `json:"to_ts"`
+	State      string    `json:"state"`
+	OutputPath string    `json:"output_path"`
+	Error      string    `json:"error,omitempty"`
+}
+
+func (s *PostgresStore) CreateExportJob(ctx context.Context, job *ExportJob, requestedBy string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	return s.DB.QueryRowContext(ctx, `
+		INSERT INTO recording_exports (camera_id, from_ts, to_ts, state, output_path, requested_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+		RETURNING id`,
+		job.CameraID, job.FromTS, job.ToTS, job.State, nullIfEmpty(job.OutputPath), requestedBy).
+		Scan(&job.ID)
+}
+
+func (s *PostgresStore) UpdateExportJob(ctx context.Context, job *ExportJob) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE recording_exports
+		SET state = $2, output_path = $3, error = $4, updated_at = NOW()
+		WHERE id = $1`,
+		job.ID, job.State, nullIfEmpty(job.OutputPath), nullIfEmpty(job.Error))
+	return err
+}
+
+func (s *PostgresStore) GetExportJob(ctx context.Context, id string) (*ExportJob, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+	var job ExportJob
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT id, camera_id, from_ts, to_ts, state, COALESCE(output_path,''), COALESCE(error,'')
+		FROM recording_exports
+		WHERE id = $1`, id).
+		Scan(&job.ID, &job.CameraID, &job.FromTS, &job.ToTS, &job.State, &job.OutputPath, &job.Error)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func (s *PostgresStore) OpenExportArtifact(ctx context.Context, id string) (*os.File, *ExportJob, error) {
+	if !s.Available() {
+		return nil, nil, ErrDBUnavailable
+	}
+	job, err := s.GetExportJob(ctx, id)
+	if err != nil || job == nil {
+		return nil, job, err
+	}
+	f, err := os.Open(filepath.Clean(job.OutputPath))
+	return f, job, err
+}
+
+func (s *PostgresStore) CreateEvent(ctx context.Context, ev *Event) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	return s.DB.QueryRowContext(ctx, `
+		INSERT INTO recording_events (camera_id, event_ts, type, data, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id`, ev.CameraID, ev.EventTS, ev.Type, ev.Data).Scan(&ev.ID)
+}
+
+func (s *PostgresStore) LinkSegmentToEvent(ctx context.Context, eventID, segmentID string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT INTO event_segments (event_id, segment_id, created_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT DO NOTHING`, eventID, segmentID)
+	return err
+}
+
+func nullIfEmpty(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }
 
 
@@ -23917,80 +25142,206 @@ package recording
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/technosupport/ts-vms/internal/crypto"
 )
 
 type Supervisor struct {
-	config    *Config
-	scheduler *ScheduleEngine
-	license   *LicenseGate
-	workers   map[string]*CameraWorker
-	mu        sync.RWMutex
+	config        *Config
+	scheduler     *ScheduleEngine
+	license       *LicenseGate
+	store         *PostgresStore
+	workers       map[string]*CameraWorker
+	cameraConfigs map[string]CameraConfig
+	ctx           context.Context
+	keyring       *crypto.Keyring
+	mu            sync.RWMutex
 }
 
-func NewSupervisor(cfg *Config, sched *ScheduleEngine, lic *LicenseGate) *Supervisor {
+func NewSupervisor(cfg *Config, sched *ScheduleEngine, lic *LicenseGate, store *PostgresStore, keyring *crypto.Keyring) *Supervisor {
+	camMap := make(map[string]CameraConfig, len(cfg.Cameras))
+	for _, cam := range cfg.Cameras {
+		camMap[cam.ID] = cam
+	}
 	return &Supervisor{
-		config:    cfg,
-		scheduler: sched,
-		license:   lic,
-		workers:   make(map[string]*CameraWorker),
+		config:        cfg,
+		scheduler:     sched,
+		license:       lic,
+		store:         store,
+		workers:       make(map[string]*CameraWorker),
+		cameraConfigs: camMap,
+		keyring:       keyring,
 	}
 }
 
 func (s *Supervisor) Run(ctx context.Context) {
-	log.Println("[INFO] Supervisor loop started.")
-	ticker := time.NewTicker(2 * time.Second) // Reconcile every 2s
+	s.ctx = ctx
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			s.StopAll()
 			return
 		case <-ticker.C:
-			s.reconcile(ctx)
+			s.reconcile()
 		}
 	}
 }
 
-func (s *Supervisor) reconcile(ctx context.Context) {
+func (s *Supervisor) reconcile() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, cam := range s.config.Cameras {
+	cameras := make([]CameraConfig, 0, len(s.cameraConfigs))
+	for _, cam := range s.cameraConfigs {
+		cameras = append(cameras, cam)
+	}
+
+	for _, cam := range cameras {
+		should := s.scheduler.ShouldRecord(cam.ID)
+		worker, exists := s.workers[cam.ID]
 		if !cam.Enabled {
+			if exists {
+				worker.Stop()
+				delete(s.workers, cam.ID)
+				s.license.Release()
+			}
+			continue
+		}
+		if should {
+			if !exists {
+				worker = s.ensureWorkerLocked(cam)
+				if !s.acquireLicenseLocked(worker, cam.ID) {
+					continue
+				}
+			}
+			if !worker.IsRunning() && (worker.State == StateStopped || worker.State == StateError || worker.State == StateThrottledByLicense) {
+				worker.Start(s.ctx)
+			}
 			continue
 		}
 
-		shouldRecord := s.scheduler.ShouldRecord(cam.ID)
-		worker, exists := s.workers[cam.ID]
+		if exists && (worker.IsRunning() || worker.State == StateRecording || worker.State == StateStarting || worker.State == StateError || worker.State == StatePaused) {
+			worker.Stop()
+			s.releaseLicenseLocked(worker)
+		}
+	}
+}
 
-		if shouldRecord && !exists {
-			// Try to start
-			if s.license.TryAcquire(cam.ID) {
-				newWorker := &CameraWorker{CameraID: cam.ID, State: StateStopped}
-				newWorker.Start(ctx)
-				s.workers[cam.ID] = newWorker
-			} else {
-				// Stub a throttled worker entry for status visibility
-				s.workers[cam.ID] = &CameraWorker{CameraID: cam.ID, State: StateThrottledByLicense}
-			}
-		} else if shouldRecord && exists && worker.State == StateThrottledByLicense {
-			// Retry acquiring license if previously throttled
-			if s.license.TryAcquire(cam.ID) {
-				worker.Start(ctx)
-			}
-		} else if !shouldRecord && exists {
-			// Stop active worker
-			if worker.State == StateRecording {
-				worker.Stop()
-				s.license.Release()
-				log.Printf("[EVENT] recording.schedule.transition | camera_id=%s state=STOPPING", cam.ID)
-			}
+func (s *Supervisor) ApplyManualState(camID, action string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cam, ok := s.cameraConfigs[camID]
+	if !ok {
+		return fmt.Errorf("camera not configured for recording: %s", camID)
+	}
+	w := s.ensureWorkerLocked(cam)
+	switch action {
+	case "START":
+		if !s.acquireLicenseLocked(w, camID) {
+			return nil
+		}
+		w.Start(s.ctx)
+	case "STOP":
+		w.Stop()
+		s.releaseLicenseLocked(w)
+	case "PAUSE":
+		w.Pause()
+	case "RESUME":
+		if !s.acquireLicenseLocked(w, camID) {
+			return nil
+		}
+		w.Resume(s.ctx)
+	}
+	return nil
+}
+
+func (s *Supervisor) UpsertCamera(cam CameraConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if old, ok := s.cameraConfigs[cam.ID]; ok {
+		if worker, exists := s.workers[cam.ID]; exists && (old.RtspURL != cam.RtspURL || old.Enabled != cam.Enabled) {
+			worker.Stop()
+			delete(s.workers, cam.ID)
+			s.license.Release()
+		}
+	}
+	s.cameraConfigs[cam.ID] = cam
+}
+
+func (s *Supervisor) RemoveCamera(camID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.cameraConfigs, camID)
+	if worker, exists := s.workers[camID]; exists {
+		worker.Stop()
+		delete(s.workers, camID)
+		s.license.Release()
+	}
+}
+
+func (s *Supervisor) AttachCamera(cam CameraConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if cam.ID == "" {
+		return fmt.Errorf("camera id is required")
+	}
+	if cam.Enabled && cam.RtspURL == "" {
+		return fmt.Errorf("camera rtsp_url is required when camera is enabled")
+	}
+
+	if old, ok := s.cameraConfigs[cam.ID]; ok {
+		if worker, exists := s.workers[cam.ID]; exists && (old.RtspURL != cam.RtspURL || old.Enabled != cam.Enabled) {
+			worker.Stop()
+			delete(s.workers, cam.ID)
+			s.license.Release()
+		}
+	}
+	s.cameraConfigs[cam.ID] = cam
+
+	if !cam.Enabled {
+		if worker, ok := s.workers[cam.ID]; ok {
+			worker.Stop()
+			s.license.Release()
 			delete(s.workers, cam.ID)
 		}
+		return nil
+	}
+
+	worker := s.ensureWorkerLocked(cam)
+	if !s.scheduler.ShouldRecord(cam.ID) {
+		return nil
+	}
+	if !s.acquireLicenseLocked(worker, cam.ID) {
+		return nil
+	}
+	if s.ctx != nil && !worker.IsRunning() {
+		worker.Start(s.ctx)
+	}
+	return nil
+}
+
+func (s *Supervisor) ReloadSchedules(cfgs []ScheduleConfig) {
+	s.scheduler.UpdateConfigs(cfgs)
+	log.Printf("[Supervisor] reloaded %d schedules", len(cfgs))
+}
+
+func (s *Supervisor) BulkAction(action string) {
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.cameraConfigs))
+	for id := range s.cameraConfigs {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		_ = s.ApplyManualState(id, action)
 	}
 }
 
@@ -23998,105 +25349,70 @@ func (s *Supervisor) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, w := range s.workers {
-		if w.State == StateRecording {
-			w.Stop()
-		}
+		w.Stop()
+		s.releaseLicenseLocked(w)
 	}
 }
 
-func (s *Supervisor) GetStatus() map[string]string {
+func (s *Supervisor) GetStatus() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	status := make(map[string]string)
-	for id, w := range s.workers {
-		status[id] = string(w.State)
+	workers := make([]map[string]any, 0, len(s.workers))
+	for _, w := range s.workers {
+		workers = append(workers, w.Status())
 	}
-	return status
-}
-
-
-================ FILE: recording\supervisor_api.go ================
-
-package recording
-
-import (
-	"log"
-)
-
-// State modifications for Phase 4.7
-const StatePaused WorkerState = "PAUSED"
-
-// Extension to the Phase 4.2 Supervisor
-type SupervisorExt struct {
-	*Supervisor
-	manualOverrides map[string]string // camera_id -> "START" or "STOP" or "PAUSE"
-}
-
-func NewSupervisorExt(base *Supervisor) *SupervisorExt {
-	return &SupervisorExt{
-		Supervisor:      base,
-		manualOverrides: make(map[string]string),
+	return map[string]any{
+		"workers":   workers,
+		"schedules": s.scheduler.Snapshot(),
 	}
 }
 
-func (s *SupervisorExt) ApplyManualState(camID, action string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Supervisor) ensureWorkerLocked(cam CameraConfig) *CameraWorker {
+	w, exists := s.workers[cam.ID]
+	if !exists || w == nil {
+		w = NewCameraWorker(s.config, cam, s.store, s.keyring)
+		s.workers[cam.ID] = w
+		return w
+	}
+	w.Camera = cam
+	w.Config = s.config
+	w.Store = s.store
+	return w
+}
 
-	s.manualOverrides[camID] = action
-	worker, exists := s.workers[camID]
+func (s *Supervisor) acquireLicenseLocked(w *CameraWorker, camID string) bool {
+	if w.HasLicense() {
+		return true
+	}
+	if !s.license.TryAcquire(camID) {
+		w.SetThrottled()
+		return false
+	}
+	w.SetLicenseHeld(true)
+	return true
+}
 
-	switch action {
-	case "START", "RESUME":
-		if !exists || worker.State == StateStopped || worker.State == StatePaused {
-			if s.license.TryAcquire(camID) {
-				if !exists {
-					worker = &CameraWorker{CameraID: camID}
-					s.workers[camID] = worker
-				}
-				// worker.Start(context.Background()) - Stubbed for test
-				worker.State = StateRecording
-			} else {
-				if !exists {
-					s.workers[camID] = &CameraWorker{CameraID: camID, State: StateThrottledByLicense}
-				} else {
-					worker.State = StateThrottledByLicense
-				}
-			}
-		}
-	case "STOP":
-		if exists && worker.State == StateRecording {
-			// worker.Stop()
-			s.license.Release()
-		}
-		if exists {
-			worker.State = StateStopped
-		}
-	case "PAUSE":
-		if exists && worker.State == StateRecording {
-			// worker.Pause() - Suspend pipeline but keep license
-			worker.State = StatePaused
+func (s *Supervisor) releaseLicenseLocked(w *CameraWorker) {
+	if w == nil || !w.HasLicense() {
+		return
+	}
+	s.license.Release()
+	w.SetLicenseHeld(false)
+}
+
+func (s *Supervisor) upsertCameraLocked(cam CameraConfig) {
+	s.cameraConfigs[cam.ID] = cam
+	replaced := false
+	for i := range s.config.Cameras {
+		if s.config.Cameras[i].ID == cam.ID {
+			s.config.Cameras[i] = cam
+			replaced = true
+			break
 		}
 	}
-	return nil
-}
-
-func (s *SupervisorExt) BulkAction(action string) {
-	s.mu.Lock()
-	cameras := make([]string, 0, len(s.config.Cameras))
-	for _, c := range s.config.Cameras {
-		cameras = append(cameras, c.ID)
+	if !replaced {
+		s.config.Cameras = append(s.config.Cameras, cam)
 	}
-	s.mu.Unlock()
-
-	for _, c := range cameras {
-		s.ApplyManualState(c, action)
-	}
-}
-
-func (s *SupervisorExt) ReloadSchedules(newConfigs []ScheduleConfig) {
-	log.Printf("[Supervisor] Reloading %d schedules dynamically", len(newConfigs))
-	// In reality: s.scheduler.UpdateConfigs(newConfigs)
 }
 
 
@@ -24106,57 +25422,625 @@ package recording
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/technosupport/ts-vms/internal/crypto"
 )
 
 type WorkerState string
 
 const (
 	StateStopped            WorkerState = "STOPPED"
+	StateStarting           WorkerState = "STARTING"
 	StateRecording          WorkerState = "RECORDING"
+	StatePaused             WorkerState = "PAUSED"
 	StateError              WorkerState = "ERROR"
 	StateThrottledByLicense WorkerState = "THROTTLED_BY_LICENSE"
 )
 
 type CameraWorker struct {
-	CameraID string
-	State    WorkerState
-	cancel   context.CancelFunc
+	CameraID     string
+	Camera       CameraConfig
+	Config       *Config
+	Store        *PostgresStore
+	State        WorkerState
+	cancel       context.CancelFunc
+	cmd          *exec.Cmd
+	loopRunning  bool
+	paused       bool
+	stopping     bool
+	running      bool
+	runID        uint64
+	licenseHeld  bool
+	retries      int
+	lastErr      string
+	lastBeat     time.Time
+	lastDataTime time.Time
+	knownFiles   map[string]struct{}
+	currentDir   string // Path to the current run's storage directory
+	Keyring      *crypto.Keyring
+	mu           sync.RWMutex
 }
 
-// Start spawns the background routine (Thread-per-camera)
-func (w *CameraWorker) Start(ctx context.Context) {
-	log.Printf("[EVENT] recording.worker.started | camera_id=%s", w.CameraID)
-	w.State = StateRecording
+func NewCameraWorker(cfg *Config, cam CameraConfig, store *PostgresStore, keyring *crypto.Keyring) *CameraWorker {
+	return &CameraWorker{
+		CameraID:     cam.ID,
+		Camera:       cam,
+		Config:       cfg,
+		Store:        store,
+		Keyring:      keyring,
+		State:        StateStopped,
+		knownFiles:   make(map[string]struct{}),
+		lastDataTime: time.Now(),
+	}
+}
 
+func (w *CameraWorker) IsRunning() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.running
+}
+
+func (w *CameraWorker) Start(ctx context.Context) {
+	w.mu.Lock()
+	if w.loopRunning {
+		w.mu.Unlock()
+		return
+	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
+	w.loopRunning = true
+	w.paused = false
+	w.stopping = false
+	w.running = true
+	w.State = StateStarting
+	w.lastErr = ""
+	w.lastDataTime = time.Now()
+	w.runID++
+	runID := w.runID
+	w.mu.Unlock()
 
-	go func() {
-		defer log.Printf("[EVENT] recording.worker.stopped | camera_id=%s", w.CameraID)
+	go w.loop(workerCtx, runID)
+}
 
-		// Phase 4.3: This loop will execute GStreamer pipelines and file segmenting
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+func (w *CameraWorker) loop(ctx context.Context, runID uint64) {
+	defer func() {
+		w.finishRun(runID)
+		w.mu.Lock()
+		w.loopRunning = false
+		if w.cancel != nil {
+			w.cancel = nil
+		}
+		w.mu.Unlock()
+	}()
+
+	for {
+		if err := w.startPipeline(ctx, runID); err != nil {
+			w.cleanupEmptyRunDir()
+			if ctx.Err() != nil || w.isIntentionalStop(runID) {
+				w.markStopped(runID)
+				return
+			}
+			w.markError(runID, err)
+			if !w.waitBackoff(ctx, runID) {
+				return
+			}
+			continue
+		}
+		w.markRecording(runID)
+
+		errCh := make(chan error, 1)
+		cmd := w.currentCmd()
+		go func(cmd *exec.Cmd) {
+			if cmd == nil {
+				errCh <- fmt.Errorf("recording process missing")
+				return
+			}
+			errCh <- cmd.Wait()
+		}(cmd)
+
+		ticker := time.NewTicker(time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
 
 		for {
 			select {
-			case <-workerCtx.Done():
-				w.State = StateStopped
+			case <-ctx.Done():
+				ticker.Stop()
+				w.stopProcess()
+				w.cleanupEmptyRunDir()
+				w.markStopped(runID)
 				return
 			case <-ticker.C:
-				// Stub: Simulate writing a frame
-				_ = "writing segment..."
+				w.touchHeartbeat(runID)
+
+				// Use a shorter timeout for segment syncing to prevent hanging the whole worker
+				syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				_ = w.syncSegments(syncCtx)
+				cancel()
+
+				if w.checkWatchdog(runID) {
+					log.Printf("[WARNING] watchdog triggered for %s: no data for too long. killing process.", w.CameraID)
+					w.stopProcess()
+				}
+			case err := <-errCh:
+				ticker.Stop()
+				_ = w.syncSegments(ctx)
+				w.cleanupEmptyRunDir()
+				if ctx.Err() != nil || w.isIntentionalStop(runID) {
+					w.markStopped(runID)
+					return
+				}
+				w.clearProcessHandle(runID)
+
+				w.mu.Lock()
+				w.cmd = nil
+				if err == nil {
+					err = fmt.Errorf("recording pipeline exited unexpectedly")
+				}
+				w.mu.Unlock()
+				w.markError(runID, err)
+
+				if !w.waitBackoff(ctx, runID) {
+					return
+				}
+				goto RESTART
 			}
 		}
+	RESTART:
+	}
+}
+
+func gstPath(v string) string {
+	return filepath.ToSlash(filepath.Clean(v))
+}
+
+func (w *CameraWorker) startPipeline(ctx context.Context, runID uint64) error {
+	// Root storage for this camera
+	baseDir := filepath.Join(w.Config.Global.StorageRoot, w.Config.Global.DefaultTenantID, w.Config.Global.DefaultSiteID, w.CameraID)
+	// Unique subdirectory for this run to avoid filename collisions and data loss
+	runDir := filepath.Join(baseDir, time.Now().Format("20060102_150405"))
+
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return err
+	}
+
+	w.mu.Lock()
+	w.currentDir = runDir
+	w.knownFiles = make(map[string]struct{})
+	w.mu.Unlock()
+
+	// Fetch Credentials if available
+	if w.Store != nil && w.Keyring != nil {
+		cred, err := w.Store.GetCredentials(ctx, w.CameraID)
+		if err == nil && cred != nil {
+			user, pass, err := w.Store.DecryptCredentials(cred, w.Keyring)
+			if err == nil {
+				w.Camera.Username = user
+				w.Camera.Password = pass
+			} else {
+				log.Printf("[WARNING] failed to decrypt credentials for %s: %v", w.CameraID, err)
+			}
+		}
+	}
+
+	pattern := filepath.Join(runDir, "segment_%05d"+w.segmentExt())
+	args := w.gstRecorderArgs(gstPath(pattern))
+	cmd := exec.CommandContext(ctx, w.Config.Global.GstLaunchPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("gstreamer start failed for %s: %w", w.CameraID, err)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID || w.stopping {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return context.Canceled
+	}
+	w.cmd = cmd
+	log.Printf("[EVENT] recording.worker.started camera_id=%s backend=gstreamer pid=%d codec=%s format=%s", w.CameraID, cmd.Process.Pid, w.cameraCodec(), w.cameraSegmentFormat())
+	return nil
+}
+
+func (w *CameraWorker) syncSegments(ctx context.Context) error {
+	w.mu.RLock()
+	dir := w.currentDir
+	w.mu.RUnlock()
+
+	if dir == "" {
+		return nil
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()))
+	if err != nil {
+		return err
+	}
+	for _, p := range matches {
+		if _, done := w.knownFiles[p]; done {
+			continue
+		}
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		if time.Since(info.ModTime()) < 2*time.Second {
+			continue
+		}
+		end := info.ModTime()
+		start := end.Add(-time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+		seg := &Segment{
+			TenantID:   w.Config.Global.DefaultTenantID,
+			SiteID:     w.Config.Global.DefaultSiteID,
+			CameraID:   w.CameraID,
+			StartTS:    start,
+			EndTS:      end,
+			DurationMs: end.Sub(start).Milliseconds(),
+			Path:       p,
+			SizeBytes:  info.Size(),
+		}
+		if w.Store != nil && w.Store.Available() {
+			if err := w.Store.UpsertSegmentFromDisk(ctx, seg); err != nil {
+				return err
+			}
+		}
+		w.knownFiles[p] = struct{}{}
+		w.mu.Lock()
+		w.lastDataTime = time.Now()
+		w.mu.Unlock()
+	}
+	return nil
+}
+
+func (w *CameraWorker) checkWatchdog(runID uint64) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.runID != runID || !w.running || w.paused || w.stopping {
+		return false
+	}
+	// If no data for more than 2x segment duration + 30s buffer
+	threshold := time.Duration(w.Config.Global.SegmentDurationSec*2+30) * time.Second
+	return time.Since(w.lastDataTime) > threshold
+}
+
+func (w *CameraWorker) Pause() {
+	w.mu.Lock()
+	if !w.running {
+		w.State = StatePaused
+		w.paused = true
+		w.mu.Unlock()
+		return
+	}
+	w.paused = true
+	w.State = StatePaused
+	w.stopping = true
+	cancel := w.cancel
+	w.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	w.stopProcess()
+}
+
+func (w *CameraWorker) Resume(ctx context.Context) {
+	w.mu.Lock()
+	w.paused = false
+	running := w.running
+	stopping := w.stopping
+	w.mu.Unlock()
+
+	if running && !stopping {
+		return
+	}
+	go func() {
+		for i := 0; i < 20; i++ {
+			if !w.IsRunning() {
+				w.Start(ctx)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		w.Start(ctx)
 	}()
 }
 
 func (w *CameraWorker) Stop() {
-	if w.cancel != nil {
-		w.cancel()
+	w.mu.Lock()
+	cancel := w.cancel
+	running := w.loopRunning
+	w.paused = false
+	w.stopping = true
+	w.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
+	w.stopProcess()
+	if !running {
+		w.markStopped(w.runID)
+	}
+}
+
+func (w *CameraWorker) stopProcess() {
+	w.mu.RLock()
+	cmd := w.cmd
+	w.mu.RUnlock()
+	if cmd != nil && cmd.Process != nil {
+		log.Printf("[DEBUG] killing process %d for %s", cmd.Process.Pid, w.CameraID)
+		// On Windows, Kill() is sometimes unreliable for GStreamer.
+		// Force kill with taskkill to ensure the process is gone.
+		_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid)).Run()
+		_ = cmd.Process.Kill()
+	}
+}
+
+func (w *CameraWorker) cleanupEmptyRunDir() {
+	w.mu.RLock()
+	dir := w.currentDir
+	w.mu.RUnlock()
+	if dir != "" {
+		_ = os.Remove(dir)
+	}
+}
+
+func (w *CameraWorker) HasLicense() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.licenseHeld
+}
+
+func (w *CameraWorker) SetLicenseHeld(v bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.licenseHeld = v
+}
+
+func (w *CameraWorker) SetThrottled() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.running {
+		w.State = StateThrottledByLicense
+		w.lastErr = "recording license quota exceeded"
+	}
+}
+
+func (w *CameraWorker) markRecording(runID uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	w.State = StateRecording
+	w.retries = 0
+	w.lastErr = ""
+	w.lastBeat = time.Now()
+}
+
+func (w *CameraWorker) markError(runID uint64, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	w.State = StateError
+	w.retries++
+	if err != nil {
+		w.lastErr = err.Error()
+	}
+}
+
+func (w *CameraWorker) setStopped() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.running = false
+	w.loopRunning = false
+	w.State = StateStopped
+}
+
+func (w *CameraWorker) markStopped(runID uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	if w.paused {
+		w.State = StatePaused
+	} else {
+		w.State = StateStopped
+	}
+	w.cmd = nil
+}
+
+func (w *CameraWorker) finishRun(runID uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	w.cmd = nil
+	w.cancel = nil
+	w.running = false
+	w.stopping = false
+}
+
+func (w *CameraWorker) clearProcessHandle(runID uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	w.cmd = nil
+}
+
+func (w *CameraWorker) touchHeartbeat(runID uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.runID != runID {
+		return
+	}
+	w.lastBeat = time.Now()
+}
+
+func (w *CameraWorker) isIntentionalStop(runID uint64) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.runID == runID && (w.stopping || w.paused)
+}
+
+func (w *CameraWorker) waitBackoff(ctx context.Context, runID uint64) bool {
+	w.mu.RLock()
+	retries := w.retries
+	validRun := w.runID == runID
+	backoffBase := w.Config.FailoverRecovery.RestartBackoffSec
+	w.mu.RUnlock()
+	if !validRun {
+		return false
+	}
+	if backoffBase <= 0 {
+		backoffBase = 5
+	}
+	backoff := time.Duration(max(2, backoffBase*max(1, retries))) * time.Second
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(backoff):
+		return true
+	}
+}
+
+func (w *CameraWorker) currentCmd() *exec.Cmd {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.cmd
+}
+
+func (w *CameraWorker) cameraCodec() string {
+	c := strings.ToLower(strings.TrimSpace(w.Camera.Codec))
+	if c == "" {
+		return "h265"
+	}
+	return c
+}
+
+func (w *CameraWorker) cameraSegmentFormat() string {
+	f := strings.ToLower(strings.TrimSpace(w.Camera.SegmentFormat))
+	if f == "" {
+		return "mkv"
+	}
+	return f
+}
+
+func (w *CameraWorker) segmentExt() string {
+	switch w.cameraSegmentFormat() {
+	case "mp4":
+		return ".mp4"
+	default:
+		return ".mkv"
+	}
+}
+
+func (w *CameraWorker) rtspTransport() string {
+	t := strings.ToLower(strings.TrimSpace(w.Camera.RTSPTransport))
+	if t == "udp" {
+		return "udp"
+	}
+	return "tcp"
+}
+
+func (w *CameraWorker) gstRecorderArgs(pattern string) []string {
+	latency := 200
+	if w.Config != nil && w.Config.Performance.Pipeline.RTSPSrcLatencyMs > 0 {
+		latency = w.Config.Performance.Pipeline.RTSPSrcLatencyMs
+	}
+	segmentNs := int64(w.Config.Global.SegmentDurationSec) * int64(time.Second)
+	if segmentNs <= 0 {
+		segmentNs = int64(60 * time.Second)
+	}
+
+	base := []string{
+		"-e",
+		"rtspsrc",
+		"location=" + w.Camera.RtspURL,
+	}
+
+	if w.Camera.Username != "" {
+		base = append(base, "user-id="+w.Camera.Username)
+	}
+	if w.Camera.Password != "" {
+		base = append(base, "user-pw="+w.Camera.Password)
+	}
+
+	base = append(base,
+		"protocols="+w.rtspTransport(),
+		"latency="+fmt.Sprintf("%d", latency),
+		"timeout=10000000",     // 10s timeout for generic RTSP operations
+		"tcp-timeout=10000000", // 10s timeout for TCP connections
+		"!",
+	)
+
+	switch w.cameraCodec() {
+	case "h264":
+		base = append(base,
+			"rtph264depay",
+			"!", "h264parse", "config-interval=-1",
+		)
+	default:
+		base = append(base,
+			"rtph265depay",
+			"!", "h265parse", "config-interval=-1",
+		)
+	}
+
+	switch w.cameraSegmentFormat() {
+	case "mp4":
+		base = append(base,
+			"!", "splitmuxsink",
+			"location="+gstPath(pattern),
+			"max-size-time="+fmt.Sprintf("%d", segmentNs),
+			"async-finalize=true",
+			"muxer-factory=mp4mux",
+			"muxer-properties=properties,streamable=true",
+		)
+	default:
+		base = append(base,
+			"!", "splitmuxsink",
+			"location="+gstPath(pattern),
+			"max-size-time="+fmt.Sprintf("%d", segmentNs),
+			"async-finalize=true",
+			"muxer-factory=matroskamux",
+			"muxer-properties=properties,streamable=true",
+		)
+	}
+
+	return base
+}
+
+func (w *CameraWorker) Status() map[string]any {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return map[string]any{
+		"camera_id":      w.CameraID,
+		"state":          w.State,
+		"last_error":     w.lastErr,
+		"last_heartbeat": w.lastBeat,
+		"retries":        w.retries,
+		"running":        w.running,
+		"paused":         w.paused,
+		"license_held":   w.licenseHeld,
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 
@@ -24459,6 +26343,12 @@ func NewFileSystemEnumerator() *FileSystemEnumerator {
 	return &FileSystemEnumerator{}
 }
 
+func (e *FileSystemEnumerator) isVideoSegment(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	// Accept new MKV files AND legacy MP4 files
+	return ext == ".mkv" || ext == ".mp4"
+}
+
 func (e *FileSystemEnumerator) Enumerate(volumeRoot string) ([]SegmentMeta, error) {
 	var segments []SegmentMeta
 
@@ -24467,7 +26357,7 @@ func (e *FileSystemEnumerator) Enumerate(volumeRoot string) ([]SegmentMeta, erro
 			return nil
 		}
 
-		if strings.ToLower(filepath.Ext(path)) != ".mp4" {
+		if !e.isVideoSegment(path) {
 			return nil
 		}
 
@@ -25377,8 +27267,8 @@ func (p *Planner) EnsureDir(path string) error {
 
 // SegmentFileName computes stable, sortable file names for recorded segments
 func (p *Planner) SegmentFileName(cameraID string, startTs time.Time, durationSec int, seq int) string {
-	// format: <cam>_<unix_ms>_<duration>_<seq>.mp4
-	return fmt.Sprintf("%s_%d_%d_%05d.mp4", cameraID, startTs.UnixMilli(), durationSec, seq)
+	// format: <cam>_<unix_ms>_<duration>_<seq>.mkv
+	return fmt.Sprintf("%s_%d_%d_%05d.mkv", cameraID, startTs.UnixMilli(), durationSec, seq)
 }
 
 // ChooseVolume finds the best contiguous volume on disk based on Tier, Priority, and active quotas.
@@ -25506,7 +27396,7 @@ func TestSegmentFileName(t *testing.T) {
 	ts := time.UnixMilli(1708945200000)
 
 	actual := p.SegmentFileName("camX", ts, 60, 42)
-	expected := "camX_1708945200000_60_00042.mp4"
+	expected := "camX_1708945200000_60_00042.mkv"
 	if actual != expected {
 		t.Fatalf("SegmentFileName failed.\nGot: %s\nExp: %s", actual, expected)
 	}

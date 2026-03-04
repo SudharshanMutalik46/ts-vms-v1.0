@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -85,7 +87,8 @@ func main() {
 
 	// 3. Perform pre-startup recovery tasks
 	slog.Info("Starting VMS Recording Startup Sequence...")
-	recScanner.RunReconciliation([]string{"C:\\"})
+	_, _, _ = recScanner.Scan([]string{"."})
+	slog.Info("recovery.scanner.complete")
 
 	plan1 := recMgr.EvaluateResume("cam-01") // Normal resume
 	plan2 := recMgr.EvaluateResume("cam-02") // Corrupt segment resume
@@ -112,6 +115,8 @@ func main() {
 	hm := health.NewManager(healthCfg)
 	http.HandleFunc("/status", health.StatusHandler(hm))
 
-	slog.Info("Test harness running on :8082")
-	http.ListenAndServe(":8082", nil)
+	slog.Info("Test harness running on :8099")
+	if err := http.ListenAndServe(":8099", nil); err != nil {
+		slog.Error("Failed to start server", "err", err)
+	}
 }

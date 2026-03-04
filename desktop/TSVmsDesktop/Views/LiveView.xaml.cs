@@ -78,11 +78,15 @@ namespace TSVmsDesktop.Views
 
         private async void CameraGrid_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (e.ClickCount == 2)
+            if (sender is FrameworkElement element && element.DataContext is CameraSlot slot)
             {
-                if (sender is FrameworkElement element && element.DataContext is CameraSlot slot)
+                if (this.DataContext is LiveViewModel vm)
                 {
-                    if (this.DataContext is LiveViewModel vm)
+                    if (e.ClickCount == 1)
+                    {
+                        vm.SelectSlot(slot);
+                    }
+                    else if (e.ClickCount == 2)
                     {
                         await vm.EnterFullScreen(slot);
                     }

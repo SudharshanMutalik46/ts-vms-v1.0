@@ -1,0 +1,16 @@
+PATCH: MainWindow.xaml
+=====================
+
+1) Make sure the views namespace exists if it does not already:
+
+xmlns:views="clr-namespace:TSVmsDesktop.Views"
+xmlns:vm="clr-namespace:TSVmsDesktop.ViewModels"
+
+2) Add a DataTemplate for PlaybackViewModel in the Window/UserControl resources where the other view model templates live:
+
+<DataTemplate DataType="{x:Type vm:PlaybackViewModel}">
+    <views:PlaybackView />
+</DataTemplate>
+
+3) Keep the existing Playback navigation button.
+You do NOT need to redesign navigation if MainViewModel.NavigateToPlayback() already exists.

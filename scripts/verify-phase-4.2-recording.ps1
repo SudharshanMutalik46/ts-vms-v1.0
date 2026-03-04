@@ -13,6 +13,8 @@ go test ./internal/recording/...
 
 # 3. Start Service in Background
 Write-Host "Starting Background Service..." -ForegroundColor Yellow
+$env:TS_VMS_DSN = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
+$env:TS_VMS_SERVICE_KEY = "your_shared_service_key"
 $process = Start-Process -FilePath ".\bin\vms-recording-bin.exe" -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 3 # Wait for boot
 
@@ -46,7 +48,7 @@ try {
 }
 finally {
     Write-Host "Cleaning up service..."
-    Stop-Process -Id $process.Id -Force
+    if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host "Verification Complete!" -ForegroundColor Cyan

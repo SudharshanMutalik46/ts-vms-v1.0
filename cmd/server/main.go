@@ -33,6 +33,7 @@ import (
 	"github.com/technosupport/ts-vms/internal/platform/paths"
 	"github.com/technosupport/ts-vms/internal/platform/windows"
 	"github.com/technosupport/ts-vms/internal/ratelimit"
+	"github.com/technosupport/ts-vms/internal/recording"
 	"github.com/technosupport/ts-vms/internal/session"
 	"github.com/technosupport/ts-vms/internal/sfu"
 	"github.com/technosupport/ts-vms/internal/tokens"
@@ -165,9 +166,14 @@ func main() {
 	licenseScheduler.Start(context.Background())
 
 	// 3.1 Camera Components (Phase 2.1)
+	// 3.1 Camera Components (Phase 2.1)
 	camRepo := data.CameraModel{DB: db}
 	camService := cameras.NewService(camRepo, licenseManager, auditService)
 	camHandler := api.NewCameraHandler(camService)
+
+	// Recording Components (Phase 5)
+	recordingStore := recording.NewPostgresStore(db)
+	recordingAPI := &api.RecordingAPI{DB: recordingStore}
 
 	// Crypto Components (Phase 2.2)
 	keyring := crypto.NewKeyring()
@@ -519,6 +525,11 @@ func main() {
 	// Phase 3.8: Internal AI Service
 	mux.Handle("POST /api/v1/internal/detections", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.IngestDetection)))
 	mux.Handle("GET /api/v1/internal/cameras/active", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetActiveCameras)))
+
+	// Phase 5: Recording & Playback
+	mux.Handle("GET /api/v1/recording/cameras/{id}/segments", Protect(http.HandlerFunc(recordingAPI.HandleGetSegments)))
+	mux.Handle("POST /api/v1/recording/events", Protect(http.HandlerFunc(recordingAPI.HandleCreateEvent)))
+	mux.Handle("POST /api/v1/recording/link-segment", Protect(http.HandlerFunc(recordingAPI.HandleLinkSegment)))
 
 	mux.Handle("GET /api/v1/internal/cameras/{id}/snapshot", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetInternalSnapshot)))
 

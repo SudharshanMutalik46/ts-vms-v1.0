@@ -115,6 +115,11 @@ We have successfully completed the foundation and security layer of the VMS:
   - **Scale & Tuning (4.11)**: Tuned for 128 high-bitrate cameras simultaneously (500+ MB/s, <4GB RAM, <2s Latency).
   - **Phase 4 Verification Suite**: Automated gatekeeper suite proving all scale requirements passed (`run-all-phase4.ps1`).
 
+- **Phase 9: Playback & Export UI (In Progress)**
+  - **Playback Implementation**: WPF embedded native C++ playbin with auto-segment sequence playback.
+  - **Native Rotation Control (Patch 2)**: Zero-latency sideways video correction within the C++ pipeline via `videoflip`.
+  - **UX Polish**: Latest segment auto-select, preload caching, collapsible diagnostic views, and full keyboard/mouse transport controls.
+
 ---
 
 ## 🚀 Quick Start (Clone & Run)

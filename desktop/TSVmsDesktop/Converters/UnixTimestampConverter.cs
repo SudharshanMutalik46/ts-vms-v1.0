@@ -1,0 +1,24 @@
+using System;
+using System.Globalization;
+using System.Windows.Data;
+
+namespace TSVmsDesktop.Converters
+{
+    public class UnixTimestampConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is long unixSeconds)
+            {
+                var dt = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime;
+                return dt.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            return value?.ToString() ?? "";
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+}

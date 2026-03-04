@@ -1,0 +1,14 @@
+PATCH: TSVmsDesktop.csproj
+========================
+
+Add this ItemGroup so the native DLL is copied to the output directory if it is placed under native\win-x64\ in the project:
+
+<ItemGroup>
+  <None Update="native\win-x64\TSVmsPlaybackEngine.dll">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+
+Optional but recommended:
+- keep <UseWPF>true</UseWPF>
+- keep <UseWindowsForms>true</UseWindowsForms> if the repo still uses WinForms dialogs elsewhere

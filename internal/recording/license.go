@@ -19,7 +19,7 @@ func (l *LicenseGate) TryAcquire(camID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.activeCount >= l.maxCameras {
+	if l.maxCameras > 0 && l.activeCount >= l.maxCameras {
 		log.Printf("[ALERT] recording.license.denied | camera_id=%s reason=quota_exceeded active=%d max=%d", camID, l.activeCount, l.maxCameras)
 		return false
 	}

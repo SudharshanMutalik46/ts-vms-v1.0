@@ -91,8 +91,8 @@ func (p *Planner) EnsureDir(path string) error {
 
 // SegmentFileName computes stable, sortable file names for recorded segments
 func (p *Planner) SegmentFileName(cameraID string, startTs time.Time, durationSec int, seq int) string {
-	// format: <cam>_<unix_ms>_<duration>_<seq>.mp4
-	return fmt.Sprintf("%s_%d_%d_%05d.mp4", cameraID, startTs.UnixMilli(), durationSec, seq)
+	// format: <cam>_<unix_ms>_<duration>_<seq>.mkv
+	return fmt.Sprintf("%s_%d_%d_%05d.mkv", cameraID, startTs.UnixMilli(), durationSec, seq)
 }
 
 // ChooseVolume finds the best contiguous volume on disk based on Tier, Priority, and active quotas.

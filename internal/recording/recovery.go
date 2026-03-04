@@ -1,37 +1,28 @@
 package recording
 
 import (
+	"context"
 	"log"
 	"os"
 )
 
-type IRecoveryHooks interface {
-	OnStartupScan()
-}
-
-type Phase43RecoveryStub struct{}
-
-func (p *Phase43RecoveryStub) OnStartupScan() {
-	log.Println("[RECOVERY] Phase 4.3 will handle tmp file cleanup and corruption scanning here.")
-}
-
 type RecoveryManager struct {
 	PidPath string
-	Hooks   IRecoveryHooks
+	Run     func(context.Context) error
 }
 
-func (r *RecoveryManager) CheckAndProtect() {
+func (r *RecoveryManager) CheckAndProtect(ctx context.Context) error {
 	if _, err := os.Stat(r.PidPath); err == nil {
-		log.Println("[WARNING] PID file found on boot! Previous shutdown was abnormal (Crash/Power Loss).")
-		log.Println("[RECOVERY] Initiating recovery routines...")
-		r.Hooks.OnStartupScan()
+		log.Println("[WARNING] abnormal previous shutdown detected, running startup recovery")
+		if r.Run != nil {
+			if err := r.Run(ctx); err != nil {
+				return err
+			}
+		}
 	}
-
-	// Create new PID marker
-	_ = os.WriteFile(r.PidPath, []byte("running"), 0644)
+	return os.WriteFile(r.PidPath, []byte("running"), 0o644)
 }
 
 func (r *RecoveryManager) CleanExit() {
 	_ = os.Remove(r.PidPath)
-	log.Println("[INFO] Clean exit, PID file removed.")
 }

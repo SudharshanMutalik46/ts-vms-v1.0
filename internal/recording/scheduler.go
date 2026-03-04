@@ -12,14 +12,31 @@ type ScheduleEngine struct {
 }
 
 func NewScheduleEngine(schedules []ScheduleConfig) *ScheduleEngine {
-	cfgMap := make(map[string]ScheduleConfig)
-	for _, s := range schedules {
-		cfgMap[s.CameraID] = s
-	}
-	return &ScheduleEngine{
-		configs:        cfgMap,
+	s := &ScheduleEngine{
+		configs:        make(map[string]ScheduleConfig),
 		eventDeadlines: make(map[string]time.Time),
 	}
+	s.UpdateConfigs(schedules)
+	return s
+}
+
+func (s *ScheduleEngine) UpdateConfigs(schedules []ScheduleConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.configs = make(map[string]ScheduleConfig, len(schedules))
+	for _, cfg := range schedules {
+		s.configs[cfg.CameraID] = cfg
+	}
+}
+
+func (s *ScheduleEngine) Snapshot() []ScheduleConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ScheduleConfig, 0, len(s.configs))
+	for _, cfg := range s.configs {
+		out = append(out, cfg)
+	}
+	return out
 }
 
 func (s *ScheduleEngine) TriggerEvent(cameraID string, durationSec int) {
@@ -32,28 +49,25 @@ func (s *ScheduleEngine) ShouldRecord(cameraID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 1. Check Event Overrides first
-	if deadline, exists := s.eventDeadlines[cameraID]; exists {
-		if time.Now().Before(deadline) {
-			return true
-		}
-	}
-
-	cfg, exists := s.configs[cameraID]
-	if !exists {
-		return false
-	}
-
-	if cfg.Type == "24x7" {
+	if deadline, ok := s.eventDeadlines[cameraID]; ok && time.Now().Before(deadline) {
 		return true
 	}
 
+	cfg, ok := s.configs[cameraID]
+	if !ok {
+		return true
+	}
+	if cfg.Type == "24x7" || cfg.Type == "" {
+		return true
+	}
+	if cfg.Type == "event_triggered" {
+		return false
+	}
 	if cfg.Type == "time_window" {
 		now := time.Now()
-		dayStr := now.Weekday().String()
-		dayMatch := false
+		dayMatch := len(cfg.Days) == 0
 		for _, d := range cfg.Days {
-			if d == dayStr {
+			if d == now.Weekday().String() {
 				dayMatch = true
 				break
 			}
@@ -61,12 +75,8 @@ func (s *ScheduleEngine) ShouldRecord(cameraID string) bool {
 		if !dayMatch {
 			return false
 		}
-
-		currentHHMM := now.Format("15:04")
-		if currentHHMM >= cfg.StartTime && currentHHMM <= cfg.EndTime {
-			return true
-		}
+		hhmm := now.Format("15:04")
+		return hhmm >= cfg.StartTime && hhmm <= cfg.EndTime
 	}
-
 	return false
 }

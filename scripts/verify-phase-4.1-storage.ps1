@@ -1,9 +1,9 @@
 Write-Host "TS-VMS Phase 4.1 Storage Architecture Verification" -ForegroundColor Cyan
 
 # 1. Load config
-$schema = ".\config\storage.yaml"
+$schema = "$PSScriptRoot\..\config\storage.yaml"
 if (!(Test-Path $schema)) {
-    Write-Error "storage.yaml not found!"
+    Write-Error "storage.yaml not found at $schema!"
     exit 1
 }
 Write-Host "[x] Config $schema found." -ForegroundColor Green
@@ -45,7 +45,7 @@ foreach ($v in $volumes) {
 
 # 4. Run Go unit tests
 Write-Host "`n[x] Running Go Planner Unit Tests:" -ForegroundColor Green
-pushd ".\internal\storage"
+pushd "$PSScriptRoot\..\internal\storage"
 $testOutput = go test -v
 Write-Host ($testOutput | Out-String)
 if ($LASTEXITCODE -ne 0) {

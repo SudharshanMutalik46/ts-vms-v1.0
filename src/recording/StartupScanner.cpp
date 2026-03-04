@@ -28,6 +28,25 @@ bool StartupScanner::IsValidMP4(const std::string& filepath) {
     return false;
 }
 
+bool IsValidMKV(const std::string& filepath) {
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file.is_open()) return false;
+    
+    unsigned char header[4];
+    file.read(reinterpret_cast<char*>(header), 4);
+    
+    // Check for standard MKV EBML Header: 1A 45 DF A3
+    if (file.gcount() == 4 && 
+        header[0] == 0x1A && header[1] == 0x45 && 
+        header[2] == 0xDF && header[3] == 0xA3) {
+        
+        // Ensure file isn't 0 bytes
+        file.seekg(0, std::ios::end);
+        return file.tellg() > 4; 
+    }
+    return false;
+}
+
 ScanReport StartupScanner::ScanAndClean(const std::string& root_dir, int tmp_ttl_minutes) {
     ScanReport report;
     if (!fs::exists(root_dir)) return report;
@@ -48,6 +67,16 @@ ScanReport StartupScanner::ScanAndClean(const std::string& root_dir, int tmp_ttl
                 fs::remove(entry.path());
                 report.tmp_deleted++;
                 report.affected_paths.push_back("DELETED TMP: " + path);
+            }
+        } else if (ext == ".mkv") {
+            if (!IsValidMKV(path)) {
+                fs::path corrupt_dir = fs::path(root_dir) / "corrupt";
+                fs::create_directories(corrupt_dir);
+                fs::path dest = corrupt_dir / entry.path().filename();
+                
+                fs::rename(entry.path(), dest);
+                report.mp4_quarantined++;
+                report.affected_paths.push_back("QUARANTINED: " + path);
             }
         } else if (ext == ".mp4") {
             if (!IsValidMP4(path)) {

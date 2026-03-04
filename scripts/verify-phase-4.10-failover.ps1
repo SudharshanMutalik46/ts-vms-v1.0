@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "Building Phase 4.10 Failover Test Harness..." -ForegroundColor Cyan
-go build -o vms-recovery-test.exe .\cmd\vms-recovery-test\main.go
+go build -o vms-recovery-test.exe "$PSScriptRoot\..\cmd\vms-recovery-test\main.go"
 
 function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
     Write-Host "`n=== Running Scenario: $Name ===" -ForegroundColor Yellow
@@ -29,7 +29,7 @@ function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
     }
     else {
         try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:8082/readyz" -UseBasicParsing
+            $resp = Invoke-WebRequest -Uri "http://localhost:8099/readyz" -UseBasicParsing
             if ($resp.StatusCode -eq 200 -and $ExpectedHttp -eq 200) {
                 Write-Host "[OK] Readiness is 200 OK!" -ForegroundColor Green
             }
@@ -56,7 +56,7 @@ function Run-Scenario ($Name, $ScenarioArgs, $ExpectedHttp, $ExpectedLog) {
             Write-Error "Failed to find expected log: $ExpectedLog"
         }
 
-        Stop-Process -Id $proc.Id -Force
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
     }
 }
 

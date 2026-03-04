@@ -200,6 +200,12 @@ namespace TSVmsDesktop.Services
             return false;
         }
 
+        public Task<HttpResponseMessage> GetAsync(string uri)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            return SendAsync(req);
+        }
+
         public async Task<T?> GetAsync<T>(string uri)
         {
             var req = new HttpRequestMessage(HttpMethod.Get, uri);

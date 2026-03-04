@@ -1,5 +1,5 @@
 ﻿=== DB LLM Bundle (ts_vms_1.0\\db) ===
-Generated: 2026-02-26T18:14:36
+Generated: 2026-03-04T11:16:59
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\db
 
 
@@ -1230,5 +1230,38 @@ CREATE TABLE IF NOT EXISTS recording_schedules (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(camera_id) -- One active schedule per camera for simplicity
+);
+
+
+================ FILE: migrations\000027_recording_exports_and_recovery.up.sql ================
+
+ALTER TABLE recording_segments
+    ADD COLUMN IF NOT EXISTS is_missing_on_disk BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS quarantine_path TEXT,
+    ADD COLUMN IF NOT EXISTS last_seen_on_disk TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE recording_segments
+    ADD COLUMN IF NOT EXISTS is_corrupt BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS recording_exports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    camera_id VARCHAR(255) NOT NULL,
+    from_ts TIMESTAMPTZ NOT NULL,
+    to_ts TIMESTAMPTZ NOT NULL,
+    state VARCHAR(50) NOT NULL,
+    output_path TEXT,
+    error TEXT,
+    requested_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS recording_recovery_audit (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    path TEXT NOT NULL,
+    state VARCHAR(50) NOT NULL,
+    detail TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -1,8 +1,10 @@
 segment_writer:
   segment_duration_sec: 300
   tmp_ext: ".tmp"
-  final_ext: ".mp4"
+  final_ext: ".mkv"
   tmp_ttl_minutes: 10
   enable_checksum: true
   prefer_tcp: true
   latency_ms: 200
+
+

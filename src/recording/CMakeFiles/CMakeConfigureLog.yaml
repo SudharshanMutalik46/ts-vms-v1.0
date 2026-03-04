@@ -35,8 +35,6 @@ events:
     found: "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCCompilerId.c.in"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -105,7 +103,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.23+b0019275e for .NET Framework
-      Build started 26-02-2026 18:06:55.
+      Build started 02-03-2026 17:52:58.
       
       Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\4.2.1\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -134,7 +132,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.66
+      Time Elapsed 00:00:02.75
       
       
       Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
@@ -167,8 +165,6 @@ events:
       - "link"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -199,6 +195,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -212,8 +209,6 @@ events:
     found: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -289,8 +284,6 @@ events:
       - "lld-link"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -321,6 +314,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -333,12 +327,6 @@ events:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.com"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.exe"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link"
-      - "C:/Program Files/Google/Chrome/Application/lld-link.com"
-      - "C:/Program Files/Google/Chrome/Application/lld-link.exe"
-      - "C:/Program Files/Google/Chrome/Application/lld-link"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link.com"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link.exe"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link"
@@ -429,6 +417,9 @@ events:
       - "C:/Users/sudha/go/bin/lld-link.com"
       - "C:/Users/sudha/go/bin/lld-link.exe"
       - "C:/Users/sudha/go/bin/lld-link"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.com"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.exe"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link.com"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link.exe"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link"
@@ -456,8 +447,6 @@ events:
     found: false
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -531,8 +520,6 @@ events:
       - "link"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -563,6 +550,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -576,8 +564,6 @@ events:
     found: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -651,8 +637,6 @@ events:
       - "mt"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -683,6 +667,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -695,12 +680,6 @@ events:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.com"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.exe"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt.com"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt.exe"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt"
-      - "C:/Program Files/Google/Chrome/Application/mt.com"
-      - "C:/Program Files/Google/Chrome/Application/mt.exe"
-      - "C:/Program Files/Google/Chrome/Application/mt"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/mt.com"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/mt.exe"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/mt"
@@ -791,6 +770,9 @@ events:
       - "C:/Users/sudha/go/bin/mt.com"
       - "C:/Users/sudha/go/bin/mt.exe"
       - "C:/Users/sudha/go/bin/mt"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt.com"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt.exe"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/mt"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/mt.com"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/mt.exe"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/mt"
@@ -818,8 +800,6 @@ events:
     found: false
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -893,8 +873,6 @@ events:
       - "lib"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -925,6 +903,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -938,8 +917,6 @@ events:
     found: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -1019,8 +996,6 @@ events:
     found: "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCXXCompilerId.cpp.in"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -1089,7 +1064,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.23+b0019275e for .NET Framework
-      Build started 26-02-2026 18:06:56.
+      Build started 02-03-2026 17:53:02.
       
       Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\4.2.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -1118,7 +1093,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.73
+      Time Elapsed 00:00:01.47
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -1151,8 +1126,6 @@ events:
       - "lld-link"
     candidate_directories:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -1183,6 +1156,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -1195,12 +1169,6 @@ events:
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
       - "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.com"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.exe"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link"
-      - "C:/Program Files/Google/Chrome/Application/lld-link.com"
-      - "C:/Program Files/Google/Chrome/Application/lld-link.exe"
-      - "C:/Program Files/Google/Chrome/Application/lld-link"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link.com"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link.exe"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/lld-link"
@@ -1291,6 +1259,9 @@ events:
       - "C:/Users/sudha/go/bin/lld-link.com"
       - "C:/Users/sudha/go/bin/lld-link.exe"
       - "C:/Users/sudha/go/bin/lld-link"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.com"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link.exe"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/lld-link"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link.com"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link.exe"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/lld-link"
@@ -1318,8 +1289,6 @@ events:
     found: false
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -1395,8 +1364,6 @@ events:
     names:
       - "rc"
     candidate_directories:
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -1427,6 +1394,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -1448,12 +1416,6 @@ events:
       - "C:/Program Files (x86)/vms-recording-harnesses/sbin/"
       - "C:/Program Files (x86)/vms-recording-harnesses/"
     searched_directories:
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc.com"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc.exe"
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc"
-      - "C:/Program Files/Google/Chrome/Application/rc.com"
-      - "C:/Program Files/Google/Chrome/Application/rc.exe"
-      - "C:/Program Files/Google/Chrome/Application/rc"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/rc.com"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/rc.exe"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/rc"
@@ -1544,6 +1506,9 @@ events:
       - "C:/Users/sudha/go/bin/rc.com"
       - "C:/Users/sudha/go/bin/rc.exe"
       - "C:/Users/sudha/go/bin/rc"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc.com"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc.exe"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/rc"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/rc.com"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/rc.exe"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/rc"
@@ -1607,8 +1572,6 @@ events:
     found: false
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -1676,8 +1639,8 @@ events:
     checks:
       - "Detecting C compiler ABI info"
     directories:
-      source: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-4yodis"
-      binary: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-4yodis"
+      source: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-wdkgdi"
+      binary: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-wdkgdi"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1686,39 +1649,39 @@ events:
       variable: "CMAKE_C_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-4yodis'
+        Change Dir: 'C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-wdkgdi'
         
-        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_9437f.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_4dabb.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 26-02-2026 18:06:57.
+        Build started 02-03-2026 17:53:04.
         
-        Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-4yodis\\cmTC_9437f.vcxproj" on node 1 (default targets).
+        Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-wdkgdi\\cmTC_4dabb.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-4yodis\\Debug\\".
-          Creating directory "cmTC_9437f.dir\\Debug\\cmTC_9437f.tlog\\".
+          Creating directory "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-wdkgdi\\Debug\\".
+          Creating directory "cmTC_4dabb.dir\\Debug\\cmTC_4dabb.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_9437f.dir\\Debug\\cmTC_9437f.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_9437f.dir\\Debug\\cmTC_9437f.tlog\\unsuccessfulbuild".
+          Creating "cmTC_4dabb.dir\\Debug\\cmTC_4dabb.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_4dabb.dir\\Debug\\cmTC_4dabb.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_9437f.dir\\Debug\\\\" /Fd"cmTC_9437f.dir\\Debug\\vc143.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCCompilerABI.c"
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_4dabb.dir\\Debug\\\\" /Fd"cmTC_4dabb.dir\\Debug\\vc143.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCCompilerABI.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35222 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_9437f.dir\\Debug\\\\" /Fd"cmTC_9437f.dir\\Debug\\vc143.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCCompilerABI.c"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_4dabb.dir\\Debug\\\\" /Fd"cmTC_4dabb.dir\\Debug\\vc143.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCCompilerABI.c"
           CMakeCCompilerABI.c
         Link:
-          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-4yodis\\Debug\\cmTC_9437f.exe" /INCREMENTAL /ILK:"cmTC_9437f.dir\\Debug\\cmTC_9437f.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-4yodis/Debug/cmTC_9437f.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-4yodis/Debug/cmTC_9437f.lib" /MACHINE:X64  /machine:x64 cmTC_9437f.dir\\Debug\\CMakeCCompilerABI.obj
-          cmTC_9437f.vcxproj -> C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-4yodis\\Debug\\cmTC_9437f.exe
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-wdkgdi\\Debug\\cmTC_4dabb.exe" /INCREMENTAL /ILK:"cmTC_4dabb.dir\\Debug\\cmTC_4dabb.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-wdkgdi/Debug/cmTC_4dabb.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-wdkgdi/Debug/cmTC_4dabb.lib" /MACHINE:X64  /machine:x64 cmTC_4dabb.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_4dabb.vcxproj -> C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-wdkgdi\\Debug\\cmTC_4dabb.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_9437f.dir\\Debug\\cmTC_9437f.tlog\\unsuccessfulbuild".
-          Touching "cmTC_9437f.dir\\Debug\\cmTC_9437f.tlog\\cmTC_9437f.lastbuildstate".
-        Done Building Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-4yodis\\cmTC_9437f.vcxproj" (default targets).
+          Deleting file "cmTC_4dabb.dir\\Debug\\cmTC_4dabb.tlog\\unsuccessfulbuild".
+          Touching "cmTC_4dabb.dir\\Debug\\cmTC_4dabb.tlog\\cmTC_4dabb.lastbuildstate".
+        Done Building Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-wdkgdi\\cmTC_4dabb.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.68
+        Time Elapsed 00:00:01.37
         
       exitCode: 0
   -
@@ -1758,8 +1721,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-et0vp4"
-      binary: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-et0vp4"
+      source: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-9jam0t"
+      binary: "C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-9jam0t"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /GR /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1769,39 +1732,39 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-et0vp4'
+        Change Dir: 'C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-9jam0t'
         
-        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_7ab02.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_75f9b.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 26-02-2026 18:06:58.
+        Build started 02-03-2026 17:53:06.
         
-        Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-et0vp4\\cmTC_7ab02.vcxproj" on node 1 (default targets).
+        Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-9jam0t\\cmTC_75f9b.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-et0vp4\\Debug\\".
-          Creating directory "cmTC_7ab02.dir\\Debug\\cmTC_7ab02.tlog\\".
+          Creating directory "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-9jam0t\\Debug\\".
+          Creating directory "cmTC_75f9b.dir\\Debug\\cmTC_75f9b.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_7ab02.dir\\Debug\\cmTC_7ab02.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_7ab02.dir\\Debug\\cmTC_7ab02.tlog\\unsuccessfulbuild".
+          Creating "cmTC_75f9b.dir\\Debug\\cmTC_75f9b.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_75f9b.dir\\Debug\\cmTC_75f9b.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GR /Fo"cmTC_7ab02.dir\\Debug\\\\" /Fd"cmTC_7ab02.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCXXCompilerABI.cpp"
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GR /Fo"cmTC_75f9b.dir\\Debug\\\\" /Fd"cmTC_75f9b.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35222 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GR /Fo"cmTC_7ab02.dir\\Debug\\\\" /Fd"cmTC_7ab02.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GR /Fo"cmTC_75f9b.dir\\Debug\\\\" /Fd"cmTC_75f9b.dir\\Debug\\vc143.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.2\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-et0vp4\\Debug\\cmTC_7ab02.exe" /INCREMENTAL /ILK:"cmTC_7ab02.dir\\Debug\\cmTC_7ab02.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-et0vp4/Debug/cmTC_7ab02.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-et0vp4/Debug/cmTC_7ab02.lib" /MACHINE:X64  /machine:x64 cmTC_7ab02.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_7ab02.vcxproj -> C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-et0vp4\\Debug\\cmTC_7ab02.exe
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-9jam0t\\Debug\\cmTC_75f9b.exe" /INCREMENTAL /ILK:"cmTC_75f9b.dir\\Debug\\cmTC_75f9b.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-9jam0t/Debug/cmTC_75f9b.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/sudha/Desktop/ts_vms_1.0/src/recording/CMakeFiles/CMakeScratch/TryCompile-9jam0t/Debug/cmTC_75f9b.lib" /MACHINE:X64  /machine:x64 cmTC_75f9b.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_75f9b.vcxproj -> C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-9jam0t\\Debug\\cmTC_75f9b.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_7ab02.dir\\Debug\\cmTC_7ab02.tlog\\unsuccessfulbuild".
-          Touching "cmTC_7ab02.dir\\Debug\\cmTC_7ab02.tlog\\cmTC_7ab02.lastbuildstate".
-        Done Building Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-et0vp4\\cmTC_7ab02.vcxproj" (default targets).
+          Deleting file "cmTC_75f9b.dir\\Debug\\cmTC_75f9b.tlog\\unsuccessfulbuild".
+          Touching "cmTC_75f9b.dir\\Debug\\cmTC_75f9b.tlog\\cmTC_75f9b.lastbuildstate".
+        Done Building Project "C:\\Users\\sudha\\Desktop\\ts_vms_1.0\\src\\recording\\CMakeFiles\\CMakeScratch\\TryCompile-9jam0t\\cmTC_75f9b.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.87
+        Time Elapsed 00:00:01.42
         
       exitCode: 0
   -
@@ -1853,8 +1816,6 @@ events:
       - "pkg-config"
       - "pkgconf"
     candidate_directories:
-      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
-      - "C:/Program Files/Google/Chrome/Application/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/"
       - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/"
@@ -1885,6 +1846,7 @@ events:
       - "C:/ffmpeg/bin/"
       - "C:/onnxruntime/bin/"
       - "C:/Users/sudha/go/bin/"
+      - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/"
       - "C:/Users/sudha/Downloads/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev0/mingw64/bin/"
       - "C:/Users/sudha/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/"
       - "C:/Program Files/PostgreSQL/18/bin/"
@@ -1906,6 +1868,276 @@ events:
       - "C:/Program Files (x86)/vms-recording-harnesses/sbin/"
       - "C:/Program Files (x86)/vms-recording-harnesses/"
     searched_directories:
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config.bat"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkg-config"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkgconf.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkgconf.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin/pkgconf"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config.bat"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkg-config"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkgconf.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkgconf.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/libnvvp/pkgconf"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config.bat"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkg-config"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkgconf.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkgconf.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/x64/pkgconf"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config.bat"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkg-config"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkgconf.com"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkgconf.exe"
+      - "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/pkgconf"
+      - "C:/Windows/System32/pkg-config.bat.com"
+      - "C:/Windows/System32/pkg-config.bat.exe"
+      - "C:/Windows/System32/pkg-config.bat"
+      - "C:/Windows/System32/pkg-config.com"
+      - "C:/Windows/System32/pkg-config.exe"
+      - "C:/Windows/System32/pkg-config"
+      - "C:/Windows/System32/pkgconf.com"
+      - "C:/Windows/System32/pkgconf.exe"
+      - "C:/Windows/System32/pkgconf"
+      - "C:/Windows/pkg-config.bat.com"
+      - "C:/Windows/pkg-config.bat.exe"
+      - "C:/Windows/pkg-config.bat"
+      - "C:/Windows/pkg-config.com"
+      - "C:/Windows/pkg-config.exe"
+      - "C:/Windows/pkg-config"
+      - "C:/Windows/pkgconf.com"
+      - "C:/Windows/pkgconf.exe"
+      - "C:/Windows/pkgconf"
+      - "C:/Windows/System32/wbem/pkg-config.bat.com"
+      - "C:/Windows/System32/wbem/pkg-config.bat.exe"
+      - "C:/Windows/System32/wbem/pkg-config.bat"
+      - "C:/Windows/System32/wbem/pkg-config.com"
+      - "C:/Windows/System32/wbem/pkg-config.exe"
+      - "C:/Windows/System32/wbem/pkg-config"
+      - "C:/Windows/System32/wbem/pkgconf.com"
+      - "C:/Windows/System32/wbem/pkgconf.exe"
+      - "C:/Windows/System32/wbem/pkgconf"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config.bat.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config.bat.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config.bat"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkg-config"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkgconf.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkgconf.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/pkgconf"
+      - "C:/Windows/System32/OpenSSH/pkg-config.bat.com"
+      - "C:/Windows/System32/OpenSSH/pkg-config.bat.exe"
+      - "C:/Windows/System32/OpenSSH/pkg-config.bat"
+      - "C:/Windows/System32/OpenSSH/pkg-config.com"
+      - "C:/Windows/System32/OpenSSH/pkg-config.exe"
+      - "C:/Windows/System32/OpenSSH/pkg-config"
+      - "C:/Windows/System32/OpenSSH/pkgconf.com"
+      - "C:/Windows/System32/OpenSSH/pkgconf.exe"
+      - "C:/Windows/System32/OpenSSH/pkgconf"
+      - "C:/Program Files/nodejs/pkg-config.bat.com"
+      - "C:/Program Files/nodejs/pkg-config.bat.exe"
+      - "C:/Program Files/nodejs/pkg-config.bat"
+      - "C:/Program Files/nodejs/pkg-config.com"
+      - "C:/Program Files/nodejs/pkg-config.exe"
+      - "C:/Program Files/nodejs/pkg-config"
+      - "C:/Program Files/nodejs/pkgconf.com"
+      - "C:/Program Files/nodejs/pkgconf.exe"
+      - "C:/Program Files/nodejs/pkgconf"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config.bat.com"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config.bat.exe"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config.bat"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config.com"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config.exe"
+      - "C:/Program Files/cursor/resources/app/bin/pkg-config"
+      - "C:/Program Files/cursor/resources/app/bin/pkgconf.com"
+      - "C:/Program Files/cursor/resources/app/bin/pkgconf.exe"
+      - "C:/Program Files/cursor/resources/app/bin/pkgconf"
+      - "C:/Program Files/Git/cmd/pkg-config.bat.com"
+      - "C:/Program Files/Git/cmd/pkg-config.bat.exe"
+      - "C:/Program Files/Git/cmd/pkg-config.bat"
+      - "C:/Program Files/Git/cmd/pkg-config.com"
+      - "C:/Program Files/Git/cmd/pkg-config.exe"
+      - "C:/Program Files/Git/cmd/pkg-config"
+      - "C:/Program Files/Git/cmd/pkgconf.com"
+      - "C:/Program Files/Git/cmd/pkgconf.exe"
+      - "C:/Program Files/Git/cmd/pkgconf"
+      - "C:/Program Files/CMake/bin/pkg-config.bat.com"
+      - "C:/Program Files/CMake/bin/pkg-config.bat.exe"
+      - "C:/Program Files/CMake/bin/pkg-config.bat"
+      - "C:/Program Files/CMake/bin/pkg-config.com"
+      - "C:/Program Files/CMake/bin/pkg-config.exe"
+      - "C:/Program Files/CMake/bin/pkg-config"
+      - "C:/Program Files/CMake/bin/pkgconf.com"
+      - "C:/Program Files/CMake/bin/pkgconf.exe"
+      - "C:/Program Files/CMake/bin/pkgconf"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config.bat"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config.com"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config.exe"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkg-config"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkgconf.com"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkgconf.exe"
+      - "C:/Program Files/NVIDIA Corporation/Nsight Compute 2024.3.0/pkgconf"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config.bat.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config.bat.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config.bat"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkg-config"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkgconf.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkgconf.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/pkgconf"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config.bat.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config.bat.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config.bat"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkg-config"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkgconf.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkgconf.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA App/NvDLISR/pkgconf"
+      - "C:/Program Files/Go/bin/pkg-config.bat.com"
+      - "C:/Program Files/Go/bin/pkg-config.bat.exe"
+      - "C:/Program Files/Go/bin/pkg-config.bat"
+      - "C:/Program Files/Go/bin/pkg-config.com"
+      - "C:/Program Files/Go/bin/pkg-config.exe"
+      - "C:/Program Files/Go/bin/pkg-config"
+      - "C:/Program Files/Go/bin/pkgconf.com"
+      - "C:/Program Files/Go/bin/pkgconf.exe"
+      - "C:/Program Files/Go/bin/pkgconf"
+      - "C:/Program Files/dotnet/pkg-config.bat.com"
+      - "C:/Program Files/dotnet/pkg-config.bat.exe"
+      - "C:/Program Files/dotnet/pkg-config.bat"
+      - "C:/Program Files/dotnet/pkg-config.com"
+      - "C:/Program Files/dotnet/pkg-config.exe"
+      - "C:/Program Files/dotnet/pkg-config"
+      - "C:/Program Files/dotnet/pkgconf.com"
+      - "C:/Program Files/dotnet/pkgconf.exe"
+      - "C:/Program Files/dotnet/pkgconf"
+      - "C:/Program Files/Tailscale/pkg-config.bat.com"
+      - "C:/Program Files/Tailscale/pkg-config.bat.exe"
+      - "C:/Program Files/Tailscale/pkg-config.bat"
+      - "C:/Program Files/Tailscale/pkg-config.com"
+      - "C:/Program Files/Tailscale/pkg-config.exe"
+      - "C:/Program Files/Tailscale/pkg-config"
+      - "C:/Program Files/Tailscale/pkgconf.com"
+      - "C:/Program Files/Tailscale/pkgconf.exe"
+      - "C:/Program Files/Tailscale/pkgconf"
+      - "C:/Users/sudha/.cargo/bin/pkg-config.bat.com"
+      - "C:/Users/sudha/.cargo/bin/pkg-config.bat.exe"
+      - "C:/Users/sudha/.cargo/bin/pkg-config.bat"
+      - "C:/Users/sudha/.cargo/bin/pkg-config.com"
+      - "C:/Users/sudha/.cargo/bin/pkg-config.exe"
+      - "C:/Users/sudha/.cargo/bin/pkg-config"
+      - "C:/Users/sudha/.cargo/bin/pkgconf.com"
+      - "C:/Users/sudha/.cargo/bin/pkgconf.exe"
+      - "C:/Users/sudha/.cargo/bin/pkgconf"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config.bat.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config.bat.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config.bat"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkg-config"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkgconf.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkgconf.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/pkgconf"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config.bat.com"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config.bat.exe"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config.bat"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config.com"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config.exe"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkg-config"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkgconf.com"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkgconf.exe"
+      - "C:/Users/sudha/AppData/Local/Microsoft/WindowsApps/pkgconf"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config.bat.com"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config.bat.exe"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config.bat"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config.com"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config.exe"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkg-config"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkgconf.com"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkgconf.exe"
+      - "C:/Users/sudha/AppData/Local/PowerToys/DSCModules/pkgconf"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config.bat.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config.bat.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config.bat"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkg-config"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkgconf.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkgconf.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Microsoft VS Code/bin/pkgconf"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config.bat.com"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config.bat.exe"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config.bat"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config.com"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config.exe"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkg-config"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkgconf.com"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkgconf.exe"
+      - "C:/Users/sudha/AppData/Roaming/npm/pkgconf"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config.bat.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config.bat.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config.bat"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkg-config"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkgconf.com"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkgconf.exe"
+      - "C:/Users/sudha/AppData/Local/Programs/Antigravity/bin/pkgconf"
+      - "C:/Program Files/Git/pkg-config.bat.com"
+      - "C:/Program Files/Git/pkg-config.bat.exe"
+      - "C:/Program Files/Git/pkg-config.bat"
+      - "C:/Program Files/Git/pkg-config.com"
+      - "C:/Program Files/Git/pkg-config.exe"
+      - "C:/Program Files/Git/pkg-config"
+      - "C:/Program Files/Git/pkgconf.com"
+      - "C:/Program Files/Git/pkgconf.exe"
+      - "C:/Program Files/Git/pkgconf"
+      - "C:/ffmpeg/bin/pkg-config.bat.com"
+      - "C:/ffmpeg/bin/pkg-config.bat.exe"
+      - "C:/ffmpeg/bin/pkg-config.bat"
+      - "C:/ffmpeg/bin/pkg-config.com"
+      - "C:/ffmpeg/bin/pkg-config.exe"
+      - "C:/ffmpeg/bin/pkg-config"
+      - "C:/ffmpeg/bin/pkgconf.com"
+      - "C:/ffmpeg/bin/pkgconf.exe"
+      - "C:/ffmpeg/bin/pkgconf"
+      - "C:/onnxruntime/bin/pkg-config.bat.com"
+      - "C:/onnxruntime/bin/pkg-config.bat.exe"
+      - "C:/onnxruntime/bin/pkg-config.bat"
+      - "C:/onnxruntime/bin/pkg-config.com"
+      - "C:/onnxruntime/bin/pkg-config.exe"
+      - "C:/onnxruntime/bin/pkg-config"
+      - "C:/onnxruntime/bin/pkgconf.com"
+      - "C:/onnxruntime/bin/pkgconf.exe"
+      - "C:/onnxruntime/bin/pkgconf"
+      - "C:/Users/sudha/go/bin/pkg-config.bat.com"
+      - "C:/Users/sudha/go/bin/pkg-config.bat.exe"
+      - "C:/Users/sudha/go/bin/pkg-config.bat"
+      - "C:/Users/sudha/go/bin/pkg-config.com"
+      - "C:/Users/sudha/go/bin/pkg-config.exe"
+      - "C:/Users/sudha/go/bin/pkg-config"
+      - "C:/Users/sudha/go/bin/pkgconf.com"
+      - "C:/Users/sudha/go/bin/pkgconf.exe"
+      - "C:/Users/sudha/go/bin/pkgconf"
       - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/pkg-config.bat.com"
       - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/pkg-config.bat.exe"
       - "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/pkg-config.bat"
@@ -1913,8 +2145,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/pkg-config.exe"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -1999,8 +2229,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/gstapp-1.0.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -2089,8 +2317,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/gstbase-1.0.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -2179,8 +2405,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/gstreamer-1.0.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -2269,8 +2493,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/gobject-2.0.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -2359,8 +2581,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/glib-2.0.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"
@@ -2449,8 +2669,6 @@ events:
     found: "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/intl.lib"
     search_context:
       ENV{PATH}:
-        - "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\\\bin"
-        - "C:\\Program Files\\Google\\Chrome\\Application"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\libnvvp"
         - "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\x64"

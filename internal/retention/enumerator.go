@@ -30,6 +30,12 @@ func NewFileSystemEnumerator() *FileSystemEnumerator {
 	return &FileSystemEnumerator{}
 }
 
+func (e *FileSystemEnumerator) isVideoSegment(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	// Accept new MKV files AND legacy MP4 files
+	return ext == ".mkv" || ext == ".mp4"
+}
+
 func (e *FileSystemEnumerator) Enumerate(volumeRoot string) ([]SegmentMeta, error) {
 	var segments []SegmentMeta
 
@@ -38,7 +44,7 @@ func (e *FileSystemEnumerator) Enumerate(volumeRoot string) ([]SegmentMeta, erro
 			return nil
 		}
 
-		if strings.ToLower(filepath.Ext(path)) != ".mp4" {
+		if !e.isVideoSegment(path) {
 			return nil
 		}
 

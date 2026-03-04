@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Continue"
 
 Write-Host "Stopping Services..." -ForegroundColor Yellow
-Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server", "vms-recording-bin", "gst-launch-1.0" -Force -ErrorAction SilentlyContinue
 
 Start-Sleep -Seconds 2
 
@@ -24,6 +24,9 @@ $env:MASTER_KEYS = '[{"kid":"dev-1","material":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIz
 $env:ACTIVE_MASTER_KID = "dev-1"
 $env:AI_SERVICE_TOKEN = "dev_ai_secret"
 $env:SFU_SECRET = "sfu-internal-secret"
+$env:TS_VMS_SERVICE_KEY = "your_shared_service_key"
+$env:TS_VMS_RECORDING_INTERNAL_URL = "http://127.0.0.1:8087"
+$env:TS_VMS_DSN = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
 
 Write-Host "Starting Redis..." -ForegroundColor Cyan
 if (!(Get-Process redis-server -ErrorAction SilentlyContinue)) {
@@ -92,5 +95,19 @@ else {
     Write-Error "Failed to build vms-hlsd.exe"
 }
 
+Write-Host "Starting Recording Engine (Phase 4)..." -ForegroundColor Cyan
+Write-Host "Rebuilding Recording Engine..." -ForegroundColor DarkGray
+if (Test-Path "$Root\bin\vms-recording-bin.exe") { Remove-Item "$Root\bin\vms-recording-bin.exe" -Force }
+pushd $Root
+go build -o bin/vms-recording-bin.exe ./cmd/vms-recording
+popd
+
+if (Test-Path "$Root\bin\vms-recording-bin.exe") {
+    Start-Process "$Root\bin\vms-recording-bin.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\recording.log" -RedirectStandardError "$LogDir\recording_err.log"
+}
+else {
+    Write-Error "Failed to build vms-recording-bin.exe"
+}
+
 Write-Host "All Services Restarted." -ForegroundColor Green
-Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server", "vms-recording-bin" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime

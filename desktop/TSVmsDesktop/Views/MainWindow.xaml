@@ -27,6 +27,7 @@
         <DataTemplate DataType="{x:Type vm:NvrsViewModel}"><views:NvrsView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:NvrDetailsViewModel}"><views:NvrDetailsView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:WindowsDiscoveryViewModel}"><views:WindowsDiscoveryView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PlaybackViewModel}"><views:PlaybackView/></DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -34,6 +35,7 @@
         <KeyBinding Key="D2" Modifiers="Ctrl" Command="{Binding NavigateToCamerasCommand}"/>
         <KeyBinding Key="D3" Modifiers="Ctrl" Command="{Binding NavigateToHealthCommand}"/>
         <KeyBinding Key="D4" Modifiers="Ctrl" Command="{Binding NavigateToSettingsCommand}"/>
+        <KeyBinding Key="D5" Modifiers="Ctrl" Command="{Binding NavigateToPlaybackCommand}"/>
     </Window.InputBindings>
 
 
@@ -161,7 +163,23 @@
                                         </Button.Style>
                                     </Button>
                                     
-                                    <Button Content="Playback" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8"/>
+                                    <Button Content="Playback" Command="{Binding NavigateToPlaybackCommand}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
+                                                        <Setter Property="Background" Value="White"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Margin" Value="0,5"/>
+                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
+                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
                                     
                                     <Button Content="Audit Log" Command="{Binding NavigateToAuditCommand}" 
                                             Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}">

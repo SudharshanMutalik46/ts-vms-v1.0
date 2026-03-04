@@ -63,7 +63,7 @@ func TestSegmentFileName(t *testing.T) {
 	ts := time.UnixMilli(1708945200000)
 
 	actual := p.SegmentFileName("camX", ts, 60, 42)
-	expected := "camX_1708945200000_60_00042.mp4"
+	expected := "camX_1708945200000_60_00042.mkv"
 	if actual != expected {
 		t.Fatalf("SegmentFileName failed.\nGot: %s\nExp: %s", actual, expected)
 	}

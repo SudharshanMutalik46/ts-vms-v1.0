@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -19,7 +21,8 @@ func main() {
 	sched := recording.NewScheduleEngine(nil)
 	lic := recording.NewLicenseGate(1) // Max 1 camera for quota testing!
 
-	baseSup := recording.NewSupervisor(cfg, sched, lic)
+	dbMock := &recording.PostgresMetadataDB{DB: nil}
+	baseSup := recording.NewSupervisor(cfg, sched, lic, dbMock)
 	supExt := recording.NewSupervisorExt(baseSup)
 
 	internalSrv := &recording.InternalAPI{ServiceKey: serviceKey, Supervisor: supExt}
@@ -35,6 +38,8 @@ func main() {
 	publicSrv := &control.PublicRecordingAPI{
 		InternalBaseURL: "http://127.0.0.1:18082",
 		ServiceKey:      serviceKey,
+		DB:              dbMock,
+		ExportPipeline:  &recording.ExportService{DB: dbMock, Stitcher: &recording.Stitcher{}},
 	}
 	go func() {
 		log.Println("Public API running on :18080")

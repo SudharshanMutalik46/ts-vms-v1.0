@@ -1,6 +1,11 @@
 package recovery
 
-import "log/slog"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 type ScannerReport struct {
 	TmpDeletedCount         int
@@ -9,7 +14,13 @@ type ScannerReport struct {
 	DiskUnindexedFilesCount int
 }
 
-// Scanner handles pre-startup orphaned file cleanup
+type FileFinding struct {
+	Path      string
+	Kind      string
+	SizeBytes int64
+	ModTime   time.Time
+}
+
 type Scanner struct {
 	cfg Config
 }
@@ -18,25 +29,32 @@ func NewScanner(cfg Config) *Scanner {
 	return &Scanner{cfg: cfg}
 }
 
-func (s *Scanner) RunReconciliation(volumes []string) ScannerReport {
+func (s *Scanner) Scan(volumes []string) ([]FileFinding, ScannerReport, error) {
 	report := ScannerReport{}
+	findings := make([]FileFinding, 0, 128)
 
-	// In a real implementation we would scan directories here
-	// and cross-reference with the MockIndex or actual Postgres DB
-
-	if s.cfg.OrphanReconcileMode == "log_only" {
-		slog.Info("recovery.scanner.reconciliation", "mode", s.cfg.OrphanReconcileMode)
+	for _, root := range volumes {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			switch ext {
+			case ".tmp":
+				findings = append(findings, FileFinding{Path: path, Kind: "tmp", SizeBytes: info.Size(), ModTime: info.ModTime()})
+			case ".mp4", ".mkv":
+				kind := "video"
+				if info.Size() == 0 {
+					kind = "corrupt"
+					report.Mp4QuarantinedCount++
+				}
+				findings = append(findings, FileFinding{Path: path, Kind: kind, SizeBytes: info.Size(), ModTime: info.ModTime()})
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, report, err
+		}
 	}
-
-	// Mocking behavior for tests
-	report.TmpDeletedCount = 2
-	report.DiskUnindexedFilesCount = 1
-
-	slog.Info("recovery.scanner.complete",
-		"tmp_deleted", report.TmpDeletedCount,
-		"mp4_quarantined", report.Mp4QuarantinedCount,
-		"db_missing", report.DbMissingFilesCount,
-		"disk_unindexed", report.DiskUnindexedFilesCount)
-
-	return report
+	return findings, report, nil
 }

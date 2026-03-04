@@ -40,6 +40,10 @@ namespace TSVmsDesktop
             services.AddSingleton<Services.NvrService>();
             services.AddSingleton<Services.WindowsService>();
             services.AddSingleton<Services.SiteService>();
+            services.AddSingleton<Services.PlaybackService>();
+            services.AddSingleton<Services.RecordingService>();
+            services.AddSingleton<Services.PlaybackManifestService>();
+            services.AddSingleton<Services.PlaybackEngineService>();
 
             services.AddSingleton<MainViewModel>();
             services.AddTransient<StartupViewModel>(); // New
@@ -59,6 +63,7 @@ namespace TSVmsDesktop
             services.AddTransient<NvrsViewModel>();
             services.AddTransient<NvrDetailsViewModel>();
             services.AddTransient<WindowsDiscoveryViewModel>();
+            services.AddTransient<PlaybackViewModel>();
 
             Services = services.BuildServiceProvider();
             System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Services Built");
@@ -69,6 +74,19 @@ namespace TSVmsDesktop
             Console.WriteLine("DEBUG: OnStartup Started");
             // Force GStreamer to ignore D3D12 decoders and use D3D11 instead
             Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE");
+
+            // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            var gstPath = @"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin";
+            var localNativePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", "win-x64");
+            
+            if (!currentPath.Contains(gstPath, StringComparison.OrdinalIgnoreCase))
+                currentPath = gstPath + ";" + currentPath;
+            if (!currentPath.Contains(localNativePath, StringComparison.OrdinalIgnoreCase))
+                currentPath = localNativePath + ";" + currentPath;
+                
+            Environment.SetEnvironmentVariable("PATH", currentPath);
+
             base.OnStartup(e);
 
             try

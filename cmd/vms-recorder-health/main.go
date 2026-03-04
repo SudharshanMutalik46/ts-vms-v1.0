@@ -53,8 +53,8 @@ func main() {
 			valid := uint64(1)
 
 			if *dropFlag {
-				// 10% drop rate
-				if rand.Float32() < 0.10 {
+				// 20% drop rate to ensure we hit >5% critical threshold quickly
+				if rand.Float32() < 0.20 {
 					dropped = 1
 					valid = 0
 				}
@@ -65,6 +65,8 @@ func main() {
 	}()
 
 	http.HandleFunc("/status", health.StatusHandler(mgr))
-	slog.Info("Test harness running on :8080")
-	http.ListenAndServe(":8080", nil)
+	slog.Info("Test harness running on :8089")
+	if err := http.ListenAndServe(":8089", nil); err != nil {
+		slog.Error("Failed to start server", "err", err)
+	}
 }

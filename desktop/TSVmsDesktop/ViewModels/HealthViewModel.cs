@@ -1,12 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using Brush = System.Windows.Media.Brush;
-using Brushes = System.Windows.Media.Brushes;
+using System.Windows.Media;
 using TSVmsDesktop.Services;
 
 namespace TSVmsDesktop.ViewModels
@@ -15,35 +13,63 @@ namespace TSVmsDesktop.ViewModels
     {
         [ObservableProperty] private string _name = string.Empty;
         [ObservableProperty] private string _status = "Checking...";
-        [ObservableProperty] private Brush _color = Brushes.Gray;
+        [ObservableProperty] private System.Windows.Media.Brush _color = System.Windows.Media.Brushes.Gray;
     }
 
     public partial class HealthViewModel : ObservableObject
     {
         private readonly IHealthService _healthService;
+        private readonly RecordingService _recordingService;
         private PeriodicTimer? _timer;
 
         [ObservableProperty] private string _statusMessage = "Initializing...";
         [ObservableProperty] private string _jsonDetails = "{}";
-        [ObservableProperty] private Brush _statusColor = Brushes.Gray;
+        [ObservableProperty] private System.Windows.Media.Brush _statusColor = System.Windows.Media.Brushes.Gray;
         [ObservableProperty] private DateTime _lastCheck;
 
-        // List of individual services
+        // Phase 4 recording telemetry
+        [ObservableProperty] private int _activeRecordingsCount;
+        [ObservableProperty] private string _diskWriteRate = "0.0 MB/s";
+        [ObservableProperty] private string _globalFrameDropRate = "Idle";
+        [ObservableProperty] private string _engineStateColor = "#94A3B8";
+
         public ObservableCollection<ServiceStatus> BackendServices { get; } = new();
 
-        public HealthViewModel(IHealthService healthService)
+        public HealthViewModel(IHealthService healthService, RecordingService recordingService)
         {
             _healthService = healthService;
+            _recordingService = recordingService;
+
             InitializeServiceList();
             StartPolling();
         }
 
         private void InitializeServiceList()
         {
+            BackendServices.Clear();
             BackendServices.Add(new ServiceStatus { Name = "Control Plane" });
             BackendServices.Add(new ServiceStatus { Name = "Media Plane" });
-            BackendServices.Add(new ServiceStatus { Name = "AI Inference" });
-            BackendServices.Add(new ServiceStatus { Name = "NATS / Redis" });
+            BackendServices.Add(new ServiceStatus { Name = "Recording Engine" });
+            BackendServices.Add(new ServiceStatus { Name = "Metadata / Export" });
+            BackendServices.Add(new ServiceStatus { Name = "Tiered Storage" });
+        }
+
+        private void StartPolling()
+        {
+            _ = PollLoopAsync();
+        }
+
+        private async Task PollLoopAsync()
+        {
+            _timer?.Dispose();
+            _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+            await CheckHealth();
+
+            while (await _timer.WaitForNextTickAsync())
+            {
+                await CheckHealth();
+            }
         }
 
         [RelayCommand]
@@ -52,41 +78,117 @@ namespace TSVmsDesktop.ViewModels
             try
             {
                 var result = await _healthService.CheckHealthAsync();
-                LastCheck = DateTime.Now; // Updates the "Last Pulse" time
+                LastCheck = DateTime.Now;
                 JsonDetails = result.Details;
-                
-                if (result.IsHealthy) {
+
+                if (result.IsHealthy)
+                {
                     StatusMessage = "SYSTEM ONLINE";
-                    StatusColor = Brushes.LimeGreen;
-                    foreach(var s in BackendServices) { s.Status = "Running"; s.Color = Brushes.LimeGreen; }
-                } else {
-                    StatusMessage = "SYSTEM OFFLINE";
-                    StatusColor = Brushes.Red;
-                    foreach(var s in BackendServices) { s.Status = "Stopped"; s.Color = Brushes.Red; }
+                    StatusColor = System.Windows.Media.Brushes.LimeGreen;
+
+                    foreach (var svc in BackendServices)
+                    {
+                        svc.Status = "Running";
+                        svc.Color = System.Windows.Media.Brushes.LimeGreen;
+                    }
+                }
+                else
+                {
+                    StatusMessage = "SYSTEM DEGRADED";
+                    StatusColor = System.Windows.Media.Brushes.OrangeRed;
+
+                    foreach (var svc in BackendServices)
+                    {
+                        svc.Status = "Degraded";
+                        svc.Color = System.Windows.Media.Brushes.OrangeRed;
+                    }
+                }
+
+                await FetchRecordingTelemetry();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "CONNECTION FAILED";
+                StatusColor = System.Windows.Media.Brushes.Red;
+                JsonDetails = ex.Message;
+                ActiveRecordingsCount = 0;
+                DiskWriteRate = "Error";
+                GlobalFrameDropRate = "Unavailable";
+                EngineStateColor = "#EF4444";
+
+                foreach (var svc in BackendServices)
+                {
+                    svc.Status = "Offline";
+                    svc.Color = System.Windows.Media.Brushes.Red;
                 }
             }
-            catch (Exception)
+        }
+
+        private async Task FetchRecordingTelemetry()
+        {
+            try
             {
-                 StatusMessage = "CONNECTION FAILED";
-                 StatusColor = Brushes.Red;
+                Dictionary<string, string> statuses = await _recordingService.GetAllStatusesAsync();
+
+                int recording = 0;
+                int paused = 0;
+                int retrying = 0;
+                int licensed = 0;
+
+                foreach (var kvp in statuses)
+                {
+                    switch ((kvp.Value ?? "").ToUpperInvariant())
+                    {
+                        case "RECORDING":
+                            recording++;
+                            break;
+                        case "PAUSED":
+                            paused++;
+                            break;
+                        case "RETRYING":
+                            retrying++;
+                            break;
+                        case "THROTTLED_BY_LICENSE":
+                            licensed++;
+                            break;
+                    }
+                }
+
+                ActiveRecordingsCount = recording;
+                DiskWriteRate = $"{(recording * 0.50):F1} MB/s";
+
+                if (retrying > 0)
+                {
+                    GlobalFrameDropRate = $"Retry loops active: {retrying}";
+                    EngineStateColor = "#EF4444";
+                }
+                else if (licensed > 0)
+                {
+                    GlobalFrameDropRate = $"License throttled: {licensed}";
+                    EngineStateColor = "#8B5CF6";
+                }
+                else if (paused > 0)
+                {
+                    GlobalFrameDropRate = $"Paused: {paused}";
+                    EngineStateColor = "#F59E0B";
+                }
+                else if (recording > 0)
+                {
+                    GlobalFrameDropRate = "Healthy";
+                    EngineStateColor = "#10B981";
+                }
+                else
+                {
+                    GlobalFrameDropRate = "Idle";
+                    EngineStateColor = "#94A3B8";
+                }
             }
-        }
-
-        [RelayCommand]
-        public void ExportLogs()
-        {
-            System.Windows.MessageBox.Show("Exporting Support Bundle: %AppData%\\Local\\TS-VMS\\Logs.zip", "Diagnostic Tool");
-        }
-
-        private async void StartPolling()
-        {
-            // UPDATED: Changed from 3 seconds to 1 second for smooth updates
-            _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-            
-            await CheckHealth();
-            while (await _timer.WaitForNextTickAsync()) 
+            catch
             {
-                await CheckHealth();
+                ActiveRecordingsCount = 0;
+                DiskWriteRate = "Error";
+                GlobalFrameDropRate = "Unavailable";
+                EngineStateColor = "#EF4444";
             }
         }
     }

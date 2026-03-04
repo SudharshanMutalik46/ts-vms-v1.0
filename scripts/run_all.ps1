@@ -52,7 +52,7 @@ else {
 }
 
 # 5. HLS Daemon
-$HlsPath = "$Root/vms-hlsd.exe"
+$HlsPath = "$Root/bin/vms-hlsd.exe"
 if (Test-Path $HlsPath) {
     Write-Host "Starting HLS Daemon..." -ForegroundColor Green
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root'; & '$HlsPath'"
@@ -61,7 +61,17 @@ else {
     Write-Warning "HLS Daemon not found at $HlsPath"
 }
 
-# 6. SFU Service (Node.js)
+# 6. Recording Engine
+$RecPath = "$Root/bin/vms-recording-bin.exe"
+if (Test-Path $RecPath) {
+    Write-Host "Starting Recording Engine..." -ForegroundColor Green
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root'; & '$RecPath'"
+}
+else {
+    Write-Warning "Recording Engine not found at $RecPath"
+}
+
+# 7. SFU Service (Node.js)
 $SfuDir = "$Root/sfu"
 if (Test-Path $SfuDir) {
     Write-Host "Starting SFU Service..." -ForegroundColor Green

@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "Building Test Harness..." -ForegroundColor Cyan
-go build -o vms-recorder-health.exe .\cmd\vms-recorder-health\main.go
+go build -o vms-recorder-health.exe "$PSScriptRoot\..\cmd\vms-recorder-health\main.go"
 
 function Run-TestScenario ($Name, $ScenarioArgs, $ExpectedLogs) {
     Write-Host "`n=== Running Scenario: $Name ===" -ForegroundColor Yellow
@@ -16,7 +16,7 @@ function Run-TestScenario ($Name, $ScenarioArgs, $ExpectedLogs) {
 
     Write-Host "Waiting 12 seconds for rolling windows to fill and alerts to trigger..."
     for ($i = 1; $i -le 3; $i++) {
-        $status = Invoke-RestMethod -Uri "http://localhost:8080/status"
+        $status = Invoke-RestMethod -Uri "http://localhost:8089/status"
         $cam = $status.cameras."cam-test-01"
         Write-Host "  Tick $i -> MB/s: $([math]::Round($cam.write_mbps_avg, 2)), Drop%: $([math]::Round($cam.frame_drop_rate_pct_window, 2))"
         Start-Sleep -Seconds 4

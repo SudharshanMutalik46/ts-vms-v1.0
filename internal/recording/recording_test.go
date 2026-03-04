@@ -6,7 +6,7 @@ import (
 )
 
 func TestScheduler_EventTrigger(t *testing.T) {
-	sched := NewScheduleEngine([]ScheduleConfig{})
+	sched := NewScheduleEngine([]ScheduleConfig{{CameraID: "cam_test", Type: "event_triggered"}})
 	if sched.ShouldRecord("cam_test") {
 		t.Error("Should not record initially")
 	}

@@ -16,7 +16,7 @@ bool BackfillController::StartEventRecording(int prebuffer_seconds, GstCaps* str
     std::cout << "[BackfillController] Event triggered for " << camera_id_ << ". Building pipeline...\n";
 
     // Phase 4.3 SegmentWriter Pipeline, but fed via appsrc!
-    std::string pipe_str = "appsrc name=src ! splitmuxsink max-size-time=300000000000 muxer=mp4mux location=./out_" + camera_id_ + "_%04d.mp4";
+    std::string pipe_str = "appsrc name=src ! splitmuxsink max-size-time=300000000000 muxer=matroskamux location=./out_" + camera_id_ + "_%04d.mkv";
     
     pipeline_ = gst_parse_launch(pipe_str.c_str(), NULL);
     appsrc_ = gst_bin_get_by_name(GST_BIN(pipeline_), "src");

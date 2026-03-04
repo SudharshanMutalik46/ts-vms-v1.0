@@ -1,5 +1,5 @@
 ﻿=== CMD LLM Bundle (ts_vms_1.0\\cmd) ===
-Generated: 2026-02-26T18:14:34
+Generated: 2026-03-04T11:16:56
 Root: C:\Users\sudha\Desktop\ts_vms_1.0\cmd
 
 
@@ -1154,6 +1154,8 @@ func main() {
 
 ================ FILE: recording_backfill\main.go ================
 
+//go:build ignore
+
 package main
 
 import (
@@ -1503,6 +1505,7 @@ import (
 	"github.com/technosupport/ts-vms/internal/platform/paths"
 	"github.com/technosupport/ts-vms/internal/platform/windows"
 	"github.com/technosupport/ts-vms/internal/ratelimit"
+	"github.com/technosupport/ts-vms/internal/recording"
 	"github.com/technosupport/ts-vms/internal/session"
 	"github.com/technosupport/ts-vms/internal/sfu"
 	"github.com/technosupport/ts-vms/internal/tokens"
@@ -1635,9 +1638,14 @@ func main() {
 	licenseScheduler.Start(context.Background())
 
 	// 3.1 Camera Components (Phase 2.1)
+	// 3.1 Camera Components (Phase 2.1)
 	camRepo := data.CameraModel{DB: db}
 	camService := cameras.NewService(camRepo, licenseManager, auditService)
 	camHandler := api.NewCameraHandler(camService)
+
+	// Recording Components (Phase 5)
+	recordingStore := recording.NewPostgresStore(db)
+	recordingAPI := &api.RecordingAPI{DB: recordingStore}
 
 	// Crypto Components (Phase 2.2)
 	keyring := crypto.NewKeyring()
@@ -1990,6 +1998,11 @@ func main() {
 	mux.Handle("POST /api/v1/internal/detections", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.IngestDetection)))
 	mux.Handle("GET /api/v1/internal/cameras/active", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetActiveCameras)))
 
+	// Phase 5: Recording & Playback
+	mux.Handle("GET /api/v1/recording/cameras/{id}/segments", Protect(http.HandlerFunc(recordingAPI.HandleGetSegments)))
+	mux.Handle("POST /api/v1/recording/events", Protect(http.HandlerFunc(recordingAPI.HandleCreateEvent)))
+	mux.Handle("POST /api/v1/recording/link-segment", Protect(http.HandlerFunc(recordingAPI.HandleLinkSegment)))
+
 	mux.Handle("GET /api/v1/internal/cameras/{id}/snapshot", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetInternalSnapshot)))
 
 	// Metrics (Phase 3.5)
@@ -2129,6 +2142,8 @@ func main() {
 
 ================ FILE: vms-phase47-test\main.go ================
 
+//go:build ignore
+
 package main
 
 import (
@@ -2150,7 +2165,8 @@ func main() {
 	sched := recording.NewScheduleEngine(nil)
 	lic := recording.NewLicenseGate(1) // Max 1 camera for quota testing!
 
-	baseSup := recording.NewSupervisor(cfg, sched, lic)
+	dbMock := &recording.PostgresMetadataDB{DB: nil}
+	baseSup := recording.NewSupervisor(cfg, sched, lic, dbMock)
 	supExt := recording.NewSupervisorExt(baseSup)
 
 	internalSrv := &recording.InternalAPI{ServiceKey: serviceKey, Supervisor: supExt}
@@ -2166,6 +2182,8 @@ func main() {
 	publicSrv := &control.PublicRecordingAPI{
 		InternalBaseURL: "http://127.0.0.1:18082",
 		ServiceKey:      serviceKey,
+		DB:              dbMock,
+		ExportPipeline:  &recording.ExportService{DB: dbMock, Stitcher: &recording.Stitcher{}},
 	}
 	go func() {
 		log.Println("Public API running on :18080")
@@ -2237,8 +2255,8 @@ func main() {
 			valid := uint64(1)
 
 			if *dropFlag {
-				// 10% drop rate
-				if rand.Float32() < 0.10 {
+				// 20% drop rate to ensure we hit >5% critical threshold quickly
+				if rand.Float32() < 0.20 {
 					dropped = 1
 					valid = 0
 				}
@@ -2249,8 +2267,10 @@ func main() {
 	}()
 
 	http.HandleFunc("/status", health.StatusHandler(mgr))
-	slog.Info("Test harness running on :8080")
-	http.ListenAndServe(":8080", nil)
+	slog.Info("Test harness running on :8089")
+	if err := http.ListenAndServe(":8089", nil); err != nil {
+		slog.Error("Failed to start server", "err", err)
+	}
 }
 
 
@@ -2260,62 +2280,146 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"database/sql"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 
+	_ "github.com/lib/pq"
+	"github.com/technosupport/ts-vms/internal/control"
+	"github.com/technosupport/ts-vms/internal/crypto"
 	"github.com/technosupport/ts-vms/internal/recording"
 	"gopkg.in/yaml.v3"
 )
 
-func main() {
-	log.Println("Starting vms-recording service...")
-
-	// 1. Load Config
-	cfgData, err := os.ReadFile("../../config/recording.yaml") // Need to point to correct relative root when running scripts or correct absolute path, using relative fallback here for standalone testing, updated below via explicit path or workingdir assuming config is up two dirs
-	if err != nil {
-		// Try fallback if running directly from repo root
-		cfgData, err = os.ReadFile("config/recording.yaml")
-		if err != nil {
-			log.Fatalf("Failed to read config: %v", err)
+func mergeCameraConfigs(base, extra []recording.CameraConfig) []recording.CameraConfig {
+	m := make(map[string]recording.CameraConfig, len(base)+len(extra))
+	for _, cam := range base {
+		if cam.ID != "" {
+			m[cam.ID] = cam
 		}
 	}
-	var cfg recording.Config
-	yaml.Unmarshal(cfgData, &cfg)
+	for _, cam := range extra {
+		if cam.ID != "" {
+			m[cam.ID] = cam
+		}
+	}
+	out := make([]recording.CameraConfig, 0, len(m))
+	for _, cam := range m {
+		out = append(out, cam)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
 
-	// 2. Crash Recovery Hooks
+func main() {
+	cfgPath := "config/recording.yaml"
+	if v := os.Getenv("TS_VMS_RECORDING_CONFIG"); v != "" {
+		cfgPath = v
+	}
+	cfgBytes, err := os.ReadFile(cfgPath)
+	if err != nil {
+		log.Fatalf("read config: %v", err)
+	}
+
+	var cfg recording.Config
+	if err := yaml.Unmarshal(cfgBytes, &cfg); err != nil {
+		log.Fatalf("parse config: %v", err)
+	}
+	cfg.ApplyDefaults()
+	// DevRbacBypass is determined by config file or defaults
+
+	var db *sql.DB
+	dsn := os.Getenv("TS_VMS_DSN")
+	if dsn == "" {
+		dsn = os.Getenv("TS_VMS_PG_DSN")
+	}
+	if dsn != "" {
+		db, err = sql.Open("postgres", dsn)
+		if err != nil {
+			log.Fatalf("open db: %v", err)
+		}
+	}
+	store := recording.NewPostgresStore(db)
+	if store.Available() {
+		if dbCams, err := store.LoadEnabledCameras(context.Background()); err == nil && len(dbCams) > 0 {
+			cfg.Cameras = mergeCameraConfigs(cfg.Cameras, dbCams)
+		} else if err != nil && err != recording.ErrDBUnavailable {
+			log.Printf("recording bootstrap camera load skipped: %v", err)
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid config: %v", err)
+	}
+	if cfg.FailoverRecovery.DBRequiredForReady && store.PingContext(context.Background()) != nil {
+		log.Fatal("db is required for readiness but unavailable")
+	}
+
+	schedules := cfg.Schedules
+	if db != nil {
+		if dbSchedules, err := store.LoadSchedules(context.Background()); err == nil && len(dbSchedules) > 0 {
+			schedules = dbSchedules
+		}
+	}
+	keyring := crypto.NewKeyring()
+	if err := keyring.LoadFromEnv(); err != nil {
+		log.Printf("[WARNING] failed to load master keys from environment: %v. RTSP authentication may fail.", err)
+	}
+
+	scheduler := recording.NewScheduleEngine(schedules)
+	license := recording.NewLicenseGate(cfg.Limits.MaxRecordingCameras)
+	supervisor := recording.NewSupervisor(&cfg, scheduler, license, store, keyring)
+	health := recording.NewHealthServer(&cfg, supervisor, scheduler, store)
+	exporter := recording.NewExportService(&cfg, store)
+	reconciler := recording.NewReconciler(&cfg, store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	recMgr := &recording.RecoveryManager{
 		PidPath: "vms-recording.pid",
-		Hooks:   &recording.Phase43RecoveryStub{},
+		Run: func(runCtx context.Context) error {
+			return reconciler.Run(runCtx)
+		},
 	}
-	recMgr.CheckAndProtect()
+	if err := recMgr.CheckAndProtect(ctx); err != nil {
+		log.Fatalf("startup recovery failed: %v", err)
+	}
 	defer recMgr.CleanExit()
 
-	// 3. Initialize Modules
-	scheduler := recording.NewScheduleEngine(cfg.Schedules)
-	license := recording.NewLicenseGate(cfg.Limits.MaxRecordingCameras)
-	supervisor := recording.NewSupervisor(&cfg, scheduler, license)
-
-	health := recording.NewHealthServer(&cfg, supervisor, scheduler)
+	go supervisor.Run(ctx)
 	health.Start()
 
-	// 4. Start Supervisor
-	ctx, cancel := context.WithCancel(context.Background())
-	go supervisor.Run(ctx)
+	internalAPI := &recording.InternalAPI{
+		ServiceKey:    os.Getenv("TS_VMS_SERVICE_KEY"),
+		Supervisor:    supervisor,
+		ScheduleStore: store,
+	}
+	go http.ListenAndServe(":8087", internalAPI.ServeMux())
 
-	// Wait for interrupt
+	publicAPI := &control.PublicRecordingAPI{
+		InternalBaseURL: "http://127.0.0.1:8087",
+		ServiceKey:      os.Getenv("TS_VMS_SERVICE_KEY"),
+		DB:              store,
+		Exporter:        exporter,
+		DefaultTenantID: cfg.Global.DefaultTenantID,
+		DefaultSiteID:   cfg.Global.DefaultSiteID,
+	}
+	go http.ListenAndServe(":8088", publicAPI.ServeMux())
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
-
-	fmt.Println("\nShutting down gracefully...")
 	cancel()
 }
 
 
 ================ FILE: vms-recording-api-test\main.go ================
+
+//go:build ignore
 
 package main
 
@@ -2355,6 +2459,8 @@ func main() {
 
 
 ================ FILE: vms-recovery-test\main.go ================
+
+//go:build ignore
 
 package main
 
@@ -2443,7 +2549,8 @@ func main() {
 
 	// 3. Perform pre-startup recovery tasks
 	slog.Info("Starting VMS Recording Startup Sequence...")
-	recScanner.RunReconciliation([]string{"C:\\"})
+	_, _, _ = recScanner.Scan([]string{"."})
+	slog.Info("recovery.scanner.complete")
 
 	plan1 := recMgr.EvaluateResume("cam-01") // Normal resume
 	plan2 := recMgr.EvaluateResume("cam-02") // Corrupt segment resume
@@ -2470,8 +2577,10 @@ func main() {
 	hm := health.NewManager(healthCfg)
 	http.HandleFunc("/status", health.StatusHandler(hm))
 
-	slog.Info("Test harness running on :8082")
-	http.ListenAndServe(":8082", nil)
+	slog.Info("Test harness running on :8099")
+	if err := http.ListenAndServe(":8099", nil); err != nil {
+		slog.Error("Failed to start server", "err", err)
+	}
 }
 
 

@@ -104,6 +104,49 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <!-- NEW PHASE 4 RECORDING ENGINE TELEMETRY -->
+                <TextBlock Text="Recording Engine Telemetry" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,20,0,15"/>
+                
+                <Border Background="White" CornerRadius="12" Padding="20" Margin="6,0,6,15">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#E0E0E0" BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
+                    </Border.Effect>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Metric 1: Active Streams -->
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                            <TextBlock Text="Active Recordings" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding ActiveRecordingsCount}" FontSize="28" FontWeight="Bold" Foreground="#2196F3" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                        </StackPanel>
+
+                        <!-- Divider -->
+                        <Border Grid.Column="1" Width="1" Background="#EEE" Margin="10,0"/>
+
+                        <!-- Metric 2: Disk Write Rate -->
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                            <TextBlock Text="Storage I/O" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding DiskWriteRate}" FontSize="28" FontWeight="Bold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                        </StackPanel>
+
+                        <!-- Divider -->
+                        <Border Grid.Column="3" Width="1" Background="#EEE" Margin="10,0"/>
+
+                        <!-- Metric 3: Frame Health -->
+                        <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                            <TextBlock Text="Stream Stability" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding GlobalFrameDropRate}" FontSize="18" FontWeight="SemiBold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,15,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <!-- END PHASE 4 TELEMETRY -->
+
                 <TextBlock Text="API Raw Heartbeat" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,30,0,15"/>
                 <Border Background="#F8F9FA" CornerRadius="10" BorderBrush="#EAEAEA" BorderThickness="1" Padding="15">
                      <TextBox Text="{Binding JsonDetails}" IsReadOnly="True" Height="150" Background="Transparent" 
