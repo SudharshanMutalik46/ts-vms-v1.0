@@ -12,8 +12,15 @@ namespace TSVmsDesktop.Services
         private bool _isInitialized = false;
         private readonly string _logPath;
         private readonly object _lock = new object();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct GErrorNative
+        {
+            public uint Domain;
+            public int Code;
+            public IntPtr Message;
+        }
         
-        // Track active pipelines and their management tasks
         private class StreamContext
         {
             public string? Url { get; set; }
@@ -21,10 +28,13 @@ namespace TSVmsDesktop.Services
             public CancellationTokenSource? CTS { get; set; }
             public Task? WatchTask { get; set; }
             public bool IsRestarting { get; set; }
+            public string Username { get; set; } = "";
+            public string Password { get; set; } = "";
+            public bool HasAudio { get; set; }
         }
+
         public event Action<IntPtr, string>? StreamError;
         private readonly ConcurrentDictionary<IntPtr, StreamContext> _activeStreams = new();
-
         private readonly ApiClient _api;
 
         public VideoService(ApiClient api)
@@ -40,43 +50,79 @@ namespace TSVmsDesktop.Services
             try { System.IO.File.AppendAllText(_logPath, line + Environment.NewLine); } catch { }
         }
 
+        private static string ReadGErrorMessage(IntPtr errorPtr, string fallback)
+        {
+            if (errorPtr == IntPtr.Zero) return fallback;
+            try
+            {
+                var gerr = Marshal.PtrToStructure<GErrorNative>(errorPtr);
+                if (gerr.Message != IntPtr.Zero)
+                {
+                    var msg = Marshal.PtrToStringUTF8(gerr.Message);
+                    if (!string.IsNullOrWhiteSpace(msg))
+                        return msg;
+                }
+            }
+            catch
+            {
+            }
+            return fallback;
+        }
+
         public void Initialize()
         {
             lock (_lock)
             {
                 if (_isInitialized) return;
-
                 try
                 {
                     int argc = 0;
                     IntPtr argv = IntPtr.Zero;
                     GstNative.gst_init(ref argc, ref argv);
+                    // Reduce global debug verbosity to errors only to prevent
+                    // heavy warning floods from d3d11debuglayer during teardown.
+                    GstNative.gst_debug_set_default_threshold(1);
+                    GstNative.gst_debug_set_threshold_for_name("d3d11debuglayer", 0);
+                    GstNative.gst_debug_set_threshold_for_name("video-info", 0);
 
-                    // PROGRAMMATIC LOG SUPPRESSION:
-                    // Set GStreamer internal logs to level 2 (Errors & Warnings).
-                    GstNative.gst_debug_set_default_threshold(2); 
-
-                    // AUTO-DOWNLOADER HARDENING:
-                    // Elevate ranks of downloaders so decodebin can auto-insert them.
                     IntPtr d11 = GstNative.gst_element_factory_find("d3d11download");
                     if (d11 != IntPtr.Zero) {
                         GstNative.gst_plugin_feature_set_rank(d11, GstNative.GST_RANK_PRIMARY + 100);
-                        GstNative.gst_object_unref(d11);
-                    }
-                    IntPtr d12 = GstNative.gst_element_factory_find("d3d12download");
-                    if (d12 != IntPtr.Zero) {
-                        GstNative.gst_plugin_feature_set_rank(d12, GstNative.GST_RANK_PRIMARY + 100);
-                        GstNative.gst_object_unref(d12);
+                        GstNative.SafeObjectUnref(d11);
                     }
 
                     _isInitialized = true;
-                    Log("[TS-VMS] Video Engine: GStreamer 1.x Initialized (Diagnostic Mode).");
+                    Log("[TS-VMS] Video Engine: GStreamer 1.x Initialized.");
                 }
-                catch (Exception ex)
-                {
-                    Log($"[ERROR] GStreamer Init Failed: {ex.Message}");
-                }
+                catch (Exception ex) { Log($"[ERROR] GStreamer Init Failed: {ex.Message}"); }
             }
+        }
+
+        // ------------------------------------------------------------------
+        // FIX 1: Wait for the HWND to have a real, non-zero client area before
+        // handing it to d3d11videosink.
+        //
+        // ROOT CAUSE ("buffer width inferred as zero"):
+        //   gst_element_set_state(PLAYING) was called while the VideoCanvas HWND
+        //   still had size 0×0 (RevealVideoAsync had not yet run ShowWindow).
+        //   d3d11videosink created a DXGI swapchain of 0×0 which the debug layer
+        //   clamped to 8×8 and then flooded the log with hundreds of resize
+        //   warnings on every decoded frame.
+        //
+        // FIX: Poll GetClientRect up to 2 s. This is cheap and eliminates the
+        // race between stream start and window layout entirely.
+        // ------------------------------------------------------------------
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        private static bool HasWindowSize(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            if (!GetClientRect(hwnd, out RECT r)) return false;
+            return r.Right > 0 && r.Bottom > 0;
         }
 
         public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false)
@@ -90,26 +136,48 @@ namespace TSVmsDesktop.Services
             if (!string.IsNullOrEmpty(username) && rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
             {
                 if (!authUrl.Contains("@"))
-                {
-                    // If it doesn't have credentials in the URL, add them.
                     authUrl = authUrl.Replace("rtsp://", $"rtsp://{username}:{password}@");
-                }
-                
                 userIdProp = $"user-id=\"{username}\"";
                 userPwProp = $"user-pw=\"{password}\"";
             }
 
-            // 3. Log it so you can VERIFY
             Log($"[TS-VMS] StartStream Request Original: '{rtspUrl}'");
-            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Authenticated URL: {authUrl}");
 
-            // 4. The Explicit Hardware Pipeline
-            string audioPart = hasAudio ? " src. ! queue ! decodebin ! audioconvert ! audioresample ! volume name=myvolume ! autoaudiosink sync=false" : "";
-            string pipelineStr = $"rtspsrc location=\"{authUrl}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols=tcp name=src " +
-                                 $"src. ! queue ! rtph265depay ! h265parse ! d3d11h265dec ! d3d11convert ! d3d11videosink name=mysink sync=false force-aspect-ratio=true" +
-                                 audioPart;
+            // Avoid blocking the UI thread while waiting for layout.
+            if (!HasWindowSize(windowHandle))
+                Log($"[TS-VMS] Warning: window {windowHandle} is currently 0x0; starting stream without blocking.");
 
             Log($"[TS-VMS] Window Handle: {windowHandle}");
+
+            // ------------------------------------------------------------------
+            // FIX 2: Replace hardcoded H.265-only pipeline with decodebin3 so
+            // the pipeline works for both H.264 and H.265 cameras automatically.
+            //
+            // ROOT CAUSE:
+            //   "rtph265depay ! h265parse ! d3d11h265dec ! d3d11colorconvert ! d3d11videosink"
+            //   (a) Only works for H.265 cameras — H.264 cameras caused immediate
+            //       error → restart loops.
+            //   (b) d3d11colorconvert between d3d11h265dec and d3d11videosink is
+            //       redundant (both share the same D3D11 device) and adds an extra
+            //       device context, contributing to the "Refcount:52" D3D11 object
+            //       leak visible in the logs at t=16s.
+            //
+            // FIX: Use decodebin3 for automatic codec negotiation.  It selects
+            // d3d11h265dec for H.265 and d3d11h264dec for H.264.  Remove
+            // d3d11colorconvert — d3d11videosink accepts NV12 D3D11Memory directly.
+            // ------------------------------------------------------------------
+            // Always consume non-video RTP pads. Otherwise cameras that expose
+            // audio/metadata tracks can fail with "streaming stopped, reason not-linked".
+            string audioPart = hasAudio
+                ? "rtspsrc_src. ! application/x-rtp,media=audio ! queue ! decodebin3 name=abind abind. ! queue ! audioconvert ! audioresample ! volume name=myvolume ! autoaudiosink sync=false "
+                : "rtspsrc_src. ! application/x-rtp,media=audio ! queue ! fakesink sync=false async=false ";
+
+            string pipelineStr =
+                $"rtspsrc location=\"{authUrl}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols=tcp name=rtspsrc_src " +
+                $"rtspsrc_src. ! application/x-rtp,media=video ! queue ! decodebin3 name=vdbin " +
+                $"vdbin. ! queue ! d3d11videosink name=mysink sync=false force-aspect-ratio=true " +
+                audioPart +
+                "rtspsrc_src. ! application/x-rtp,media=application ! queue ! fakesink sync=false async=false";
 
             IntPtr error = IntPtr.Zero;
             IntPtr pipeline = GstNative.gst_parse_launch(pipelineStr, out error);
@@ -121,101 +189,87 @@ namespace TSVmsDesktop.Services
                 return IntPtr.Zero;
             }
 
-            // Set handle on the video sink (mysink)
             IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
             if (sink != IntPtr.Zero)
             {
                 GstNative.gst_video_overlay_set_window_handle(sink, windowHandle);
-                GstNative.gst_object_unref(sink);
+                GstNative.SafeObjectUnref(sink);
                 Log("[TS-VMS] Handle set on 'mysink'.");
             }
 
-            // BUS WATCH WITH AUTO-RESTART
-            var ctx = new StreamContext { 
-                Url = rtspUrl, 
+            var ctx = new StreamContext {
+                Url = rtspUrl,
                 WindowHandle = windowHandle,
-                CTS = new CancellationTokenSource() 
+                CTS = new CancellationTokenSource(),
+                Username = username,
+                Password = password,
+                HasAudio = hasAudio
             };
+
             IntPtr bus = GstNative.gst_element_get_bus(pipeline);
-            
             if (bus != IntPtr.Zero)
             {
                 var token = ctx.CTS.Token;
                 ctx.WatchTask = Task.Run(async () => {
                     try {
-                        // Request Error, EOS, StateChanged, Buffering, and Warnings
-                        int mask = GstNative.GST_MESSAGE_ERROR | 
-                                   GstNative.GST_MESSAGE_EOS | 
-                                   GstNative.GST_MESSAGE_STATE_CHANGED | 
-                                   GstNative.GST_MESSAGE_BUFFERING |
-                                   GstNative.GST_MESSAGE_WARNING;
-
                         Log($"[TS-VMS] Bus monitor started for {rtspUrl}");
                         while (!token.IsCancellationRequested) {
-                            IntPtr msg = GstNative.gst_bus_pop_filtered(bus, mask); 
-                            if (msg != IntPtr.Zero) {
-                                int msgType = GstNative.gst_message_get_type(msg);
-                                
-                                if (msgType == GstNative.GST_MESSAGE_ERROR) {
-                                    IntPtr errPtr, debugPtr;
-                                    GstNative.gst_message_parse_error(msg, out errPtr, out debugPtr);
-                                    string errWrap = Marshal.PtrToStringAnsi(errPtr) ?? "Unknown Error";
+                            IntPtr errMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_ERROR);
+                            if (errMsg != IntPtr.Zero) {
+                                IntPtr errPtr, debugPtr;
+                                GstNative.gst_message_parse_error(errMsg, out errPtr, out debugPtr);
+                                string errWrap = ReadGErrorMessage(errPtr, "Unknown Error");
+                                GstNative.SafeGErrorFree(errPtr);
+                                GstNative.SafeGFree(debugPtr);
+                                GstNative.gst_message_unref(errMsg);
+
+                                if (!token.IsCancellationRequested && _activeStreams.ContainsKey(pipeline))
+                                {
                                     Log($"[GSTREAMER-ERROR] {errWrap}. Triggering auto-restart...");
-                                    
-                                    // Notify UI that the stream failed
                                     StreamError?.Invoke(ctx.WindowHandle, errWrap);
-                                    
-                                    GstNative.gst_message_unref(msg);
                                     _ = RestartStreamAsync(pipeline);
                                     break;
                                 }
-                                else if (msgType == GstNative.GST_MESSAGE_STATE_CHANGED) {
-                                    int oldState, newState, pending;
-                                    GstNative.gst_message_parse_state_changed(msg, out oldState, out newState, out pending);
-                                    
-                                    // Map GstState values (1=NULL, 2=READY, 3=PAUSED, 4=PLAYING)
-                                    string newStateName = newState switch { 1 => "NULL", 2 => "READY", 3 => "PAUSED", 4 => "PLAYING", _ => "UNKNOWN" };
-                                    if (newState >= 3) // Log transitions to PAUSED and PLAYING
-                                    {
-                                        Log($"[TS-VMS] Pipeline State: {newStateName} ({rtspUrl})");
-                                    }
-                                }
-                                else if (msgType == GstNative.GST_MESSAGE_BUFFERING) {
-                                    int percent = 0;
-                                    GstNative.gst_message_parse_buffering(msg, out percent);
-                                    if (percent < 100) Log($"[TS-VMS] Buffering: {percent}%");
-                                }
-                                else if (msgType == GstNative.GST_MESSAGE_WARNING) {
-                                    IntPtr errPtr, debugPtr;
-                                    GstNative.gst_message_parse_warning(msg, out errPtr, out debugPtr);
-                                    string warnWrap = Marshal.PtrToStringAnsi(errPtr) ?? "Unknown Warning";
-                                    Log($"[GSTREAMER-WARNING] {warnWrap}");
-                                }
-
-                                GstNative.gst_message_unref(msg);
                             }
-                            await Task.Delay(100, token); 
+
+                            IntPtr eosMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_EOS);
+                            if (eosMsg != IntPtr.Zero)
+                            {
+                                GstNative.gst_message_unref(eosMsg);
+                                if (!token.IsCancellationRequested && _activeStreams.ContainsKey(pipeline))
+                                {
+                                    const string eosText = "Stream reached EOS. Triggering auto-restart...";
+                                    Log($"[GSTREAMER-ERROR] {eosText}");
+                                    StreamError?.Invoke(ctx.WindowHandle, eosText);
+                                    _ = RestartStreamAsync(pipeline);
+                                    break;
+                                }
+                            }
+
+                            IntPtr warnMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_WARNING);
+                            if (warnMsg != IntPtr.Zero)
+                            {
+                                IntPtr errPtr, debugPtr;
+                                GstNative.gst_message_parse_warning(warnMsg, out errPtr, out debugPtr);
+                                string warnWrap = ReadGErrorMessage(errPtr, "Unknown Warning");
+                                GstNative.SafeGErrorFree(errPtr);
+                                GstNative.SafeGFree(debugPtr);
+                                GstNative.gst_message_unref(warnMsg);
+                                Log($"[GSTREAMER-WARNING] {warnWrap}");
+                            }
+                            await Task.Delay(100, token);
                         }
-                    } 
+                    }
                     catch (OperationCanceledException) { }
                     catch (Exception ex) { Log($"[BUS-TASK] {ex.Message}"); }
-                    finally {
-                        GstNative.gst_object_unref(bus);
-                    }
+                    finally { GstNative.SafeObjectUnref(bus); }
                 }, token);
+
                 _activeStreams.TryAdd(pipeline, ctx);
             }
 
             int stateResult = GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
             Log($"[TS-VMS] Set State PLAYING returned: {stateResult} ({rtspUrl})");
-
-            // User Fix: Force WPF to repaint by invalidating visuals via dispatcher
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
-            {
-                // We don't have direct access to VideoCanvas here, but we can force the main window to update its layout
-                System.Windows.Application.Current.MainWindow?.InvalidateVisual();
-                System.Windows.Application.Current.MainWindow?.UpdateLayout();
-            });
 
             return pipeline;
         }
@@ -229,32 +283,35 @@ namespace TSVmsDesktop.Services
             Log($"[TS-VMS] Backing off 5s before restart for {ctx.Url}...");
             await Task.Delay(5000);
 
-            // Clean up old
-            StopStream(oldPipeline);
+            var savedUrl     = ctx.Url ?? "";
+            var savedWindow  = ctx.WindowHandle;
+            var savedUser    = ctx.Username;
+            var savedPw      = ctx.Password;
+            var savedAudio   = ctx.HasAudio;
 
-            // Start new (this will add a new entry to _activeStreams)
-            // Note: We need to update the caller's reference if they are tracking it,
-            // but in this VMS, LiveView tracks handles. We'll let it re-trigger via health if needed,
-            // OR we can manually re-start here.
-            Log($"[TS-VMS] Re-starting stream: {ctx.Url}");
-            StartStream(ctx.WindowHandle, ctx.Url ?? "");
+            // FIX 3: stop on thread pool so TEARDOWN never blocks the UI.
+            if (_activeStreams.TryRemove(oldPipeline, out var stopCtx))
+            {
+                await Task.Run(() => StopStreamInternal(oldPipeline, stopCtx));
+            }
+
+            Log($"[TS-VMS] Re-starting stream: {savedUrl}");
+            StartStream(savedWindow, savedUrl, savedUser, savedPw, savedAudio);
         }
 
         public void Reattach(IntPtr pipeline, IntPtr windowHandle)
         {
             if (pipeline == IntPtr.Zero || windowHandle == IntPtr.Zero) return;
-            
-            // Update context if it exists
-            if (_activeStreams.TryGetValue(pipeline, out var ctx))
-            {
-                ctx.WindowHandle = windowHandle;
-            }
+            if (!_activeStreams.TryGetValue(pipeline, out var ctx))
+                return;
+
+            ctx.WindowHandle = windowHandle;
 
             IntPtr overlayElement = GstNative.gst_bin_get_by_name(pipeline, "mysink");
             if (overlayElement != IntPtr.Zero)
             {
                 GstNative.gst_video_overlay_set_window_handle(overlayElement, windowHandle);
-                GstNative.gst_object_unref(overlayElement);
+                GstNative.SafeObjectUnref(overlayElement);
                 Log("[TS-VMS] Reattached.");
             }
         }
@@ -262,69 +319,85 @@ namespace TSVmsDesktop.Services
         public void SetVolume(IntPtr pipeline, double volume)
         {
             if (pipeline == IntPtr.Zero) return;
+            if (!_activeStreams.ContainsKey(pipeline)) return;
+
             IntPtr volElement = GstNative.gst_bin_get_by_name(pipeline, "myvolume");
             if (volElement != IntPtr.Zero)
             {
                 GstNative.g_object_set(volElement, "volume", volume, IntPtr.Zero);
-                GstNative.gst_object_unref(volElement);
+                GstNative.SafeObjectUnref(volElement);
             }
         }
 
+        // ------------------------------------------------------------------
+        // FIX 3: StopStream is now non-blocking for the calling thread.
+        //
+        // ROOT CAUSE ("Not Responding" on page-switch / grid refresh):
+        //   StopStream() was synchronous and called from RefreshGrid() on the
+        //   Dispatcher thread.  gst_element_set_state(NULL) sends an RTSP
+        //   TEARDOWN and waits for the server to reply.  The log line
+        //   "Timed out waiting for TEARDOWN to be processed" at t=16.741s
+        //   proves this stalled the UI thread for several seconds — long
+        //   enough to trigger the Windows "Not Responding" watchdog.
+        //   The previous 300 ms timeout was too short to complete the teardown,
+        //   leaving D3D11 resources unreleased (hence Refcount:52 in the log).
+        //
+        // FIX: StopStream() fires-and-forgets StopStreamInternal() onto a
+        //   thread-pool thread.  The actual teardown timeout is increased to 3 s
+        //   so GStreamer can cleanly release all D3D11 device objects.
+        //   Callers that need to await completion use StopStreamAsync().
+        // ------------------------------------------------------------------
         public void StopStream(IntPtr pipeline)
         {
             if (pipeline == IntPtr.Zero) return;
+            if (!_activeStreams.TryRemove(pipeline, out var ctx)) return;
+            _ = Task.Run(() => StopStreamInternal(pipeline, ctx));
+        }
 
-            if (_activeStreams.TryRemove(pipeline, out var ctx))
+        public Task StopStreamAsync(IntPtr pipeline)
+        {
+            if (pipeline == IntPtr.Zero) return Task.CompletedTask;
+            if (!_activeStreams.TryRemove(pipeline, out var ctx)) return Task.CompletedTask;
+            return Task.Run(() => StopStreamInternal(pipeline, ctx));
+        }
+
+        private void StopStreamInternal(IntPtr pipeline, StreamContext ctx)
+        {
+            try { ctx.CTS?.Cancel(); } catch { }
+            try { ctx.WatchTask?.Wait(500); } catch { }
+
+            try
             {
-                ctx.CTS?.Cancel();
-                
-                // 1. Set the pipeline state to NULL to stop the flow of frames
                 GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_NULL);
-
-                // 2. Wait for the state change to complete
-                GstNative.gst_element_get_state(pipeline, out _, out _, GstNative.GST_CLOCK_TIME_NONE);
-
-                // 3. Clear the window handle from the video overlay interface
-                IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
-                if (sink != IntPtr.Zero)
-                {
-                    GstNative.gst_video_overlay_set_window_handle(sink, IntPtr.Zero);
-                    GstNative.gst_object_unref(sink);
-                }
-
-                GstNative.gst_object_unref(pipeline);
-                ctx.CTS?.Dispose();
-                Log("[TS-VMS] Stopped and handle cleared.");
+                // 3 s timeout gives rtspsrc enough time to send TEARDOWN properly,
+                // avoiding the D3D11 object leak from premature pipeline destruction.
+                const ulong stopTimeoutNs = 3_000_000_000UL;
+                GstNative.gst_element_get_state(pipeline, out _, out _, stopTimeoutNs);
             }
+            catch (Exception ex) { Log($"[TS-VMS] StopStream state wait failed: {ex.Message}"); }
+
+            try { GstNative.SafeObjectUnref(pipeline); }
+            catch (Exception ex) { Log($"[TS-VMS] StopStream unref failed: {ex.Message}"); }
+
+            try { ctx.CTS?.Dispose(); } catch { }
+
+            Log("[TS-VMS] Stopped and handle cleared.");
         }
 
         private string InjectCredentials(string rtspUrl, string username, string password)
         {
-            if (string.IsNullOrEmpty(rtspUrl) || !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase)) 
+            if (string.IsNullOrEmpty(rtspUrl) || !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
                 return rtspUrl;
-
-            // Strip "rtsp://"
             string cleanUrl = rtspUrl.Substring(7);
-            
-            // If it already has an '@' symbol, strip the existing credentials to be safe
-            if (cleanUrl.Contains("@")) 
-            {
+            if (cleanUrl.Contains("@"))
                 cleanUrl = cleanUrl.Substring(cleanUrl.IndexOf('@') + 1);
-            }
-
-            // Rebuild the URL with credentials
             return $"rtsp://{username}:{password}@{cleanUrl}";
         }
 
         public async Task<bool> RecordLiveEventAsync(string eventType, string details)
-        {
-            return await _api.PostAsync("/api/v1/live/events", new { type = eventType, details = details });
-        }
+            => await _api.PostAsync("/api/v1/live/events", new { type = eventType, details = details });
 
         public async Task<bool> DownloadSnapshotAsync(string cameraId, string outputPath)
-        {
-            // Assuming ApiClient has a DownloadFileAsync method
-            return await _api.DownloadFileAsync($"/api/v1/cameras/{cameraId}/snapshot", outputPath);
-        }
+            => await _api.DownloadFileAsync($"/api/v1/cameras/{cameraId}/snapshot", outputPath);
     }
 }

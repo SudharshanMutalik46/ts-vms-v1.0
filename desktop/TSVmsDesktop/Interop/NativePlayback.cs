@@ -16,6 +16,9 @@ namespace TSVmsDesktop.Interop
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int tsplay_initialize(IntPtr engine, IntPtr hwnd);
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_set_window_handle(IntPtr engine, IntPtr hwnd);
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         internal static extern int tsplay_set_media_path(IntPtr engine, string path);
 

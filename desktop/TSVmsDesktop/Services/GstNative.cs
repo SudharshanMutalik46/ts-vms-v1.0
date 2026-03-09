@@ -9,6 +9,7 @@ namespace TSVmsDesktop.Services
         private const string DllName = "gstreamer-1.0-0.dll";
         private const string VideoDllName = "gstvideo-1.0-0.dll";
         private const string GObjectDllName = "gobject-2.0-0.dll";
+        private const string GlibDllName = "glib-2.0-0.dll";
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_init(ref int argc, ref IntPtr argv);
@@ -19,6 +20,9 @@ namespace TSVmsDesktop.Services
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_debug_set_default_threshold(int level);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void gst_debug_set_threshold_for_name(string name, int level);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr gst_parse_launch(string pipeline_description, out IntPtr error);
@@ -38,14 +42,17 @@ namespace TSVmsDesktop.Services
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_object_unref(IntPtr obj);
 
+        [DllImport(GlibDllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void g_error_free(IntPtr error);
+
+        [DllImport(GlibDllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void g_free(IntPtr ptr);
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr gst_element_get_bus(IntPtr element);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr gst_bus_pop_filtered(IntPtr bus, int types);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int gst_message_get_type(IntPtr message);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void gst_message_parse_error(IntPtr message, out IntPtr error, out IntPtr debug);
@@ -91,5 +98,23 @@ namespace TSVmsDesktop.Services
         public const int GST_MESSAGE_BUFFERING = 32;
         public const int GST_MESSAGE_STATE_CHANGED = 64;
         public const int GST_MESSAGE_ASYNC_DONE = 1024;
+
+        public static void SafeObjectUnref(IntPtr obj)
+        {
+            if (obj != IntPtr.Zero)
+                gst_object_unref(obj);
+        }
+
+        public static void SafeGErrorFree(IntPtr error)
+        {
+            if (error != IntPtr.Zero)
+                g_error_free(error);
+        }
+
+        public static void SafeGFree(IntPtr ptr)
+        {
+            if (ptr != IntPtr.Zero)
+                g_free(ptr);
+        }
     }
 }

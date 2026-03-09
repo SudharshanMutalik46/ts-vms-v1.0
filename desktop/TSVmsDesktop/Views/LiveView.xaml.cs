@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using TSVmsDesktop.ViewModels;
 using TSVmsDesktop.Services;
+using System.Linq;
 using TSVmsDesktop.Controls;
 
 namespace TSVmsDesktop.Views
@@ -20,14 +21,9 @@ namespace TSVmsDesktop.Views
 
         private async void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            // 1. Wait half a second to guarantee WPF has drawn the grid, sidebar, and headers to the screen.
-            // This ensures the gorgeous white and gray grid UI is instantly visible to the user.
-            await System.Threading.Tasks.Task.Delay(500);
-
-            // 2. Now that the UI is fully visible, tell the ViewModel to start connecting the streams.
             if (this.DataContext is LiveViewModel vm)
             {
-                await vm.ConnectAll();
+                await vm.ActivateAsync();
             }
         }
 
@@ -97,19 +93,45 @@ namespace TSVmsDesktop.Views
         // 1. This runs when the tile becomes Visible (IsConnected = true)
         private void VideoSurface_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            if (sender is VideoCanvas canvas)
-            {
-                if (canvas.Visibility == Visibility.Visible)
-                {
-                    if (!canvas.IsLoaded)
-                    {
-                        canvas.Loaded -= VideoSurface_Loaded; 
-                        canvas.Loaded += VideoSurface_Loaded;
-                        return;
-                    }
+            if (sender is not VideoCanvas canvas)
+                return;
 
-                    StartVideo(canvas);
+            if (canvas.Visibility == Visibility.Visible)
+            {
+                if (!canvas.IsLoaded)
+                {
+                    canvas.Loaded -= VideoSurface_Loaded;
+                    canvas.Loaded += VideoSurface_Loaded;
+                    return;
                 }
+
+                StartVideo(canvas);
+                return;
+            }
+
+            if (canvas.DataContext is CameraSlot slot && slot.PipelineHandle != IntPtr.Zero)
+            {
+                var app = (App)System.Windows.Application.Current;
+                if (app?.Services == null) return;
+
+                var videoService = app.Services.GetRequiredService<VideoService>();
+                var handle = slot.PipelineHandle;
+
+                slot.PipelineHandle = IntPtr.Zero;
+                slot.WindowHandle = IntPtr.Zero;
+                slot.IsConnected = false;
+
+                _ = System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        videoService.StopStream(handle);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[TS-VMS] Hidden stop failed: {ex.Message}");
+                    }
+                });
             }
         }
 
@@ -126,7 +148,7 @@ namespace TSVmsDesktop.Views
         // 3. The Actual Logic to Start the Stream (Grid tiles)
         private async void StartVideo(VideoCanvas canvas)
         {
-            // ROBUSTNESS: Wait up to 500ms for the Win32 handle to be created by WPF's HwndHost lifecycle.
+            // Wait for Win32 handle.
             int retries = 50;
             while (canvas.Handle == IntPtr.Zero && retries-- > 0)
             {
@@ -134,32 +156,31 @@ namespace TSVmsDesktop.Views
             }
 
             if (canvas.Handle == IntPtr.Zero) return;
+
+            // Wait for non-zero layout size without blocking the dispatcher.
+            retries = 100;
+            while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
+            {
+                await System.Threading.Tasks.Task.Delay(10);
+            }
             
             if (canvas.DataContext is CameraSlot slot)
             {
-                // CRITICAL FIX: Push the GStreamer initialization to ContextIdle.
-                // This guarantees WPF will completely render the offline grid, borders, 
-                // and text to the screen BEFORE it locks up the CPU to start the streams.
-                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                var videoService = App.Current.Services.GetRequiredService<VideoService>();
+
+                // Prevent duplicate streams, but RE-ATTACH if the window changed
+                if (slot.PipelineHandle != IntPtr.Zero)
                 {
-                    var videoService = App.Current.Services.GetRequiredService<VideoService>();
-                    
-                    // Prevent duplicate streams, but RE-ATTACH if the window changed
-                    if (slot.PipelineHandle != IntPtr.Zero) 
-                    {
-                        videoService.Reattach(slot.PipelineHandle, canvas.Handle);
-                        return;
-                    }
+                    videoService.Reattach(slot.PipelineHandle, canvas.Handle);
+                    return;
+                }
 
-                    // Fallback to "test" if URL is empty
-                    string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
+                string urlToPlay = string.IsNullOrEmpty(slot.RtspUrl) ? "test" : slot.RtspUrl;
+                System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
 
-                    System.Diagnostics.Debug.WriteLine($"[TS-VMS] Requesting Stream for {slot.CameraName} (URL: {urlToPlay})");
-
-                    slot.WindowHandle = canvas.Handle;
-                    slot.PipelineHandle = videoService.StartStream(canvas.Handle, urlToPlay, slot.Username, slot.Password, slot.HasAudioCapability);
-
-                }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                slot.WindowHandle = canvas.Handle;
+                slot.PipelineHandle = await System.Threading.Tasks.Task.Run(() =>
+                    videoService.StartStream(canvas.Handle, urlToPlay, slot.Username, slot.Password, slot.HasAudioCapability));
             }
         }
 
@@ -190,7 +211,7 @@ namespace TSVmsDesktop.Views
 
         private async void StartFullScreenStream(VideoCanvas canvas)
         {
-            // ROBUSTNESS: Wait for handle
+            // Wait for handle.
             int retries = 50;
             while (canvas.Handle == IntPtr.Zero && retries-- > 0)
             {
@@ -200,13 +221,21 @@ namespace TSVmsDesktop.Views
             if (canvas.Handle == IntPtr.Zero) return;
             if (_fullScreenPipeline != IntPtr.Zero) return; // Already playing
 
+            // Wait for non-zero layout size without blocking the dispatcher.
+            retries = 100;
+            while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
+            {
+                await System.Threading.Tasks.Task.Delay(10);
+            }
+
             var vm = DataContext as LiveViewModel;
             if (vm == null || string.IsNullOrEmpty(vm.FullScreenUrl)) return;
 
             var videoService = App.Current.Services.GetRequiredService<VideoService>();
             
             System.Diagnostics.Debug.WriteLine($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
-            _fullScreenPipeline = videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio);
+            _fullScreenPipeline = await System.Threading.Tasks.Task.Run(() =>
+                videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio));
         }
 
         private void StopFullScreenStream()
@@ -226,33 +255,48 @@ namespace TSVmsDesktop.Views
 
 
         // 5. Cleanup when leaving the view
-        private void UserControl_Unloaded(object sender, RoutedEventArgs e)
+        private async void UserControl_Unloaded(object sender, RoutedEventArgs e)
         {
             var app = (App)System.Windows.Application.Current;
             if (app?.Services == null) return;
 
             var videoService = app.Services.GetRequiredService<VideoService>();
-            
-            // Reset Full Screen State to close Popup
+
             if (this.DataContext is LiveViewModel currentVm)
             {
-                currentVm.IsFullScreen = false;
+                currentVm.Deactivate();
             }
 
-            // Stop full screen if active
             StopFullScreenStream();
 
-            // Stop all grid streams
             if (this.DataContext is LiveViewModel vm)
             {
+                var handles = vm.CameraGrid
+                    .Where(slot => slot.PipelineHandle != IntPtr.Zero)
+                    .Select(slot => slot.PipelineHandle)
+                    .ToList();
+
                 foreach (var slot in vm.CameraGrid)
                 {
-                    if (slot.PipelineHandle != IntPtr.Zero)
-                    {
-                        videoService.StopStream(slot.PipelineHandle);
-                        slot.PipelineHandle = IntPtr.Zero;
-                    }
+                    slot.PipelineHandle = IntPtr.Zero;
+                    slot.WindowHandle = IntPtr.Zero;
+                    slot.IsConnected = false;
                 }
+
+                await System.Threading.Tasks.Task.Run(() =>
+                {
+                    foreach (var handle in handles)
+                    {
+                        try
+                        {
+                            videoService.StopStream(handle);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Background stop failed: {ex.Message}");
+                        }
+                    }
+                });
             }
         }
     }

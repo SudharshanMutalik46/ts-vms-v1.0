@@ -17,8 +17,15 @@ namespace TSVmsDesktop.Services
 
         public async Task<Dictionary<string, string>> GetAllStatusesAsync()
         {
-            return await _api.GetAsync<Dictionary<string, string>>("/api/v1/recording/status")
-                   ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                return await _api.GetAsync<Dictionary<string, string>>("/api/v1/recording/status")
+                       ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
         }
 
         public async Task<string> GetCameraStatusAsync(string cameraId)
@@ -79,6 +86,7 @@ namespace TSVmsDesktop.Services
                 CameraId = cameraId,
                 FromTs = fromUtc.ToUniversalTime(),
                 ToTs = toUtc.ToUniversalTime(),
+                Format = "mp4"
             };
 
             return await _api.PostAsync<RecordingExportRequest, RecordingExportResponse>("/api/v1/recording/exports", req);

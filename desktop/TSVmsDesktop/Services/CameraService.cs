@@ -24,21 +24,26 @@ namespace TSVmsDesktop.Services
         {
             // GET /api/v1/cameras -> Returns { "data": [...], "meta": ... }
             var result = await _api.GetAsync<PaginatedResponse<CameraModel>>("/api/v1/cameras");
-            
-            System.Windows.Application.Current.Dispatcher.Invoke(() => 
+
+            void Apply()
             {
                 AllCameras.Clear();
                 if (result != null && result.Data != null)
                 {
-                    string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gstreamer_log.txt");
-                    foreach (var c in result.Data) 
-                    {
+                    foreach (var c in result.Data)
                         AllCameras.Add(c);
-                        string logMsg = $"[{DateTime.Now:HH:mm:ss}] [CameraService] Loaded: {c.Name} ({c.IpAddress}) RTSP: {c.RtspUrl} Effective: {c.EffectiveRtspUrl}\n";
-                        File.AppendAllText(logPath, logMsg);
-                    }
                 }
-            });
+            }
+
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+            {
+                Apply();
+            }
+            else
+            {
+                await dispatcher.InvokeAsync(Apply);
+            }
         }
 
         private class PaginatedResponse<T>
@@ -75,8 +80,7 @@ namespace TSVmsDesktop.Services
 
                  if (healthData != null)
                  {
-                     // Console.WriteLine($"[CameraService] Received health data for {healthData.Count} cameras.");
-                     System.Windows.Application.Current.Dispatcher.Invoke(() => 
+                     void Apply()
                      {
                          foreach (var h in healthData)
                          {
@@ -112,7 +116,17 @@ namespace TSVmsDesktop.Services
                                  }
                              }
                          }
-                     });
+                     }
+
+                     var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                     if (dispatcher == null || dispatcher.CheckAccess())
+                     {
+                         Apply();
+                     }
+                     else
+                     {
+                         await dispatcher.InvokeAsync(Apply);
+                     }
                  }
                  else
                  {

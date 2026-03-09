@@ -62,6 +62,13 @@ namespace TSVmsDesktop.ViewModels
         private readonly CredentialService _credentialService;
         private readonly RecordingService _recordingService;
         private readonly IServiceProvider _serviceProvider; // Lazy resolution to break circular dependency
+        
+        private System.Threading.SemaphoreSlim _refreshLock = new(1, 1);
+        private System.Threading.CancellationTokenSource? _refreshCts;
+
+        private System.Threading.CancellationTokenSource? _pollCts;
+        private bool _isActive;
+        private bool _isPollingStarted;
 
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
 
@@ -78,67 +85,104 @@ namespace TSVmsDesktop.ViewModels
             
             // Subscribe to camera updates to keep grid in sync (Debounced)
             _cameraService.AllCameras.CollectionChanged += (s, e) => RequestRefresh();
-
-            _ = OnViewActivated();
-            _ = StartStatusPolling();
         }
 
-        private System.Threading.SemaphoreSlim _refreshLock = new(1, 1);
-        private System.Threading.CancellationTokenSource? _refreshCts;
+
 
         private async void RequestRefresh()
         {
+            if (!_isActive) return;
+
             _refreshCts?.Cancel();
             _refreshCts = new System.Threading.CancellationTokenSource();
             var token = _refreshCts.Token;
 
-            try 
+            try
             {
-                await Task.Delay(250, token); // Debounce: Wait for burst of updates to finish
+                await Task.Delay(250, token);
                 if (!token.IsCancellationRequested)
                 {
-                     await RefreshGrid();
+                    await RefreshGrid();
                 }
-            } 
-            catch (TaskCanceledException) { /* Ignored */ }
+            }
+            catch (TaskCanceledException)
+            {
+            }
         }
 
-        private async Task StartStatusPolling()
+        public async Task ActivateAsync()
         {
-            while (true)
+            _isActive = true;
+
+            if (_cameraService.AllCameras.Count == 0)
             {
-                // Removed initial delay to allow immediate update on load
-                try 
-                {
-                    // Only reload if we are not in full screen to avoid glitches
-                    if (!IsFullScreen) 
-                    {
-                        // Console.WriteLine("[LiveVM] Polling camera health...");
-                        await _cameraService.LoadHealthAsync();
-                        // After loading health, we need to refresh the grid to reflect changes
-                        // Because LoadHealthAsync updates properties of CameraModel, but CameraGrid holds CameraSlot.
-                        // We need to sync them.
-                        RequestRefresh();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[LiveVM] Polling failed: {ex.Message}");
-                }
-                
-                await Task.Delay(5000); // Poll every 5 seconds
+                await _cameraService.LoadCamerasAsync();
             }
+
+            await RefreshGrid();
+
+            if (!_isPollingStarted)
+            {
+                _pollCts = new System.Threading.CancellationTokenSource();
+                _isPollingStarted = true;
+                _ = StartStatusPolling(_pollCts.Token);
+            }
+        }
+
+        public void Deactivate()
+        {
+            _isActive = false;
+            try { _refreshCts?.Cancel(); } catch { }
+
+            try { _pollCts?.Cancel(); } catch { }
+            _pollCts = null;
+            _isPollingStarted = false;
+
+            IsFullScreen = false;
+            FullScreenUrl = string.Empty;
+            SelectedCameraName = string.Empty;
+
+            foreach (var slot in CameraGrid)
+            {
+                slot.IsConnected = false;
+                slot.IsAudioPlaying = false;
+            }
+
+            OnPropertyChanged(nameof(ActiveStreamCount));
         }
 
         public async Task OnViewActivated()
         {
-            if (_cameraService.AllCameras.Count == 0)
-            {
-                 await _cameraService.LoadCamerasAsync();
-                 await RefreshGrid();
-            }
-            // If already loaded, skip RefreshGrid to allow instant Reattach without restarting streams
+            await ActivateAsync();
         }
+        private async Task StartStatusPolling(System.Threading.CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        if (_isActive && !IsFullScreen)
+                        {
+                            await _cameraService.LoadHealthAsync();
+                            RequestRefresh();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LiveVM] Polling failed: {ex.Message}");
+                    }
+
+                    await Task.Delay(5000, token);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        }
+
+
 
         [ObservableProperty] private string _fullScreenUrl = "";
         [ObservableProperty] private bool _fullScreenHasAudio = false;
@@ -238,46 +282,31 @@ namespace TSVmsDesktop.ViewModels
         [RelayCommand]
         public async Task ConnectAll()
         {
+            if (!_isActive) return;
+
             System.Diagnostics.Debug.WriteLine("[TS-VMS] Connecting all cameras...");
-            
+
             foreach (var slot in CameraGrid)
             {
-                // Only connect valid slots that aren't already connected
-                if (!string.IsNullOrEmpty(slot.Id) && !slot.IsConnected && string.Equals(slot.BackendStatus, "Online", StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(slot.Id) &&
+                    !slot.IsConnected &&
+                    string.Equals(slot.BackendStatus, "Online", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        // Ensure we have credentials before starting
                         await FetchCredentialsForSlot(slot);
-
-                        // 1. Tell Backend we are starting (Audit/Resource allocation)
-                        // POST /api/v1/cameras/{id}/live/start
-                        // string url = $"/api/v1/cameras/{slot.Id}/live/start";
-                        
-                        // We send a generic body, or empty. 
-                        // The backend expects a POST to trigger the session.
-                        // var body = new { stream = "main" }; 
-                        
-                        // We don't block heavily on this, if it fails we might still try RTSP
-                        // but strictly we should wait.
-                        // DEBUG: Session start call removed to resolve dependency conflict with RecordingService
-                        // await _apiClient.PostAsync(url, body);
-                        System.Diagnostics.Debug.WriteLine($"[Live] Session started (Local) for {slot.CameraName}");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[Live] Backend session start failed: {ex.Message}");
-                        // Optional: Continue anyway so local playback works even if backend API is glitchy
                     }
 
-                    // 2. Trigger UI to start GStreamer (Via bindings)
                     slot.IsConnected = true;
                     slot.CameraName = string.IsNullOrEmpty(slot.CameraName) ? "Live Stream" : slot.CameraName;
-
-                    // USER-REQUESTED DELAY: Stagger streams to prevent UDP/TCP setup collisions
                     await Task.Delay(600);
                 }
             }
+
             UpdateAudioStates();
             OnPropertyChanged(nameof(ActiveStreamCount));
         }
@@ -320,20 +349,18 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task RefreshGrid()
         {
-            if (!await _refreshLock.WaitAsync(0)) 
-            {
-                // If locked, we can either wait or skip. 
-                // Since we have debounce, skipping concurrent runs is okay, 
-                // but let's wait to be safe.
-                await _refreshLock.WaitAsync();
-            }
+            if (!_isActive) return;
+            await _refreshLock.WaitAsync();
 
             try 
             {
                 // Ensure we are on UI thread
                 if (System.Windows.Application.Current.Dispatcher.Thread != System.Threading.Thread.CurrentThread)
                 {
-                     await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () => await RefreshGridInternal());
+                     // Important: InvokeAsync(async ...) returns Task<Task>; unwrap it so we
+                     // do not release _refreshLock before RefreshGridInternal actually finishes.
+                     var op = System.Windows.Application.Current.Dispatcher.InvokeAsync(() => RefreshGridInternal());
+                     await op.Task.Unwrap();
                 }
                 else
                 {
@@ -476,8 +503,11 @@ namespace TSVmsDesktop.ViewModels
             
             // AUTO-START: Detect newly online cameras during polling and connect them.
             // This is idempotent; it won't restart already-connected slots.
-            await ConnectAll();
-            UpdateAudioStates();
+            if (_isActive)
+            {
+                await ConnectAll();
+                UpdateAudioStates();
+            }
         }
 
         private void UpdateIp(CameraSlot slot, CameraModel cam)

@@ -353,36 +353,12 @@
                             </Style>
                         </Border.Style>
                         <Grid x:Name="ViewLayoutContainer">
-                            <!-- Persistent Live View layer -->
-                            <views:LiveView DataContext="{Binding LiveVM}">
-                                <views:LiveView.Style>
-                                    <Style TargetType="UserControl">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                        <Setter Property="Margin" Value="20"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding DataContext.CurrentPage, RelativeSource={RelativeSource AncestorType=Window}}" Value="Live">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding DataContext.IsKioskMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
-                                                <Setter Property="Margin" Value="0"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </views:LiveView.Style>
-                            </views:LiveView>
-
-                            <!-- Other Views layer -->
                             <ContentControl Content="{Binding CurrentView}">
                                 <ContentControl.Style>
                                     <Style TargetType="ContentControl">
                                         <Setter Property="Margin" Value="20"/>
                                         <Setter Property="Visibility" Value="Visible"/> 
                                         <Style.Triggers>
-                                            <!-- Hide when showing persistent Live View -->
-                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Live">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                            
                                             <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
                                                 <Setter Property="Margin" Value="0"/>
                                             </DataTrigger>

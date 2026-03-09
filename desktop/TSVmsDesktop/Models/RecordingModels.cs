@@ -5,6 +5,9 @@ namespace TSVmsDesktop.Models
 {
     public class RecordingSegment
     {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
         [JsonPropertyName("camera_id")]
         public string CameraId { get; set; } = string.Empty;
 
@@ -22,6 +25,9 @@ namespace TSVmsDesktop.Models
 
         [JsonPropertyName("size_bytes")]
         public long SizeBytes { get; set; }
+
+        [JsonPropertyName("is_protected")]
+        public bool IsProtected { get; set; }
 
         [JsonIgnore]
         public string FileName => System.IO.Path.GetFileName(Path);
@@ -57,24 +63,4 @@ namespace TSVmsDesktop.Models
         public int RetentionDays { get; set; }
     }
 
-    public class RecordingExportRequest
-    {
-        [JsonPropertyName("camera_id")]
-        public string CameraId { get; set; } = string.Empty;
-
-        [JsonPropertyName("from_ts")]
-        public DateTime FromTs { get; set; }
-
-        [JsonPropertyName("to_ts")]
-        public DateTime ToTs { get; set; }
-    }
-
-    public class RecordingExportResponse
-    {
-        [JsonPropertyName("job_id")]
-        public string JobId { get; set; } = string.Empty;
-
-        [JsonPropertyName("download_url")]
-        public string DownloadUrl { get; set; } = string.Empty;
-    }
 }

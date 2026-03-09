@@ -11,76 +11,128 @@ namespace TSVmsDesktop.Services
         private IntPtr _engine = IntPtr.Zero;
         private IntPtr _hostHandle = IntPtr.Zero;
         private bool _initialized;
+        private readonly object _sync = new();
 
         public void AttachHost(IntPtr hwnd)
         {
-            _hostHandle = hwnd;
-            EnsureCreated();
-            if (_hostHandle != IntPtr.Zero)
+            lock (_sync)
             {
-                ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
-                _initialized = true;
+                _hostHandle = hwnd;
+                EnsureCreated();
+                if (_hostHandle != IntPtr.Zero)
+                {
+                    ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
+                    ThrowIfFailed(NativePlayback.tsplay_set_window_handle(_engine, _hostHandle));
+                    _initialized = true;
+                }
             }
         }
 
         public void Load(string mediaPath)
         {
-            EnsureReady();
-            if (string.IsNullOrWhiteSpace(mediaPath))
-                throw new ArgumentException("Media path is empty.", nameof(mediaPath));
-            ThrowIfFailed(NativePlayback.tsplay_set_media_path(_engine, mediaPath));
+            lock (_sync)
+            {
+                EnsureReady();
+                if (string.IsNullOrWhiteSpace(mediaPath))
+                    throw new ArgumentException("Media path is empty.", nameof(mediaPath));
+                ThrowIfFailed(NativePlayback.tsplay_set_media_path(_engine, mediaPath));
+            }
         }
 
         public void Play()
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_play(_engine));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_play(_engine));
+            }
         }
 
         public void Pause()
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_pause(_engine));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_pause(_engine));
+            }
         }
 
         public void Stop()
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_stop(_engine));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_stop(_engine));
+            }
         }
 
         public void Seek(double seconds)
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_seek_seconds(_engine, seconds));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_seek_seconds(_engine, seconds));
+            }
         }
 
         public void SetRate(double rate)
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, rate));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, rate));
+            }
         }
 
         public void StepFrame(int frames)
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.tsplay_step_frame(_engine, frames));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_step_frame(_engine, frames));
+            }
         }
 
         public void SetRotationDegrees(int degrees)
         {
-            EnsureReady();
-            ThrowIfFailed(NativePlayback.TSPlayback_SetRotationDegrees(_engine, degrees));
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.TSPlayback_SetRotationDegrees(_engine, degrees));
+            }
         }
 
         public int GetRotationDegrees()
         {
-            return _engine == IntPtr.Zero ? 0 : NativePlayback.TSPlayback_GetRotationDegrees(_engine);
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? 0 : NativePlayback.TSPlayback_GetRotationDegrees(_engine);
+            }
         }
 
-        public double GetPositionSeconds() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_position_seconds(_engine);
-        public double GetDurationSeconds() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_duration_seconds(_engine);
-        public int GetState() => _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_state(_engine);
+        public double GetPositionSeconds()
+        {
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_position_seconds(_engine);
+            }
+        }
+
+        public double GetDurationSeconds()
+        {
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_duration_seconds(_engine);
+            }
+        }
+
+        public int GetState()
+        {
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? 0 : NativePlayback.tsplay_get_state(_engine);
+            }
+        }
 
         public void EnsureNativeDllPresent(string baseDirectory)
         {
@@ -111,10 +163,13 @@ namespace TSVmsDesktop.Services
 
         public void Dispose()
         {
-            if (_engine != IntPtr.Zero)
+            lock (_sync)
             {
-                NativePlayback.tsplay_destroy(_engine);
-                _engine = IntPtr.Zero;
+                if (_engine != IntPtr.Zero)
+                {
+                    NativePlayback.tsplay_destroy(_engine);
+                    _engine = IntPtr.Zero;
+                }
             }
         }
     }

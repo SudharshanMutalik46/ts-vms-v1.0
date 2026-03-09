@@ -22,13 +22,13 @@ const (
 
 // LiveStartResponse is the unified response for starting a live view session.
 type LiveStartResponse struct {
-	ViewerSessionID string         `json:"viewer_session_id"`
-	ExpiresAt       int64          `json:"expires_at"`
-	Primary         string         `json:"primary"`
-	Fallback        string         `json:"fallback"`
-	WebRTC          WebRTCConfig   `json:"webrtc"`
-	HLS             HLSConfig      `json:"hls"`
-	FallbackPolicy  FallbackPolicy `json:"fallback_policy"`
+	ViewerSessionID string          `json:"viewer_session_id"`
+	ExpiresAt       int64           `json:"expires_at"`
+	Primary         string          `json:"primary"`
+	Fallback        string          `json:"fallback"`
+	WebRTC          WebRTCConfig    `json:"webrtc"`
+	HLS             HLSConfig       `json:"hls"`
+	FallbackPolicy  FallbackPolicy  `json:"fallback_policy"`
 	TelemetryPolicy TelemetryPolicy `json:"telemetry_policy"`
 }
 
@@ -47,13 +47,13 @@ type HLSConfig struct {
 type FallbackPolicy struct {
 	WebRTCConnectTimeoutMs int   `json:"webrtc_connect_timeout_ms"`
 	WebRTCTrackTimeoutMs   int   `json:"webrtc_track_timeout_ms"`
-	RetryBackoffMs        []int `json:"retry_backoff_ms"`
-	MaxAutoRetries        int   `json:"max_auto_retries"`
+	RetryBackoffMs         []int `json:"retry_backoff_ms"`
+	MaxAutoRetries         int   `json:"max_auto_retries"`
 }
 
 type TelemetryPolicy struct {
 	ClientEventEndpoint string  `json:"client_event_endpoint"`
-	Sampling           float64 `json:"sampling"`
+	Sampling            float64 `json:"sampling"`
 }
 
 // ViewerSession represents the server-side state of a live view session.

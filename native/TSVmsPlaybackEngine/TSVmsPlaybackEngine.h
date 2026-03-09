@@ -14,6 +14,7 @@ TSVMS_PLAYBACK_API void* tsplay_create();
 TSVMS_PLAYBACK_API void  tsplay_destroy(void* engine);
 
 TSVMS_PLAYBACK_API int   tsplay_initialize(void* engine, HWND hwnd);
+TSVMS_PLAYBACK_API int   tsplay_set_window_handle(void* engine, HWND hwnd);
 TSVMS_PLAYBACK_API int   tsplay_set_media_path(void* engine, const wchar_t* path);
 TSVMS_PLAYBACK_API int   tsplay_play(void* engine);
 TSVMS_PLAYBACK_API int   tsplay_pause(void* engine);

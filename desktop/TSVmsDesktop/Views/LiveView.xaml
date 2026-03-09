@@ -284,6 +284,8 @@
 
                                     <!-- Video Surface -->
                                     <controls:VideoCanvas x:Name="VideoSurface" 
+                                                          MinWidth="64"
+                                                          MinHeight="64"
                                                           DataContext="{Binding}"
                                                           HorizontalAlignment="Stretch"
                                                           VerticalAlignment="Stretch"
@@ -504,6 +506,8 @@
             <Border Background="Black" /> <!-- Underlying theater background -->
             
             <controls:VideoCanvas x:Name="FullScreenPlayer" 
+                                  MinWidth="64"
+                                  MinHeight="64"
                                    HorizontalAlignment="Stretch"
                                    VerticalAlignment="Stretch"
                                   IsVisibleChanged="FullScreenPlayer_IsVisibleChanged"/>

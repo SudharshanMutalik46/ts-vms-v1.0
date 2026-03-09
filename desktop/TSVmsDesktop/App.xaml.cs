@@ -72,8 +72,10 @@ namespace TSVmsDesktop
         protected override void OnStartup(StartupEventArgs e)
         {
             Console.WriteLine("DEBUG: OnStartup Started");
-            // Force GStreamer to ignore D3D12 decoders and use D3D11 instead
-            Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE");
+            // Force GStreamer to ignore experimental D3D12 decoders and fallback to stable D3D11
+            Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE,d3d12convert:NONE,d3d12videosink:NONE");
+            // Keep runtime logs minimal; d3d11debuglayer warning floods can stall the app.
+            Environment.SetEnvironmentVariable("GST_DEBUG", "*:1,d3d11debuglayer:0,video-info:0");
 
             // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";

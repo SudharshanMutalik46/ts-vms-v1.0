@@ -2,8 +2,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using TSVmsDesktop.Services;
-using System; // Added for IServiceProvider
+using System;
 using System.Windows;
+using System.Threading.Tasks;
 
 namespace TSVmsDesktop.ViewModels
 {
@@ -30,7 +31,6 @@ namespace TSVmsDesktop.ViewModels
             get 
             {
                 bool allowed = _session.HasPermission("audit.read");
-                Console.WriteLine($"[RBAC-Check] CanViewAudit: {allowed}");
                 return allowed;
             }
         }
@@ -66,15 +66,9 @@ namespace TSVmsDesktop.ViewModels
             {
                 if (string.IsNullOrEmpty(_session.AccessToken)) 
                 {
-                    Console.WriteLine("[Auth] No saved token.");
                     NavigateToLogin();
                     return;
                 }
-
-                Console.WriteLine("[Auth] Saved token found. Restoring identity...");
-                
-                // Use a local variable to capture success/failure
-                bool success = false;
                 
                 // Get ApiClient from scope
                 var apiClient = _serviceProvider.GetRequiredService<Services.ApiClient>();
@@ -84,39 +78,22 @@ namespace TSVmsDesktop.ViewModels
                 
                 if (identity != null)
                 {
-                    Console.WriteLine($"[Auth] Identity found: {identity.Username}. Roles: {string.Join(",", identity.Roles)}");
-                    
-                    // Update Session Service (Singleton)
                     _session.SetIdentity(identity);
                     
-                    // SUCCESS
-                    success = true;
+                    System.Windows.Application.Current.Dispatcher.Invoke(() => 
+                    {
+                        IsLoggedIn = true;
+                        RefreshRbacUI();
+                        NavigateToLive();
+                    });
                 }
                 else
                 {
-                    Console.WriteLine("[Auth] Identity response was NULL.");
+                    _ = NavigateToLogout();
                 }
-
-                // Finalize on UI Thread
-                System.Windows.Application.Current.Dispatcher.Invoke(() => 
-                {
-                    if (success)
-                    {
-                        IsLoggedIn = true;
-                        RefreshRbacUI(); // Critical: Trigger bindings
-                        NavigateToLive();
-                    }
-                    else
-                    {
-                        Console.WriteLine("[Auth] Restoration failed. Logout.");
-                        _ = NavigateToLogout();
-                    }
-                });
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"[Auth] Critical Error in Restoration: {ex.Message}");
-                // Fail safe
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(async () => await NavigateToLogout());
             }
         }
@@ -126,88 +103,114 @@ namespace TSVmsDesktop.ViewModels
             OnPropertyChanged(nameof(CanViewAudit));
             OnPropertyChanged(nameof(CanViewUsers));
             OnPropertyChanged(nameof(CanViewLicense));
-            OnPropertyChanged(nameof(CanViewUsers));
-            OnPropertyChanged(nameof(CanViewLicense));
+        }
+
+        private void DeactivateLiveIfNeeded()
+        {
+            if (CurrentPage == "Live")
+            {
+                LiveVM.Deactivate();
+            }
+        }
+
+        private void DeactivatePlaybackIfNeeded()
+        {
+            if (CurrentPage == "Playback")
+            {
+                var playbackVm = _serviceProvider.GetRequiredService<PlaybackViewModel>();
+                playbackVm.Deactivate();
+            }
+        }
+
+        private void DeactivateAllEngines()
+        {
+            DeactivateLiveIfNeeded();
+            DeactivatePlaybackIfNeeded();
         }
 
         // --- NAVIGATION COMMANDS ---
         
-        [RelayCommand] 
-        public void NavigateToLogin() 
+        [RelayCommand]
+        public void NavigateToLogin()
         {
+            DeactivateAllEngines();
             CurrentView = _serviceProvider.GetRequiredService<LoginViewModel>();
-            CurrentPage = "Login"; // Ensure LiveView overlay is hidden
+            CurrentPage = "Login";
         }
 
         [RelayCommand]
         public void ToggleKioskMode() => IsKioskMode = !IsKioskMode;
 
-        [RelayCommand] 
-        public void NavigateToLive() 
-        { 
-            if(IsLoggedIn) {
-                // Set CurrentView to null to hide ContentControl. 
-                // The persistent LiveView in MainWindow.xaml will become visible due to CurrentPage="Live" binding.
-                CurrentView = null;
-                CurrentPage = "Live"; 
-                _ = LiveVM.OnViewActivated(); // Refresh cameras if empty 
-            }
+        [RelayCommand]
+        public void NavigateToLive()
+        {
+            if (!IsLoggedIn) return;
+
+            DeactivatePlaybackIfNeeded();
+            CurrentView = LiveVM;
+            CurrentPage = "Live";
+            _ = LiveVM.ActivateAsync();
         }
 
-        [RelayCommand] 
-        public void NavigateToCameras() 
-        { 
-            if(IsLoggedIn) {
-                CurrentView = _serviceProvider.GetRequiredService<CamerasViewModel>();
-                CurrentPage = "Cameras"; 
-            }
+        [RelayCommand]
+        public void NavigateToCameras()
+        {
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<CamerasViewModel>();
+            CurrentPage = "Cameras";
         }
 
-        [RelayCommand] 
-        public void NavigateToHealth() 
-        { 
+        [RelayCommand]
+        public void NavigateToHealth()
+        {
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
             CurrentView = _serviceProvider.GetRequiredService<HealthViewModel>();
-            CurrentPage = "Health"; 
+            CurrentPage = "Health";
         }
 
-        [RelayCommand] 
-        public void NavigateToSettings() 
-        { 
+        [RelayCommand]
+        public void NavigateToSettings()
+        {
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
             CurrentView = _serviceProvider.GetRequiredService<SettingsViewModel>();
-            CurrentPage = "Settings"; 
-        }
-
-        [RelayCommand] 
-        public void NavigateToAudit() 
-        { 
-            if(CanViewAudit) {
-                CurrentView = _serviceProvider.GetRequiredService<AuditViewModel>();
-                CurrentPage = "Audit Log"; 
-            }
+            CurrentPage = "Settings";
         }
 
         [RelayCommand]
-        public void NavigateToLicense() 
+        public void NavigateToAudit()
         {
-            if (CanViewLicense) {
-                CurrentView = _serviceProvider.GetRequiredService<LicenseViewModel>();
-                CurrentPage = "License";
-            }
+            if (!CanViewAudit) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<AuditViewModel>();
+            CurrentPage = "Audit Log";
         }
 
         [RelayCommand]
-        public void NavigateToUsers() 
+        public void NavigateToLicense()
         {
-            if (CanViewUsers) {
-                CurrentView = _serviceProvider.GetRequiredService<UsersViewModel>();
-                CurrentPage = "Users";
-            }
+            if (!CanViewLicense) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<LicenseViewModel>();
+            CurrentPage = "License";
         }
 
         [RelayCommand]
-        public void NavigateToSupervisor() 
+        public void NavigateToUsers()
         {
-            // Accessible to all logged in users, or restrict if needed. Assuming open for now.
+            if (!CanViewUsers) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<UsersViewModel>();
+            CurrentPage = "Users";
+        }
+
+        [RelayCommand]
+        public void NavigateToSupervisor()
+        {
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
             CurrentView = _serviceProvider.GetRequiredService<SupervisorViewModel>();
             CurrentPage = "Supervisor";
         }
@@ -215,69 +218,66 @@ namespace TSVmsDesktop.ViewModels
         [RelayCommand]
         public void NavigateToCameraDetails(string cameraId)
         {
-            if(IsLoggedIn) 
-            {
-                var detailsVm = _serviceProvider.GetRequiredService<CameraDetailsViewModel>();
-                detailsVm.Load(cameraId);
-                CurrentView = detailsVm;
-                CurrentPage = "Camera Details";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            var detailsVm = _serviceProvider.GetRequiredService<CameraDetailsViewModel>();
+            detailsVm.Load(cameraId);
+            CurrentView = detailsVm;
+            CurrentPage = "Camera Details";
         }
 
         [RelayCommand]
         public void NavigateToDiscovery()
         {
-            if(IsLoggedIn) 
-            {
-                CurrentView = _serviceProvider.GetRequiredService<OnvifDiscoveryViewModel>();
-                CurrentPage = "ONVIF Discovery";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<OnvifDiscoveryViewModel>();
+            CurrentPage = "ONVIF Discovery";
         }
 
         [RelayCommand]
         public void NavigateToPlayback()
         {
-            if(IsLoggedIn) 
-            {
-                var vm = _serviceProvider.GetRequiredService<PlaybackViewModel>();
-                _ = vm.LoadCamerasAsync(); // Load the cameras immediately when navigating to Playback
-                CurrentView = vm;
-                CurrentPage = "Playback";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateLiveIfNeeded();
+            var vm = _serviceProvider.GetRequiredService<PlaybackViewModel>();
+            CurrentView = vm;
+            CurrentPage = "Playback";
         }
 
         [RelayCommand]
-        public void NavigateToNvrs() 
+        public void NavigateToNvrs()
         {
-            if(IsLoggedIn) {
-                CurrentView = _serviceProvider.GetRequiredService<NvrsViewModel>();
-                CurrentPage = "NVRs";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<NvrsViewModel>();
+            CurrentPage = "NVRs";
         }
 
         [RelayCommand]
         public void NavigateToNvrDetails(string id)
         {
-            if(IsLoggedIn) {
-                var vm = _serviceProvider.GetRequiredService<NvrDetailsViewModel>();
-                vm.Load(id);
-                CurrentView = vm;
-                CurrentPage = "NVR Details";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            var vm = _serviceProvider.GetRequiredService<NvrDetailsViewModel>();
+            vm.Load(id);
+            CurrentView = vm;
+            CurrentPage = "NVR Details";
         }
 
         [RelayCommand]
         public void NavigateToWinDiscovery()
         {
-            if(IsLoggedIn) {
-                CurrentView = _serviceProvider.GetRequiredService<WindowsDiscoveryViewModel>();
-                CurrentPage = "Win Discovery";
-            }
+            if (!IsLoggedIn) return;
+            DeactivateAllEngines();
+            CurrentView = _serviceProvider.GetRequiredService<WindowsDiscoveryViewModel>();
+            CurrentPage = "Win Discovery";
         }
 
         [RelayCommand]
-        public async Task NavigateToLogout() 
-        { 
+        public async Task NavigateToLogout()
+        {
+            DeactivateAllEngines();
             try
             {
                 var apiClient = _serviceProvider.GetRequiredService<Services.ApiClient>();
@@ -285,8 +285,9 @@ namespace TSVmsDesktop.ViewModels
             }
             finally
             {
-                IsLoggedIn = false; 
-                NavigateToLogin(); 
+                IsLoggedIn = false;
+                CurrentView = _serviceProvider.GetRequiredService<LoginViewModel>();
+                CurrentPage = "Login";
             }
         }
 

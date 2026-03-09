@@ -61,3 +61,22 @@ Thumbs.db
 **/cameras.json
 **/desktop-config.json
 **/token.dat
+
+# Temporary & LLM context
+vms-recording.pid
+token.txt
+update_caps.sql
+repo_tree.txt
+retention_audit.jsonl
+code_txt/
+temp_extract/
+archive/cleanup_latest/
+**/build_out.txt
+*.mp4
+
+# Build state (recording)
+src/recording/*.vcxproj
+src/recording/CMakeFiles/
+src/recording/ZERO_CHECK.*
+src/recording/ALL_BUILD.*
+src/recording/*.stamp*
