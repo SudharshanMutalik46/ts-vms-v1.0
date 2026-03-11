@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ type PublicRecordingAPI struct {
 	ServiceKey      string
 	DB              *recording.PostgresStore
 	Exporter        *recording.ExportService
+	Config          *recording.Config
 	DefaultTenantID string
 	DefaultSiteID   string
 }
@@ -219,6 +222,82 @@ func (api *PublicRecordingAPI) HandleExportDownload(w http.ResponseWriter, r *ht
 	_, _ = io.Copy(w, f)
 }
 
+type IFrameEntry struct {
+	SegPath      string    `json:"seg_path"`
+	PtsSeconds   float64   `json:"pts_seconds"`
+	WallClockUtc time.Time `json:"wall_clock_utc"`
+}
+
+func (api *PublicRecordingAPI) HandleGetIFrameIndex(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(r, "recording.view") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	camID := r.URL.Query().Get("camera_id")
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+
+	from, _ := time.Parse(time.RFC3339, fromStr)
+	to, _ := time.Parse(time.RFC3339, toStr)
+
+	if camID == "" || from.IsZero() || to.IsZero() {
+		http.Error(w, "missing parameters", http.StatusBadRequest)
+		return
+	}
+
+	segs, err := api.DB.GetSegments(r.Context(), camID, from, to)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	// Adjust this path if your ffprobe is located elsewhere
+	ffprobePath := strings.Replace(api.Config.Global.FFmpegPath, "ffmpeg.exe", "ffprobe.exe", 1)
+	if ffprobePath == api.Config.Global.FFmpegPath {
+		ffprobePath = strings.Replace(api.Config.Global.FFmpegPath, "ffmpeg", "ffprobe", 1)
+	}
+
+	var allFrames []IFrameEntry
+	for _, seg := range segs {
+		pts := extractKeyframePTS(seg.Path, ffprobePath)
+		for _, p := range pts {
+			allFrames = append(allFrames, IFrameEntry{
+				SegPath:      seg.Path,
+				PtsSeconds:   p,
+				WallClockUtc: seg.StartTS.Add(time.Duration(p * float64(time.Second))),
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(allFrames)
+}
+
+func extractKeyframePTS(path, ffprobe string) []float64 {
+	cmd := exec.Command(ffprobe,
+		"-select_streams", "v:0",
+		"-show_packets",
+		"-show_entries", "packet=pts_time,flags",
+		"-of", "csv=p=0", path)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var result []float64
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.Split(strings.TrimSpace(line), ",")
+		if len(parts) == 2 && strings.Contains(parts[1], "K") {
+			if v, err := strconv.ParseFloat(parts[0], 64); err == nil {
+				result = append(result, v)
+			}
+		}
+	}
+	return result
+}
+
 func (api *PublicRecordingAPI) ServeMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/recording/cameras/attach", api.HandleAttachCamera)
@@ -229,5 +308,6 @@ func (api *PublicRecordingAPI) ServeMux() *http.ServeMux {
 	mux.HandleFunc("/api/v1/recording/schedules", api.HandleSchedules)
 	mux.HandleFunc("/api/v1/recording/exports", api.HandleExport)
 	mux.HandleFunc("/api/v1/recording/exports/", api.HandleExportDownload)
+	mux.HandleFunc("/api/v1/recording/iframes", api.HandleGetIFrameIndex)
 	return mux
 }

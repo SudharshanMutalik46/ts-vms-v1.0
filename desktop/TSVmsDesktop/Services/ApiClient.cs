@@ -456,5 +456,19 @@ namespace TSVmsDesktop.Services
                 return false;
             }
         }
+
+        public async Task<List<IFrameEntry>> GetIFrameIndexAsync(string cameraId, DateTime from, DateTime to)
+        {
+            string url = $"/api/v1/recording/iframes?camera_id={cameraId}&from={from:yyyy-MM-ddTHH:mm:ssZ}&to={to:yyyy-MM-ddTHH:mm:ssZ}";
+            var results = await GetAsync<List<IFrameEntry>>(url);
+            return results ?? new List<IFrameEntry>();
+        }
+    }
+
+    public class IFrameEntry
+    {
+        public string SegPath { get; set; } = "";
+        public double PtsSeconds { get; set; }
+        public DateTime WallClockUtc { get; set; }
     }
 }

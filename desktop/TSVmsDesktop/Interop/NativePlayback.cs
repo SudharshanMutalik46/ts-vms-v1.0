@@ -22,6 +22,19 @@ namespace TSVmsDesktop.Interop
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         internal static extern int tsplay_set_media_path(IntPtr engine, string path);
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        internal static extern int tsplay_set_playlist(
+            IntPtr engine,
+            [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPWStr)] string[] paths,
+            int count,
+            int startIndex);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_get_playlist_index(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double tsplay_get_rate(IntPtr engine);
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int tsplay_play(IntPtr engine);
 
@@ -48,6 +61,9 @@ namespace TSVmsDesktop.Interop
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int tsplay_get_state(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_has_reached_eos(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr tsplay_get_last_error(IntPtr engine);

@@ -83,8 +83,12 @@ func (r *Reconciler) Run(ctx context.Context) error {
 }
 
 func inferCameraIDFromPath(path string) string {
-	cameraDir := filepath.Base(filepath.Dir(path))
-	if cameraDir != "" && cameraDir != "." && cameraDir != string(filepath.Separator) {
+	// Expected structure: .../camera_uuid/yyyy-mm-dd/hh/segment.mp4
+	dir := filepath.Dir(path)      // hh
+	dir = filepath.Dir(dir)       // yyyy-mm-dd
+	cameraDir := filepath.Base(filepath.Dir(dir)) // camera_uuid
+
+	if cameraDir != "" && cameraDir != "." && cameraDir != string(filepath.Separator) && cameraDir != "\\" {
 		return cameraDir
 	}
 	return "unknown"

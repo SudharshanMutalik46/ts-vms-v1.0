@@ -68,7 +68,7 @@ namespace TSVmsDesktop.Views
             await vm.SeekToWindowSecondsAsync(seconds, autoPlay);
         }
 
-        private void WindowSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void WindowSlider_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
         {
             if (DataContext is PlaybackViewModel vm)
             {

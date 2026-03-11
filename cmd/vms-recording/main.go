@@ -127,6 +127,7 @@ func main() {
 		ServiceKey:      os.Getenv("TS_VMS_SERVICE_KEY"),
 		DB:              store,
 		Exporter:        exporter,
+		Config:          &cfg,
 		DefaultTenantID: cfg.Global.DefaultTenantID,
 		DefaultSiteID:   cfg.Global.DefaultSiteID,
 	}

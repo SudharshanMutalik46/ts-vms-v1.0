@@ -8,6 +8,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -38,7 +39,6 @@ std::string FilePathToUri(const wchar_t* path)
     std::string utf8 = WideToUtf8(path);
     if (utf8.rfind("file://", 0) == 0 || utf8.rfind("rtsp://", 0) == 0 || utf8.rfind("http://", 0) == 0 || utf8.rfind("https://", 0) == 0)
         return utf8;
-
     gchar* uri = gst_filename_to_uri(utf8.c_str(), nullptr);
     if (!uri)
         return utf8;
@@ -73,7 +73,6 @@ public:
     int SetRotationDegrees(int degrees)
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         _rotationDegrees = NormalizeDegrees(degrees);
 
         if (_videoFlip)
@@ -93,6 +92,12 @@ public:
         return _rotationDegrees;
     }
 
+    double GetRate()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _currentRate;
+    }
+
     int Initialize(HWND hwnd)
     {
         std::call_once(g_gstInitFlag, []() {
@@ -100,7 +105,6 @@ public:
             char** argv = nullptr;
             gst_init(&argc, &argv);
         });
-
         std::lock_guard<std::mutex> lock(_mutex);
         _hwnd = hwnd;
         _overlayHwnd.store(reinterpret_cast<guintptr>(hwnd), std::memory_order_release);
@@ -111,13 +115,11 @@ public:
     int SetWindowHandle(HWND hwnd)
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         _hwnd = hwnd;
         _overlayHwnd.store(reinterpret_cast<guintptr>(hwnd), std::memory_order_release);
 
         if (!_pipeline || hwnd == nullptr)
             return 1;
-
         GstElement* sink = nullptr;
         g_object_get(G_OBJECT(_pipeline), "video-sink", &sink, nullptr);
 
@@ -128,7 +130,6 @@ public:
                 gst_video_overlay_set_window_handle(
                     GST_VIDEO_OVERLAY(sink),
                     reinterpret_cast<guintptr>(hwnd));
-
                 gst_video_overlay_handle_events(GST_VIDEO_OVERLAY(sink), TRUE);
                 gst_video_overlay_expose(GST_VIDEO_OVERLAY(sink));
             }
@@ -149,27 +150,173 @@ public:
             return 0;
         }
 
+        {
+            std::lock_guard<std::mutex> playlistLock(_playlistMutex);
+            _playlistPaths.clear();
+            
+            // --- FIX: Reset all trackers ---
+            _currentPlaylistIndex.store(-1, std::memory_order_release);
+            _queuedPlaylistIndex.store(-1, std::memory_order_release);
+            _lastPos = 0.0;
+        }
+
         std::string uri = FilePathToUri(path);
-        gst_element_set_state(_pipeline, GST_STATE_READY);
+
+        gst_element_set_state(_pipeline, GST_STATE_NULL);
         g_object_set(G_OBJECT(_pipeline), "uri", uri.c_str(), nullptr);
 
         _currentRate = 1.0;
         _lastPath = path ? path : L"";
         _mediaLoaded = !_lastPath.empty();
-
+        _eosReached.store(false, std::memory_order_release);
         return _mediaLoaded ? 1 : 0;
+    }
+
+    int SetPlaylist(const wchar_t* const* paths, int count, int startIndex)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        EnsurePipelineLocked();
+
+        if (!_pipeline)
+        {
+            SetErrorLocked(L"Pipeline not initialized");
+            return 0;
+        }
+
+        std::vector<std::wstring> items;
+        if (paths && count > 0)
+        {
+            items.reserve(count);
+            for (int i = 0; i < count; ++i)
+            {
+                if (paths[i] && paths[i][0] != L'\0')
+                    items.emplace_back(paths[i]);
+            }
+        }
+
+        if (items.empty())
+        {
+            SetErrorLocked(L"Playlist is empty");
+            return 0;
+        }
+
+        if (startIndex < 0 || startIndex >= static_cast<int>(items.size()))
+            startIndex = 0;
+            
+        std::wstring firstPath;
+        {
+            std::lock_guard<std::mutex> playlistLock(_playlistMutex);
+            _playlistPaths = std::move(items);
+            
+            // --- FIX: Reset all trackers ---
+            _currentPlaylistIndex.store(startIndex, std::memory_order_release);
+            _queuedPlaylistIndex.store(startIndex, std::memory_order_release);
+            _lastPos = 0.0;
+            
+            firstPath = _playlistPaths[startIndex];
+        }
+
+        std::string uri = FilePathToUri(firstPath.c_str());
+
+        gst_element_set_state(_pipeline, GST_STATE_NULL);
+        g_object_set(G_OBJECT(_pipeline), "uri", uri.c_str(), nullptr);
+
+        _currentRate = 1.0;
+        _lastPath = firstPath;
+        _mediaLoaded = true;
+        _eosReached.store(false, std::memory_order_release);
+
+        return 1;
+    }
+
+    static void AboutToFinish(GstElement* playbin, gpointer userData)
+    {
+        auto* self = static_cast<PlaybackEngine*>(userData);
+        if (!self)
+            return;
+
+        std::wstring nextPath;
+        int nextIndex = -1;
+        {
+            std::lock_guard<std::mutex> playlistLock(self->_playlistMutex);
+
+            // --- FIX: Increment _queuedPlaylistIndex, NOT _currentPlaylistIndex ---
+            int currentQueued = self->_queuedPlaylistIndex.load(std::memory_order_acquire);
+            nextIndex = currentQueued + 1;
+
+            if (nextIndex < 0 || nextIndex >= static_cast<int>(self->_playlistPaths.size()))
+                return;
+                
+            nextPath = self->_playlistPaths[nextIndex];
+            self->_queuedPlaylistIndex.store(nextIndex, std::memory_order_release);
+        }
+
+        std::string nextUri = FilePathToUri(nextPath.c_str());
+        g_object_set(G_OBJECT(playbin), "uri", nextUri.c_str(), nullptr);
+
+        self->_lastPath = nextPath;
+        self->_eosReached.store(false, std::memory_order_release);
+    }
+
+    // --- FIX: Gapless Transition Wrap-Around Detection ---
+    void CheckForGaplessTransitionLocked(double currentPos)
+    {
+        int current = _currentPlaylistIndex.load(std::memory_order_acquire);
+        int queued = _queuedPlaylistIndex.load(std::memory_order_acquire);
+
+        if (queued > current)
+        {
+            // Detect file switch: 
+            // We removed the "< 3.0" check because your segments are very short.
+            // Now, we ONLY transition when the position physically drops back to zero,
+            // or drops backwards by more than half a second.
+            if ((_lastPos - currentPos > 0.5) || (currentPos < 0.2))
+            {
+                _currentPlaylistIndex.store(queued, std::memory_order_release);
+            }
+        }
+        _lastPos = currentPos;
+    }
+
+    int GetPlaylistIndex() 
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_pipeline)
+        {
+            gint64 pos = 0;
+            if (gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
+            {
+                CheckForGaplessTransitionLocked(static_cast<double>(pos) / GST_SECOND);
+            }
+        }
+        return _currentPlaylistIndex.load(std::memory_order_acquire);
+    }
+
+    double GetPositionSeconds()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_pipeline) return 0.0;
+        
+        gint64 pos = 0;
+        if (!gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
+            return 0.0;
+            
+        double currentPos = static_cast<double>(pos) / GST_SECOND;
+        CheckForGaplessTransitionLocked(currentPos);
+        
+        return currentPos;
     }
 
     int Play()
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         if (!_pipeline || !_mediaLoaded)
         {
             SetErrorLocked(L"Load a recorded segment first");
             return 0;
         }
 
+        _eosReached.store(false, std::memory_order_release);
         auto result = gst_element_set_state(_pipeline, GST_STATE_PLAYING);
         if (result == GST_STATE_CHANGE_FAILURE)
         {
@@ -183,7 +330,6 @@ public:
     int Pause()
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         if (!_pipeline || !_mediaLoaded)
         {
             SetErrorLocked(L"Load a recorded segment first");
@@ -204,14 +350,19 @@ public:
     {
         std::lock_guard<std::mutex> lock(_mutex);
         if (!_pipeline) return 0;
-        gst_element_set_state(_pipeline, GST_STATE_READY);
+
+        _eosReached.store(false, std::memory_order_release);
+
+        gst_element_set_state(_pipeline, GST_STATE_NULL);
+
+        GstState st, pending;
+        gst_element_get_state(_pipeline, &st, &pending, 500 * GST_MSECOND);
         return 1;
     }
 
     int SeekSeconds(double seconds)
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         if (!_pipeline || !_mediaLoaded)
         {
             SetErrorLocked(L"Load a recorded segment first");
@@ -220,14 +371,10 @@ public:
 
         if (seconds < 0.0)
             seconds = 0.0;
-
-        // IMPORTANT:
-        // Seek is unreliable from READY.
-        // Move pipeline to PAUSED first so the stream prerolls and becomes seekable.
+            
         GstState state = GST_STATE_NULL;
         GstState pending = GST_STATE_VOID_PENDING;
         gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
-
         if (state < GST_STATE_PAUSED)
         {
             auto change = gst_element_set_state(_pipeline, GST_STATE_PAUSED);
@@ -240,7 +387,6 @@ public:
             gst_element_get_state(_pipeline, &state, &pending, 1000 * GST_MSECOND);
         }
 
-        // Clamp seek position against known duration if available
         gint64 dur = 0;
         if (gst_element_query_duration(_pipeline, GST_FORMAT_TIME, &dur) && dur > 0)
         {
@@ -250,17 +396,27 @@ public:
         }
 
         gint64 pos = static_cast<gint64>(seconds * GST_SECOND);
+        
+        // --- FIX: A Seek flushes the gapless queue. Reset trackers. ---
+        _queuedPlaylistIndex.store(_currentPlaylistIndex.load(std::memory_order_acquire), std::memory_order_release);
+        _lastPos = static_cast<double>(pos) / GST_SECOND;
 
-        // First attempt: accurate seek
+        GstSeekFlags seekFlags =
+            static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT);
+            
+        if (std::abs(_currentRate) <= 2.0)
+        {
+            seekFlags = static_cast<GstSeekFlags>(seekFlags | GST_SEEK_FLAG_ACCURATE);
+        }
+
         gboolean ok = gst_element_seek(
             _pipeline,
             _currentRate,
             GST_FORMAT_TIME,
-            static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_KEY_UNIT),
+            seekFlags,
             GST_SEEK_TYPE_SET, pos,
             GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
-
-        // Fallback: simpler seek if accurate seek fails on this stream/container
+            
         if (!ok)
         {
             ok = gst_element_seek(
@@ -278,13 +434,88 @@ public:
             return 0;
         }
 
+        _eosReached.store(false, std::memory_order_release);
         return 1;
     }
+    
+    bool TrySeekRateLocked(double rate, gint64 pos)
+    {
+        // --- FIX: A Seek flushes the gapless queue. Reset trackers. ---
+        _queuedPlaylistIndex.store(_currentPlaylistIndex.load(std::memory_order_acquire), std::memory_order_release);
+        _lastPos = static_cast<double>(pos) / GST_SECOND;
 
+        bool isNearStart = (pos <= 500 * GST_MSECOND);
+
+        GstSeekFlags flags = isNearStart
+            ? static_cast<GstSeekFlags>(GST_SEEK_FLAG_KEY_UNIT)
+            : static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT);
+            
+        if (rate == 1.0)
+        {
+            if (isNearStart) return true;
+
+            gboolean ok = gst_element_seek(
+                _pipeline,
+                1.0,
+                GST_FORMAT_TIME,
+                flags,
+                GST_SEEK_TYPE_SET, pos,
+                GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
+                
+            if (!ok)
+            {
+                ok = gst_element_seek_simple(
+                    _pipeline,
+                    GST_FORMAT_TIME,
+                    flags,
+                    pos);
+            }
+
+            return ok == TRUE;
+        }
+
+        if (!isNearStart && std::abs(rate) <= 2.0)
+        {
+            flags = static_cast<GstSeekFlags>(flags | GST_SEEK_FLAG_ACCURATE);
+        }
+        else if (std::abs(rate) > 2.0)
+        {
+#ifdef GST_SEEK_FLAG_TRICKMODE
+            flags = static_cast<GstSeekFlags>(flags | GST_SEEK_FLAG_TRICKMODE);
+#endif
+#ifdef GST_SEEK_FLAG_TRICKMODE_KEY_UNITS
+            flags = static_cast<GstSeekFlags>(flags | GST_SEEK_FLAG_TRICKMODE_KEY_UNITS);
+#endif
+#ifdef GST_SEEK_FLAG_TRICKMODE_NO_AUDIO
+            flags = static_cast<GstSeekFlags>(flags | GST_SEEK_FLAG_TRICKMODE_NO_AUDIO);
+#endif
+        }
+
+        gboolean ok = gst_element_seek(
+            _pipeline,
+            rate,
+            GST_FORMAT_TIME,
+            flags,
+            GST_SEEK_TYPE_SET, pos,
+            GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
+            
+        if (!ok)
+        {
+            ok = gst_element_seek(
+                _pipeline,
+                rate,
+                GST_FORMAT_TIME,
+                static_cast<GstSeekFlags>(GST_SEEK_FLAG_KEY_UNIT),
+                GST_SEEK_TYPE_SET, pos,
+                GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
+        }
+
+        return ok == TRUE;
+    }
+    
     int SetRate(double rate)
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         if (!_pipeline || !_mediaLoaded)
         {
             SetErrorLocked(L"Load a recorded segment first");
@@ -297,42 +528,63 @@ public:
             return 0;
         }
 
+        if (rate == 1.0 && _currentRate == 1.0)
+            return 1;
+            
         GstState state = GST_STATE_NULL;
         GstState pending = GST_STATE_VOID_PENDING;
         gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
-
+        
         if (state < GST_STATE_PAUSED)
         {
-            gst_element_set_state(_pipeline, GST_STATE_PAUSED);
-            gst_element_get_state(_pipeline, &state, &pending, 500 * GST_MSECOND);
+            auto change = gst_element_set_state(_pipeline, GST_STATE_PAUSED);
+            if (change == GST_STATE_CHANGE_FAILURE)
+            {
+                SetErrorLocked(L"Failed to prepare playback for rate change");
+                return 0;
+            }
+            gst_element_get_state(_pipeline, &state, &pending, 2000 * GST_MSECOND);
         }
 
         gint64 pos = 0;
         if (!gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
             pos = 0;
+        double appliedRate = rate;
 
-        gboolean ok = gst_element_seek(
-            _pipeline,
-            rate,
-            GST_FORMAT_TIME,
-            static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
-            GST_SEEK_TYPE_SET, pos,
-            GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
-
-        if (!ok)
+        if (!TrySeekRateLocked(rate, pos))
         {
-            SetErrorLocked(L"Requested playback speed is not supported for the current stream");
-            return 0;
+            if (rate > 2.0)
+            {
+                gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
+                if (TrySeekRateLocked(2.0, pos))
+                {
+                    appliedRate = 2.0;
+                }
+                else
+                {
+                    SetErrorLocked(L"Requested high-speed playback is not supported for the current stream");
+                    return 0;
+                }
+            }
+            else if (rate != 1.0 && TrySeekRateLocked(1.0, pos))
+            {
+                appliedRate = 1.0;
+            }
+            else
+            {
+                SetErrorLocked(L"Requested playback speed is not supported for the current stream");
+                return 0;
+            }
         }
 
-        _currentRate = rate;
+        _currentRate = appliedRate;
+        _eosReached.store(false, std::memory_order_release);
         return 1;
     }
 
     int StepFrame(int frames)
     {
         std::lock_guard<std::mutex> lock(_mutex);
-
         if (!_pipeline || !_mediaLoaded)
         {
             SetErrorLocked(L"Load a recorded segment first");
@@ -341,18 +593,17 @@ public:
 
         if (frames == 0)
             frames = 1;
-
+            
         GstState state = GST_STATE_NULL;
         GstState pending = GST_STATE_VOID_PENDING;
         gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
-
+        
         if (state != GST_STATE_PAUSED)
         {
             gst_element_set_state(_pipeline, GST_STATE_PAUSED);
             gst_element_get_state(_pipeline, &state, &pending, 500 * GST_MSECOND);
         }
 
-        // Forward frame step via Gst step event
         if (frames > 0)
         {
             GstEvent* evt = gst_event_new_step(
@@ -361,7 +612,7 @@ public:
                 1.0,
                 TRUE,
                 FALSE);
-
+                
             gboolean ok = gst_element_send_event(_pipeline, evt);
             if (!ok)
             {
@@ -372,7 +623,6 @@ public:
             return 1;
         }
 
-        // Backward step fallback: tiny accurate seek backward
         gint64 pos = 0;
         if (!gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
         {
@@ -383,7 +633,7 @@ public:
         const double assumedFrameSeconds = 1.0 / 25.0;
         gint64 delta = static_cast<gint64>(std::llabs(frames) * assumedFrameSeconds * GST_SECOND);
         gint64 target = pos > delta ? pos - delta : 0;
-
+        
         gboolean ok = gst_element_seek(
             _pipeline,
             1.0,
@@ -391,7 +641,7 @@ public:
             static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
             GST_SEEK_TYPE_SET, target,
             GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
-
+            
         if (!ok)
         {
             SetErrorLocked(L"Backward frame step failed");
@@ -399,16 +649,6 @@ public:
         }
 
         return 1;
-    }
-
-    double GetPositionSeconds()
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (!_pipeline) return 0.0;
-        gint64 pos = 0;
-        if (!gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
-            return 0.0;
-        return static_cast<double>(pos) / GST_SECOND;
     }
 
     double GetDurationSeconds()
@@ -437,51 +677,29 @@ public:
         }
     }
 
+    int HasReachedEos() const
+    {
+        return _eosReached.load(std::memory_order_acquire) ? 1 : 0;
+    }
+
     const wchar_t* GetLastError()
     {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(_errorMutex);
         return _lastError.c_str();
     }
 
 private:
-    // -----------------------------------------------------------------------
-    // FIX 1: Build a video-filter bin that safely bridges D3D11 GPU memory
-    // to the CPU before videoflip processes it.
-    //
-    // ROOT CAUSE:
-    //   playbin auto-selects d3d11h265dec for H.265/HEVC streams. That decoder
-    //   outputs video/x-raw(memory:D3D11Memory) — frames sitting on the GPU.
-    //   videoflip only accepts plain system-memory frames. Without a download
-    //   step the caps negotiation fails, d3d11h265dec cannot allocate its output
-    //   buffer pool, and gst_element_set_state(PAUSED) hangs the calling thread
-    //   long enough to trigger the Windows "Not Responding" dialog.
-    //
-    // FIX:
-    //   Wrap the filter as a GstBin:  d3d11download -> videoconvert -> videoflip
-    //   d3d11download copies D3D11Memory frames to system RAM (zero-copy fast
-    //   path when possible). videoconvert ensures any residual format mismatch
-    //   is resolved. videoflip then works on plain NV12/I420 system frames.
-    //   If d3d11download is not available (older GStreamer build) we fall back
-    //   to videoconvert alone, which forces a software decode path and is still
-    //   correct, just slightly slower.
-    // -----------------------------------------------------------------------
     GstElement* BuildVideoFilterBin()
     {
         GstElement* bin = gst_bin_new("tsvms_video_filter_bin");
         if (!bin) return nullptr;
 
-        // Try to get d3d11download; it may not exist on every GStreamer install.
         GstElement* d3d11dl = gst_element_factory_make("d3d11download", "tsvms_d3d11dl");
-
-        // videoconvert resolves any remaining pixel-format mismatch after download.
         GstElement* convert = gst_element_factory_make("videoconvert", "tsvms_convert");
-
         _videoFlip = gst_element_factory_make("videoflip", "tsvms_video_flip");
 
         if (!convert || !_videoFlip)
         {
-            // Extremely unlikely but clean up and return null so playbin
-            // uses its built-in pipeline (no rotation, but at least it plays).
             if (d3d11dl) gst_object_unref(d3d11dl);
             if (convert) gst_object_unref(convert);
             if (_videoFlip) { gst_object_unref(_videoFlip); _videoFlip = nullptr; }
@@ -490,40 +708,35 @@ private:
         }
 
         g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
-
+        
         if (d3d11dl)
         {
-            // Full chain: d3d11download -> videoconvert -> videoflip
             gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, nullptr);
             if (!gst_element_link_many(d3d11dl, convert, _videoFlip, nullptr))
             {
-                // Link failed — fall back to the two-element chain below.
                 gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, nullptr);
                 gst_object_unref(d3d11dl);
                 d3d11dl = nullptr;
+    
                 gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, nullptr);
                 gst_element_link(convert, _videoFlip);
             }
         }
         else
         {
-            // d3d11download unavailable: videoconvert -> videoflip only.
-            // GStreamer will insert a software decoder upstream automatically.
             gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, nullptr);
             gst_element_link(convert, _videoFlip);
         }
 
-        // Expose sink ghost pad (entry point of the bin).
         GstElement* firstElem = d3d11dl ? d3d11dl : convert;
         GstPad* sinkPad = gst_element_get_static_pad(firstElem, "sink");
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
 
-        // Expose src ghost pad (exit point of the bin).
         GstPad* srcPad = gst_element_get_static_pad(_videoFlip, "src");
         gst_element_add_pad(bin, gst_ghost_pad_new("src", srcPad));
         gst_object_unref(srcPad);
-
+        
         return bin;
     }
 
@@ -531,7 +744,7 @@ private:
     {
         if (_pipeline)
             return;
-
+            
         _pipeline = gst_element_factory_make("playbin", "tsvms-playbin");
         if (!_pipeline)
         {
@@ -539,16 +752,12 @@ private:
             return;
         }
 
-        // FIX 1 applied here: use the safe filter bin instead of bare videoflip.
         GstElement* filterBin = BuildVideoFilterBin();
         if (filterBin)
         {
             g_object_set(G_OBJECT(_pipeline), "video-filter", filterBin, nullptr);
         }
 
-        // Playback-specific sink strategy:
-        // Use Direct3D 11 sink as primary renderer to match Live View and 
-        // ensure stable docking into WPF HwndHost.
         GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
         if (!videoSink)
             videoSink = gst_element_factory_make("glimagesink", "video-sink");
@@ -556,16 +765,17 @@ private:
             videoSink = gst_element_factory_make("autovideosink", "video-sink");
         if (!videoSink)
             videoSink = gst_element_factory_make("d3dvideosink", "video-sink");
-
+            
         if (videoSink)
         {
             if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "force-aspect-ratio"))
             {
                 g_object_set(G_OBJECT(videoSink), "force-aspect-ratio", FALSE, nullptr);
             }
+
             if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "sync"))
             {
-                g_object_set(G_OBJECT(videoSink), "sync", FALSE, nullptr);
+                g_object_set(G_OBJECT(videoSink), "sync", TRUE, nullptr);
             }
 
             g_object_set(G_OBJECT(_pipeline), "video-sink", videoSink, nullptr);
@@ -574,6 +784,8 @@ private:
         GstBus* bus = gst_element_get_bus(_pipeline);
         gst_bus_set_sync_handler(bus, &PlaybackEngine::BusSyncHandler, this, nullptr);
         gst_object_unref(bus);
+        
+        g_signal_connect(_pipeline, "about-to-finish", G_CALLBACK(&PlaybackEngine::AboutToFinish), this);
     }
 
     void Cleanup()
@@ -585,7 +797,6 @@ private:
             gst_object_unref(_pipeline);
             _pipeline = nullptr;
         }
-        // _videoFlip is owned by the bin / pipeline; do not unref separately.
         _videoFlip = nullptr;
     }
 
@@ -596,9 +807,6 @@ private:
 
         if (gst_is_video_overlay_prepare_window_handle_message(message))
         {
-            // Do not lock _mutex here. State changes (Play/Pause/Load) hold _mutex
-            // while GStreamer can synchronously emit prepare-window-handle on the
-            // same thread; taking _mutex again can deadlock the UI.
             auto hwndValue = self->_overlayHwnd.load(std::memory_order_acquire);
             if (hwndValue != 0)
             {
@@ -610,6 +818,12 @@ private:
             return GST_BUS_DROP;
         }
 
+        if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS)
+        {
+            self->_eosReached.store(true, std::memory_order_release);
+            return GST_BUS_PASS;
+        }
+
         if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR)
         {
             GError* err = nullptr;
@@ -617,7 +831,7 @@ private:
             gst_message_parse_error(message, &err, &dbg);
             if (err)
             {
-                std::lock_guard<std::mutex> lock(self->_mutex);
+                std::lock_guard<std::mutex> lock(self->_errorMutex);
                 self->_lastError = Utf8ToWide(err->message);
                 g_error_free(err);
             }
@@ -629,11 +843,14 @@ private:
 
     void SetErrorLocked(const std::wstring& message)
     {
+        std::lock_guard<std::mutex> lock(_errorMutex);
         _lastError = message;
     }
 
 private:
     std::mutex _mutex;
+    std::mutex _errorMutex;
+    std::mutex _playlistMutex;
     GstElement* _pipeline = nullptr;
     HWND _hwnd = nullptr;
     std::atomic<guintptr> _overlayHwnd { 0 };
@@ -643,6 +860,13 @@ private:
     bool _mediaLoaded = false;
     GstElement* _videoFlip = nullptr;
     int _rotationDegrees = 0;
+    std::atomic<bool> _eosReached { false };
+    std::vector<std::wstring> _playlistPaths;
+
+    // --- NEW GAPLESS TRACKING VARIABLES ---
+    std::atomic<int> _currentPlaylistIndex { -1 };
+    std::atomic<int> _queuedPlaylistIndex { -1 }; 
+    double _lastPos = 0.0;
 };
 
 } // namespace
@@ -713,6 +937,18 @@ TSVMS_PLAYBACK_API int tsplay_step_frame(void* engine, int frames)
     return static_cast<PlaybackEngine*>(engine)->StepFrame(frames);
 }
 
+TSVMS_PLAYBACK_API int tsplay_set_playlist(void* engine, const wchar_t* const* paths, int count, int startIndex)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->SetPlaylist(paths, count, startIndex);
+}
+
+TSVMS_PLAYBACK_API int tsplay_get_playlist_index(void* engine)
+{
+    if (!engine) return -1;
+    return static_cast<PlaybackEngine*>(engine)->GetPlaylistIndex();
+}
+
 TSVMS_PLAYBACK_API double tsplay_get_position_seconds(void* engine)
 {
     if (!engine) return 0.0;
@@ -731,6 +967,12 @@ TSVMS_PLAYBACK_API int tsplay_get_state(void* engine)
     return static_cast<PlaybackEngine*>(engine)->GetState();
 }
 
+TSVMS_PLAYBACK_API int tsplay_has_reached_eos(void* engine)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->HasReachedEos();
+}
+
 TSVMS_PLAYBACK_API const wchar_t* tsplay_get_last_error(void* engine)
 {
     if (!engine) return L"Invalid engine";
@@ -747,6 +989,12 @@ TSVMS_PLAYBACK_API int TSPlayback_GetRotationDegrees(void* engine)
 {
     if (!engine) return 0;
     return static_cast<PlaybackEngine*>(engine)->GetRotationDegrees();
+}
+
+TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine)
+{
+    if (!engine) return 1.0;
+    return static_cast<PlaybackEngine*>(engine)->GetRate();
 }
 
 }

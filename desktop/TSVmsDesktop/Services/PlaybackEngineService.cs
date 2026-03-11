@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using TSVmsDesktop.Interop;
 
@@ -36,6 +38,37 @@ namespace TSVmsDesktop.Services
                 if (string.IsNullOrWhiteSpace(mediaPath))
                     throw new ArgumentException("Media path is empty.", nameof(mediaPath));
                 ThrowIfFailed(NativePlayback.tsplay_set_media_path(_engine, mediaPath));
+            }
+        }
+
+        public void LoadPlaylist(IReadOnlyList<string> mediaPaths, int startIndex)
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+
+                if (mediaPaths == null || mediaPaths.Count == 0)
+                    throw new ArgumentException("Playlist is empty.", nameof(mediaPaths));
+
+                var paths = mediaPaths
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToArray();
+
+                if (paths.Length == 0)
+                    throw new ArgumentException("Playlist is empty.", nameof(mediaPaths));
+
+                if (startIndex < 0 || startIndex >= paths.Length)
+                    startIndex = 0;
+
+                ThrowIfFailed(NativePlayback.tsplay_set_playlist(_engine, paths, paths.Length, startIndex));
+            }
+        }
+
+        public int GetPlaylistIndex()
+        {
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? -1 : NativePlayback.tsplay_get_playlist_index(_engine);
             }
         }
 
@@ -81,6 +114,14 @@ namespace TSVmsDesktop.Services
             {
                 EnsureReady();
                 ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, rate));
+            }
+        }
+
+        public double GetRate()
+        {
+            lock (_sync)
+            {
+                return _engine == IntPtr.Zero ? 1.0 : NativePlayback.tsplay_get_rate(_engine);
             }
         }
 
@@ -134,6 +175,14 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public bool HasReachedEos()
+        {
+            lock (_sync)
+            {
+                return _engine != IntPtr.Zero && NativePlayback.tsplay_has_reached_eos(_engine) != 0;
+            }
+        }
+
         public void EnsureNativeDllPresent(string baseDirectory)
         {
             string path = Path.Combine(baseDirectory, "native", "win-x64", "TSVmsPlaybackEngine.dll");
@@ -143,22 +192,47 @@ namespace TSVmsDesktop.Services
 
         private void EnsureCreated()
         {
+            if (_engine != IntPtr.Zero)
+                return;
+
+            _engine = NativePlayback.tsplay_create();
             if (_engine == IntPtr.Zero)
-                _engine = NativePlayback.tsplay_create();
+                throw new InvalidOperationException("Failed to create playback engine.");
         }
 
         private void EnsureReady()
         {
             EnsureCreated();
+
+            if (!_initialized && _hostHandle != IntPtr.Zero)
+            {
+                ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
+                ThrowIfFailed(NativePlayback.tsplay_set_window_handle(_engine, _hostHandle));
+                _initialized = true;
+            }
+
             if (!_initialized)
-                throw new InvalidOperationException("Playback host is not attached yet.");
+                throw new InvalidOperationException("Playback engine is not initialized.");
         }
 
-        private void ThrowIfFailed(int result)
+        private void ThrowIfFailed(int code)
         {
-            if (result != 0) return;
-            string error = _engine == IntPtr.Zero ? "Native playback engine is unavailable." : Marshal.PtrToStringUni(NativePlayback.tsplay_get_last_error(_engine)) ?? "Native playback operation failed.";
-            throw new InvalidOperationException(error);
+            if (code != 0)
+                return;
+
+            string message = "Playback engine operation failed.";
+            if (_engine != IntPtr.Zero)
+            {
+                var ptr = NativePlayback.tsplay_get_last_error(_engine);
+                if (ptr != IntPtr.Zero)
+                {
+                    string? native = Marshal.PtrToStringUni(ptr);
+                    if (!string.IsNullOrWhiteSpace(native))
+                        message = native;
+                }
+            }
+
+            throw new InvalidOperationException(message);
         }
 
         public void Dispose()
@@ -170,6 +244,9 @@ namespace TSVmsDesktop.Services
                     NativePlayback.tsplay_destroy(_engine);
                     _engine = IntPtr.Zero;
                 }
+
+                _initialized = false;
+                _hostHandle = IntPtr.Zero;
             }
         }
     }

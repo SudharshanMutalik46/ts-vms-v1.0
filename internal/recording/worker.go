@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,27 +27,28 @@ const (
 )
 
 type CameraWorker struct {
-	CameraID     string
-	Camera       CameraConfig
-	Config       *Config
-	Store        *PostgresStore
-	State        WorkerState
-	cancel       context.CancelFunc
-	cmd          *exec.Cmd
-	loopRunning  bool
-	paused       bool
-	stopping     bool
-	running      bool
-	runID        uint64
-	licenseHeld  bool
-	retries      int
-	lastErr      string
-	lastBeat     time.Time
-	lastDataTime time.Time
-	knownFiles   map[string]struct{}
-	currentDir   string // Path to the current run's storage directory
-	Keyring      *crypto.Keyring
-	mu           sync.RWMutex
+	CameraID         string
+	Camera           CameraConfig
+	Config           *Config
+	Store            *PostgresStore
+	State            WorkerState
+	cancel           context.CancelFunc
+	cmd              *exec.Cmd
+	loopRunning      bool
+	paused           bool
+	stopping         bool
+	running          bool
+	runID            uint64
+	licenseHeld      bool
+	retries          int
+	lastErr          string
+	lastBeat         time.Time
+	lastDataTime     time.Time
+	knownFiles       map[string]struct{}
+	currentDir       string // Path to the current run's storage directory
+	lastSegmentEndTS time.Time
+	Keyring          *crypto.Keyring
+	mu               sync.RWMutex
 }
 
 func NewCameraWorker(cfg *Config, cam CameraConfig, store *PostgresStore, keyring *crypto.Keyring) *CameraWorker {
@@ -193,6 +195,7 @@ func (w *CameraWorker) startPipeline(ctx context.Context, runID uint64) error {
 	w.mu.Lock()
 	w.currentDir = runDir
 	w.knownFiles = make(map[string]struct{})
+	w.lastSegmentEndTS = time.Time{} // Reset on new run
 	w.mu.Unlock()
 
 	// Fetch Credentials if available
@@ -243,6 +246,9 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Important: process in order
+	sort.Strings(matches)
+
 	for _, p := range matches {
 		if _, done := w.knownFiles[p]; done {
 			continue
@@ -251,11 +257,24 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 		if err != nil || info.IsDir() || info.Size() == 0 {
 			continue
 		}
+		// Wait a bit to ensure file is closed by GStreamer (splitmuxsink async-finalize helps)
 		if time.Since(info.ModTime()) < 2*time.Second {
 			continue
 		}
 		end := info.ModTime()
 		start := end.Add(-time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+
+		w.mu.Lock()
+		if !w.lastSegmentEndTS.IsZero() {
+			// If drift is small (< 10s), snap to previous end to ensure perfect continuity
+			if diff := start.Sub(w.lastSegmentEndTS); diff > -10*time.Second && diff < 10*time.Second {
+				start = w.lastSegmentEndTS
+				end = start.Add(time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+			}
+		}
+		w.lastSegmentEndTS = end
+		w.mu.Unlock()
+
 		seg := &Segment{
 			TenantID:   w.Config.Global.DefaultTenantID,
 			SiteID:     w.Config.Global.DefaultSiteID,

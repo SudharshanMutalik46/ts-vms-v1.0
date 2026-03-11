@@ -38,8 +38,70 @@ namespace TSVmsDesktop.ViewModels
 
         private double _desiredPlaybackRate = 1.0;
         
-        private int _segmentAdvanceInFlight = 0;
         private bool _shouldBePlaying = false;
+        private int _lastRateAppliedSegmentIndex = -1;
+
+        private int _previousPlaylistIndex = -1;
+        private bool _isUpdatingUI = false; // Slider Re-entrancy protection
+        private DateTime _lastCalculatedGlobalTime = DateTime.MinValue;
+        private DateTime _lastTransitionTime = DateTime.Now;
+
+        private readonly DispatcherTimer _highSpeedAssistTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+        private int _highSpeedAssistInFlight = 0;
+
+        private bool _highSpeedAssistEnabled = false;
+        private double _highSpeedRequestedRate = 1.0;
+        private double _highSpeedNativeRate = 1.0;
+        private double _highSpeedVirtualWindowSeconds = 0.0;
+        private DateTime _highSpeedLastTickUtc = DateTime.MinValue;
+        private DateTime _lastRateRecoveryUtc = DateTime.MinValue;
+
+        private List<IFrameEntry> _iFrameIndex = new();
+        private int _iFrameCursor = 0;
+        private readonly DispatcherTimer _iFrameTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+
+
+
+        private static List<RecordingSegment> NormalizeSegments(IEnumerable<RecordingSegment> source)
+        {
+            var ordered = source
+                .Where(s =>
+                    s != null &&
+                    !string.IsNullOrWhiteSpace(s.Path) &&
+                    s.EndTs > s.StartTs)
+                .OrderBy(s => s.StartTs)
+                .ThenBy(s => s.EndTs)
+                .ThenBy(s => s.Path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var result = new List<RecordingSegment>();
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var seg in ordered)
+            {
+                if (!seenPaths.Add(seg.Path))
+                    continue;
+
+                if (result.Count == 0)
+                {
+                    result.Add(seg);
+                    continue;
+                }
+
+                var prev = result[^1];
+
+                // Drop fully-contained duplicate/overlap fragment
+                if (seg.StartTs <= prev.StartTs.AddMilliseconds(100) &&
+                    seg.EndTs <= prev.EndTs.AddMilliseconds(100))
+                {
+                    continue;
+                }
+
+                result.Add(seg);
+            }
+
+            return result;
+        }
 
         // Stronger validation so we don't restore the wrong session
         private string _resumeCameraId = string.Empty;
@@ -126,6 +188,9 @@ namespace TSVmsDesktop.ViewModels
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _pollTimer.Tick += PollTimer_Tick;
 
+            _highSpeedAssistTimer.Tick += HighSpeedAssistTimer_Tick;
+
+            _iFrameTimer.Tick += IFrameTimer_Tick;
             IsDiagnosticsExpanded = false;
         }
 
@@ -174,29 +239,324 @@ namespace TSVmsDesktop.ViewModels
             var posUtc = seg.StartTs.AddSeconds(local);
 
             CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+            
+            _isUpdatingUI = true;
             CurrentTimelineSeconds = Math.Max(0, (posUtc - WindowStartUtc()).TotalSeconds);
+            _isUpdatingUI = false;
+            
             UpdatePlayheadPx();
         }
 
-        private async Task ApplyPlaybackOptionsAfterLoadAsync(bool shouldPlay)
+        private void StopHighSpeedAssist()
         {
+            _highSpeedAssistEnabled = false;
+            _highSpeedRequestedRate = 1.0;
+            _highSpeedNativeRate = 1.0;
+            _highSpeedVirtualWindowSeconds = 0.0;
+            _highSpeedLastTickUtc = DateTime.MinValue;
+            _highSpeedAssistTimer.Stop();
+        }
+
+        private void StopIFrameMode()
+        {
+            _iFrameTimer.Stop();
+            _iFrameIndex.Clear();
+            _iFrameCursor = 0;
+        }
+
+        private async Task SeekToWindowSecondsSkippingGapsAsync(double windowSeconds, bool autoPlay, bool isSegmentTransition = false)
+        {
+            if (RecordingSegments.Count == 0)
+                return;
+
+            var fromUtc = WindowStartUtc();
+            var targetUtc = fromUtc.AddSeconds(Math.Max(0, Math.Min(TotalTimelineSeconds, windowSeconds)));
+
+            var ordered = RecordingSegments.OrderBy(s => s.StartTs).ToList();
+
+            var seg = ordered.FirstOrDefault(s => s.StartTs <= targetUtc && s.EndTs >= targetUtc)
+                   ?? ordered.FirstOrDefault(s => s.StartTs > targetUtc);
+
+            if (seg == null)
+                return;
+
+            double localOffset = targetUtc <= seg.StartTs
+                ? 0
+                : Math.Max(0, (targetUtc - seg.StartTs).TotalSeconds);
+
+            int index = RecordingSegments.IndexOf(seg);
+            if (index < 0)
+                index = ordered.IndexOf(seg);
+
+            if (autoPlay)
+                await LoadAndPlaySegmentAsync(index, localOffset, isSegmentTransition);
+            else
+                await LoadSegmentPausedAsync(index, localOffset, isSegmentTransition);
+        }
+
+        private async Task ApplyDesiredRateAsync(bool resumeAfter, bool isSegmentTransition = false)
+        {
+            double requested = _desiredPlaybackRate <= 0 ? 1.0 : _desiredPlaybackRate;
+
+            // Preserve existing assist mode across native segment transitions and cross-gap jumps.
+            if (_iFrameTimer.IsEnabled)
+            {
+                // Option B active: do not touch native rate, just ensure native is paused or at 1x
+                await RunNativeAsync(() => _playbackEngineService.SetRate(1.0));
+                return;
+            }
+
+            if (isSegmentTransition && _highSpeedAssistEnabled)
+            {
+                if (requested > 1.0)
+                    await Task.Delay(80);
+
+                await RunNativeAsync(() => _playbackEngineService.Pause());
+                await RunNativeAsync(() => _playbackEngineService.SetRate(_highSpeedNativeRate));
+
+                double actualNative = await RunNativeAsync(() => _playbackEngineService.GetRate());
+                if (actualNative < _highSpeedNativeRate - 0.01)
+                {
+                    await Task.Delay(80);
+                    await RunNativeAsync(() => _playbackEngineService.SetRate(_highSpeedNativeRate));
+                }
+
+                if (resumeAfter)
+                {
+                    await RunNativeAsync(() => _playbackEngineService.Play());
+                    _shouldBePlaying = true;
+                    IsPlaying = true;
+                    _highSpeedAssistTimer.Start();
+                }
+                else
+                {
+                    await RunNativeAsync(() => _playbackEngineService.Pause());
+                    _shouldBePlaying = false;
+                    IsPlaying = false;
+                }
+
+                PlaybackRateText = $"{requested:0.##}x";
+                _lastRateAppliedSegmentIndex = _currentSegmentIndex;
+                return;
+            }
+
+            StopHighSpeedAssist();
+
             if (RotationDegrees != 0)
                 await RunNativeAsync(() => _playbackEngineService.SetRotationDegrees(RotationDegrees));
 
-            // ALWAYS apply the desired rate, even when it is 1x,
-            // otherwise a previous 4x can remain sticky in the native engine.
-            await RunNativeAsync(() => _playbackEngineService.SetRate(_desiredPlaybackRate));
+            if (requested > 1.0)
+                await Task.Delay(80);
 
-            if (shouldPlay)
+            if (requested <= 2.0)
+            {
+                StopIFrameMode();
+                await RunNativeAsync(() => _playbackEngineService.SetRate(requested));
+                StatusMessage = "";
+            }
+            else
+            {
+                // Option B: I-Frame High Speed Assist
+                StopHighSpeedAssist(); // Stop native assist if it was running
+                
+                if (SelectedCamera != null && (isSegmentTransition == false || !_iFrameTimer.IsEnabled))
+                {
+                    StatusMessage = $"Indexing I-frames for {requested}x speed...";
+                    
+                    // Native engine stays at 1x but we jump its position manually
+                    await RunNativeAsync(() => _playbackEngineService.SetRate(1.0));
+                    
+                    var iframes = await _apiClient.GetIFrameIndexAsync(SelectedCamera.Id, WindowStartUtc(), WindowEndUtc());
+                    if (iframes != null && iframes.Count > 0)
+                    {
+                        _iFrameIndex = iframes;
+                        _iFrameCursor = FindCursorAtCurrentTime();
+                        _iFrameTimer.Start();
+                        StatusMessage = $"I-Frame Mode: {requested}x";
+                    }
+                    else
+                    {
+                        StatusMessage = "No I-frames found. Falling back to native speed.";
+                        await RunNativeAsync(() => _playbackEngineService.SetRate(requested));
+                    }
+                }
+            }
+
+            if (resumeAfter)
             {
                 await RunNativeAsync(() => _playbackEngineService.Play());
                 _shouldBePlaying = true;
+                IsPlaying = true;
             }
             else
             {
                 await RunNativeAsync(() => _playbackEngineService.Pause());
                 _shouldBePlaying = false;
+                IsPlaying = false;
             }
+
+            PlaybackRateText = $"{requested:0.##}x";
+        }
+
+        private async void HighSpeedAssistTimer_Tick(object? sender, EventArgs e)
+        {
+            if (!_highSpeedAssistEnabled || !_shouldBePlaying)
+                return;
+
+            if (Volatile.Read(ref _suspendPolling) == 1)
+                return;
+
+            if (Interlocked.Exchange(ref _highSpeedAssistInFlight, 1) == 1)
+                return;
+
+            try
+            {
+                var now = DateTime.UtcNow;
+                if (_highSpeedLastTickUtc == DateTime.MinValue)
+                {
+                    _highSpeedLastTickUtc = now;
+                    return;
+                }
+
+                double elapsed = (now - _highSpeedLastTickUtc).TotalSeconds;
+                _highSpeedLastTickUtc = now;
+
+                if (elapsed <= 0)
+                    return;
+
+                _highSpeedVirtualWindowSeconds = Math.Min(
+                    TotalTimelineSeconds,
+                    _highSpeedVirtualWindowSeconds + elapsed * _highSpeedRequestedRate);
+
+                double actualWindowSeconds = CurrentTimelineSeconds;
+                double drift = _highSpeedVirtualWindowSeconds - actualWindowSeconds;
+
+                if (drift < 0.35)
+                    return;
+
+                bool sameSegment = false;
+                double targetLocal = 0;
+
+                if (_currentSegmentIndex >= 0 && _currentSegmentIndex < RecordingSegments.Count)
+                {
+                    var seg = RecordingSegments[_currentSegmentIndex];
+                    double segWindowStart = (seg.StartTs - WindowStartUtc()).TotalSeconds;
+
+                    targetLocal = _highSpeedVirtualWindowSeconds - segWindowStart;
+                    sameSegment = targetLocal >= 0 &&
+                                  targetLocal < Math.Max(0.05, seg.DurationSeconds - 0.05);
+                }
+
+                Interlocked.Exchange(ref _suspendPolling, 1);
+                try
+                {
+                    if (sameSegment)
+                    {
+                        await RunNativeAsync(() => _playbackEngineService.Seek(targetLocal));
+                        await RunNativeAsync(() => _playbackEngineService.SetRate(_highSpeedNativeRate));
+                        await RunNativeAsync(() => _playbackEngineService.Play());
+                    }
+                    else
+                    {
+                        // Cross-segment jump — preserve assist state
+                        await SeekToWindowSecondsSkippingGapsAsync(
+                            _highSpeedVirtualWindowSeconds,
+                            autoPlay: true,
+                            isSegmentTransition: true);
+
+                        // IMPORTANT:
+                        // The playback timeline is wall-clock based and includes gaps.
+                        // After landing on the next segment, snap virtual time to the actual
+                        // landed position so 4x continues smoothly instead of lagging behind
+                        // by the size of the gap.
+                        _highSpeedVirtualWindowSeconds = CurrentTimelineSeconds;
+                        _highSpeedLastTickUtc = DateTime.UtcNow;
+
+                        await RunNativeAsync(() => _playbackEngineService.SetRate(_highSpeedNativeRate));
+                        await RunNativeAsync(() => _playbackEngineService.Play());
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _suspendPolling, 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"High-speed assist error: {ex.Message}";
+                StopHighSpeedAssist();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _highSpeedAssistInFlight, 0);
+            }
+        }
+
+        private async void IFrameTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_iFrameCursor >= _iFrameIndex.Count || SelectedCamera == null || !_shouldBePlaying)
+            {
+                if (_iFrameCursor >= _iFrameIndex.Count) StopIFrameMode();
+                return;
+            }
+
+            var frame = _iFrameIndex[_iFrameCursor];
+            _iFrameCursor += (int)Math.Max(1, Math.Round(_desiredPlaybackRate));
+
+            // Suspend polling to avoid jumping timeline UI while we seek
+            Interlocked.Exchange(ref _suspendPolling, 1);
+            try
+            {
+                var currentSeg = _currentSegmentIndex >= 0 && _currentSegmentIndex < RecordingSegments.Count 
+                    ? RecordingSegments[_currentSegmentIndex] : null;
+
+                if (currentSeg == null || currentSeg.Path != frame.SegPath)
+                {
+                    int nextIdx = RecordingSegments.IndexOf(RecordingSegments.FirstOrDefault(s => s.Path == frame.SegPath));
+                    if (nextIdx >= 0)
+                    {
+                        await LoadSegmentPausedAsync(nextIdx, frame.PtsSeconds, isSegmentTransition: true);
+                    }
+                }
+                else
+                {
+                    await RunNativeAsync(() => _playbackEngineService.Seek(frame.PtsSeconds));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[IFrameMode] Error: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _suspendPolling, 0);
+                
+                // Manually update the clock text and slider to match the jump
+                CurrentWallClockText = frame.WallClockUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                _isUpdatingUI = true;
+                CurrentTimelineSeconds = Math.Max(0, (frame.WallClockUtc - WindowStartUtc()).TotalSeconds);
+                _lastCalculatedGlobalTime = frame.WallClockUtc;
+                _isUpdatingUI = false;
+                UpdatePlayheadPx();
+            }
+        }
+
+        private int FindCursorAtCurrentTime()
+        {
+            if (_iFrameIndex == null || _iFrameIndex.Count == 0) return 0;
+            
+            var nowUtc = WindowStartUtc().AddSeconds(CurrentTimelineSeconds);
+            for (int i = 0; i < _iFrameIndex.Count; i++)
+            {
+                if (_iFrameIndex[i].WallClockUtc >= nowUtc.AddSeconds(-0.5))
+                    return i;
+            }
+            return 0;
+        }
+
+        private async Task ApplyPlaybackOptionsAfterLoadAsync(bool shouldPlay, bool isSegmentTransition = false)
+        {
+            await ApplyDesiredRateAsync(shouldPlay, isSegmentTransition);
         }
 
         private async Task LoadSegmentForCurrentModeAsync(int index, double localOffsetSeconds = 0)
@@ -288,12 +648,15 @@ namespace TSVmsDesktop.ViewModels
 
         private void ClearResumeState()
         {
+            StopHighSpeedAssist();
+
             _savedPlaybackPosition = 0;
             _savedSegmentIndex = -1;
             _wasPlayingBeforeDeactivate = false;
             _hasResumeState = false;
             _resumeCameraId = string.Empty;
             _resumeDayLocal = DateTime.MinValue;
+            _lastRateAppliedSegmentIndex = -1;
         }
 
         private bool CanResumeCurrentContext()
@@ -328,6 +691,7 @@ namespace TSVmsDesktop.ViewModels
             {
                 try
                 {
+                    StopHighSpeedAssist();
                     _pollTimer.Stop();
                 }
                 catch
@@ -695,6 +1059,8 @@ namespace TSVmsDesktop.ViewModels
                 _shouldBePlaying = false;
                 _desiredPlaybackRate = 1.0;
                 PlaybackRateText = "1x";
+                _lastRateAppliedSegmentIndex = -1;
+                StopHighSpeedAssist();
 
                 SelectedCameraDebugId = cameraId;
 
@@ -725,15 +1091,14 @@ namespace TSVmsDesktop.ViewModels
                     return;
                 }
 
-                var segments = ParseSegments(json)
-                    .OrderBy(s => s.StartTs)
-                    .ToList();
+                var segments = NormalizeSegments(ParseSegments(json));
 
                 ApiRowCount = segments.Count.ToString();
 
                 foreach (var s in segments)
                     RecordingSegments.Add(s);
 
+                _lastRateAppliedSegmentIndex = -1;
                 HasSegments = segments.Count > 0;
 
                 // wall-clock total seconds (includes gaps)
@@ -779,7 +1144,11 @@ namespace TSVmsDesktop.ViewModels
                 await LoadSegmentPausedAsync(_currentSegmentIndex, preloadOffset);
 
                 var posUtc = seg.StartTs.AddSeconds(preloadOffset);
+                
+                _isUpdatingUI = true;
                 CurrentTimelineSeconds = Math.Max(0, (posUtc - fromUtc).TotalSeconds);
+                _isUpdatingUI = false;
+                
                 UpdatePlayheadPx();
 
                 ShowPlayerOverlay = false;
@@ -882,12 +1251,21 @@ namespace TSVmsDesktop.ViewModels
         // Click/slider seek in wall-clock seconds (window-relative)
         public async Task SeekToWindowSecondsAsync(double windowSeconds, bool autoPlay)
         {
+            if (_isUpdatingUI) return; // Prevent slider loop
+
+            // Ignore phantom seeks triggered during a gapless transition
+            if ((DateTime.Now - _lastTransitionTime).TotalSeconds < 1.0)
+            {
+                return;
+            }
+
             var fromUtc = WindowStartUtc();
             var toUtc = WindowEndUtc();
             if (toUtc <= fromUtc) return;
 
             windowSeconds = Math.Max(0, Math.Min(TotalTimelineSeconds, windowSeconds));
             var targetUtc = fromUtc.AddSeconds(windowSeconds);
+            _lastCalculatedGlobalTime = targetUtc;
 
             await SeekToUtcAsync(targetUtc, autoPlay);
         }
@@ -904,14 +1282,13 @@ namespace TSVmsDesktop.ViewModels
 
             var ordered = RecordingSegments.OrderBy(s => s.StartTs).ToList();
 
-            var hitIndex = ordered.FindIndex(s => s.StartTs <= targetUtc && s.EndTs >= targetUtc);
-            if (hitIndex >= 0)
+            var hit = ordered.FirstOrDefault(s => s.StartTs <= targetUtc && s.EndTs >= targetUtc);
+            if (hit != null)
             {
-                var seg = ordered[hitIndex];
-                double localOffset = Math.Max(0, (targetUtc - seg.StartTs).TotalSeconds);
-                // Map back to RecordingSegments index
-                int index = RecordingSegments.IndexOf(seg);
-                if (index < 0) index = hitIndex;
+                double localOffset = Math.Max(0, (targetUtc - hit.StartTs).TotalSeconds);
+                int index = RecordingSegments.IndexOf(hit);
+                if (index < 0)
+                    index = ordered.IndexOf(hit);
 
                 if (autoPlay)
                     await LoadAndPlaySegmentAsync(index, localOffset);
@@ -922,7 +1299,27 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
-            // target is in a gap (red)
+            var next = ordered.FirstOrDefault(s => s.StartTs > targetUtc);
+            if (next != null)
+            {
+                int index = RecordingSegments.IndexOf(next);
+                if (index < 0)
+                    index = ordered.IndexOf(next);
+
+                if (autoPlay)
+                    await LoadAndPlaySegmentAsync(index, 0);
+                else
+                    await LoadSegmentPausedAsync(index, 0);
+
+                CurrentWallClockText = next.StartTs.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                CurrentTimelineSeconds = Math.Max(0, (next.StartTs - WindowStartUtc()).TotalSeconds);
+                UpdatePlayheadPx();
+
+                ShowPlayerOverlay = false;
+                StatusMessage = "Gap skipped to next available recording.";
+                return;
+            }
+
             try
             {
                 if (HasMediaLoaded)
@@ -930,20 +1327,18 @@ namespace TSVmsDesktop.ViewModels
             }
             catch
             {
-                // ignore pause failures when selecting a gap
             }
+
             IsPlaying = false;
+            _shouldBePlaying = false;
 
             ShowPlayerOverlay = true;
-            PlayerOverlayTitle = "No Recording Available";
-            PlayerOverlaySubtitle = "Selected time falls inside a gap (red).";
+            PlayerOverlayTitle = "End of Recording Window";
+            PlayerOverlaySubtitle = "No more recorded footage after this point.";
 
-            // update wall-clock display anyway
             CurrentWallClockText = targetUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
             CurrentTimelineSeconds = Math.Max(0, (targetUtc - WindowStartUtc()).TotalSeconds);
             UpdatePlayheadPx();
-
-            await Task.CompletedTask;
         }
 
         [RelayCommand]
@@ -977,15 +1372,14 @@ namespace TSVmsDesktop.ViewModels
 
                 if (IsPlaying)
                 {
+                    StopHighSpeedAssist();
                     await RunNativeAsync(() => _playbackEngineService.Pause());
                     IsPlaying = false;
                     _shouldBePlaying = false;
                 }
                 else
                 {
-                    await RunNativeAsync(() => _playbackEngineService.Play());
-                    IsPlaying = true;
-                    _shouldBePlaying = true;
+                    await ApplyDesiredRateAsync(true);
                 }
 
                 await RefreshPlaybackUiFromEngineAsync();
@@ -1005,6 +1399,7 @@ namespace TSVmsDesktop.ViewModels
         {
             try
             {
+                StopHighSpeedAssist();
                 Interlocked.Exchange(ref _suspendPolling, 1);
 
                 if (!HasMediaLoaded || _currentSegmentIndex < 0 || _currentSegmentIndex >= RecordingSegments.Count)
@@ -1017,6 +1412,7 @@ namespace TSVmsDesktop.ViewModels
 
                 await LoadSegmentPausedAsync(_currentSegmentIndex, 0);
                 await RefreshPlaybackUiFromEngineAsync();
+                _lastRateAppliedSegmentIndex = -1;
             }
             catch (Exception ex)
             {
@@ -1057,15 +1453,19 @@ namespace TSVmsDesktop.ViewModels
                 Interlocked.Exchange(ref _suspendPolling, 1);
 
                 _desiredPlaybackRate = rate;
-                PlaybackRateText = $"{rate:0.##}x";
 
                 if (!HasMediaLoaded)
+                {
+                    PlaybackRateText = $"{rate:0.##}x";
                     return;
+                }
 
-                await RunNativeAsync(() => _playbackEngineService.SetRate(rate));
+                bool resumeAfter = IsPlaying || _shouldBePlaying;
 
-                if (!IsPlaying)
-                    await RunNativeAsync(() => _playbackEngineService.Pause());
+                await RunNativeAsync(() => _playbackEngineService.Pause());
+                await ApplyDesiredRateAsync(resumeAfter);
+
+                _lastRateAppliedSegmentIndex = _currentSegmentIndex;
 
                 await RefreshPlaybackUiFromEngineAsync();
             }
@@ -1256,7 +1656,7 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
-        private async Task LoadSegmentPausedAsync(int index, double localOffsetSeconds)
+        private async Task LoadSegmentPausedAsync(int index, double localOffsetSeconds, bool isSegmentTransition = false)
         {
             if (index < 0 || index >= RecordingSegments.Count)
                 return;
@@ -1271,9 +1671,18 @@ namespace TSVmsDesktop.ViewModels
 
             try
             {
+                _currentSegmentIndex = index;
+                SelectedSegment = segment;
+                HasMediaLoaded = true;
+
+                var paths = RecordingSegments
+                    .Select(s => s.Path)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToArray();
+
                 await RunNativeAsync(() =>
                 {
-                    _playbackEngineService.Load(segment.Path);
+                    _playbackEngineService.LoadPlaylist(paths, index);
                     _playbackEngineService.Pause();
                 });
 
@@ -1283,13 +1692,7 @@ namespace TSVmsDesktop.ViewModels
                     await RunNativeAsync(() => _playbackEngineService.Seek(safeOffset));
                 }
 
-                await ApplyPlaybackOptionsAfterLoadAsync(false);
-
-                _currentSegmentIndex = index;
-                SelectedSegment = segment;
-                HasMediaLoaded = true;
-                IsPlaying = false;
-                _shouldBePlaying = false;
+                await ApplyPlaybackOptionsAfterLoadAsync(false, isSegmentTransition);
 
                 var posUtc = segment.StartTs.AddSeconds(safeOffset);
                 CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
@@ -1304,7 +1707,7 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
-        private async Task LoadAndPlaySegmentAsync(int index, double localOffsetSeconds)
+        private async Task LoadAndPlaySegmentAsync(int index, double localOffsetSeconds, bool isSegmentTransition = false)
         {
             if (index < 0 || index >= RecordingSegments.Count)
                 return;
@@ -1317,32 +1720,48 @@ namespace TSVmsDesktop.ViewModels
             else
                 safeOffset = 0;
 
-            await RunNativeAsync(() =>
+            try
             {
-                _playbackEngineService.Load(segment.Path);
-                _playbackEngineService.Pause();
-            });
+                _currentSegmentIndex = index;
+                SelectedSegment = segment;
+                HasMediaLoaded = true;
 
-            if (safeOffset > 0.05)
-            {
-                await Task.Delay(120);
-                await RunNativeAsync(() => _playbackEngineService.Seek(safeOffset));
+                var paths = RecordingSegments
+                    .Select(s => s.Path)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToArray();
+
+                await RunNativeAsync(() =>
+                {
+                    _playbackEngineService.LoadPlaylist(paths, index);
+                    _playbackEngineService.Pause();
+                });
+
+                if (safeOffset > 0.05)
+                {
+                    await Task.Delay(120);
+                    await RunNativeAsync(() => _playbackEngineService.Seek(safeOffset));
+                }
+
+                await ApplyPlaybackOptionsAfterLoadAsync(true, isSegmentTransition);
+
+                var posUtc = segment.StartTs.AddSeconds(safeOffset);
+                CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                CurrentTimelineSeconds = Math.Max(0, (posUtc - WindowStartUtc()).TotalSeconds);
+                UpdatePlayheadPx();
+
+                if (_highSpeedAssistEnabled)
+                {
+                    _highSpeedVirtualWindowSeconds = CurrentTimelineSeconds;
+                    _highSpeedLastTickUtc = DateTime.UtcNow;
+                }
+
+                ShowPlayerOverlay = false;
             }
-
-            await ApplyPlaybackOptionsAfterLoadAsync(true);
-
-            _currentSegmentIndex = index;
-            SelectedSegment = segment;
-            HasMediaLoaded = true;
-            IsPlaying = true;
-            _shouldBePlaying = true;
-
-            var posUtc = segment.StartTs.AddSeconds(safeOffset);
-            CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-            CurrentTimelineSeconds = Math.Max(0, (posUtc - WindowStartUtc()).TotalSeconds);
-            UpdatePlayheadPx();
-
-            ShowPlayerOverlay = false;
+            catch (Exception ex)
+            {
+                StatusMessage = $"Failed to load segment: {ex.Message}";
+            }
         }
 
         private async void PollTimer_Tick(object? sender, EventArgs e)
@@ -1358,72 +1777,150 @@ namespace TSVmsDesktop.ViewModels
                 if (_currentSegmentIndex < 0 || _currentSegmentIndex >= RecordingSegments.Count)
                     return;
 
-                // If a user action / segment transition already owns native gate, do not queue behind it.
                 if (_nativeOpGate.CurrentCount == 0)
                     return;
 
                 var snapshot = await RunNativeAsync(() =>
                 {
                     int state = _playbackEngineService.GetState();
+                    int playlistIndex = _playbackEngineService.GetPlaylistIndex();
                     double localSeconds = _playbackEngineService.GetPositionSeconds();
-                    return (state, localSeconds);
+                    double loadedDuration = _playbackEngineService.GetDurationSeconds();
+                    bool eosReached = _playbackEngineService.HasReachedEos();
+                    double actualRate = _playbackEngineService.GetRate();
+                    return (state, playlistIndex, localSeconds, loadedDuration, eosReached, actualRate);
                 });
 
                 bool enginePlaying = snapshot.state == 2;
+                double localSeconds = Math.Max(0, snapshot.localSeconds);
+                int nativeIndex = snapshot.playlistIndex;
 
-                // keep UI in "playing intent" during transitions / fast playback
-                IsPlaying = _shouldBePlaying || enginePlaying;
-                double localSeconds = snapshot.localSeconds;
+                // --- THE FIX: Jitter Suppression ---
+                // If we just transitioned to a new MKV segment, we expect the position to be near 0.
+                if (_previousPlaylistIndex != -1 && nativeIndex != _previousPlaylistIndex)
+                {
+                    // If the position is unusually high (e.g., > 2.0 seconds) right after an index change,
+                    // it is a stale query from the previous segment.
+                    if (localSeconds > 2.0)
+                    {
+                        // Ignore this update and hold the UI steady for a split second 
+                        // until GStreamer's position clock resets.
+                        return;
+                    }
+
+                    _lastTransitionTime = DateTime.Now; // Start the 2-second cooldown
+                }
+                _previousPlaylistIndex = nativeIndex;
+
+                bool segmentChanged = false;
+
+                if (nativeIndex >= 0 &&
+                    nativeIndex < RecordingSegments.Count &&
+                    nativeIndex != _currentSegmentIndex)
+                {
+                    _currentSegmentIndex = nativeIndex;
+                    SelectedSegment = RecordingSegments[_currentSegmentIndex];
+                    segmentChanged = true;
+                }
+
+                if (segmentChanged)
+                {
+                    _lastRateAppliedSegmentIndex = -1;
+
+                    if (_highSpeedAssistEnabled)
+                    {
+                        _highSpeedVirtualWindowSeconds =
+                            snapshot.localSeconds >= 0
+                                ? RecordingSegments[_currentSegmentIndex]
+                                    .StartTs.AddSeconds(snapshot.localSeconds)
+                                    .Subtract(WindowStartUtc())
+                                    .TotalSeconds
+                                : CurrentTimelineSeconds;
+
+                        _highSpeedLastTickUtc = DateTime.UtcNow;
+                    }
+                }
+
+                double expectedNativeRate =
+                    _highSpeedAssistEnabled
+                        ? _highSpeedNativeRate
+                        : (_desiredPlaybackRate > 1.0 ? _desiredPlaybackRate : 1.0);
+
+                bool rateDropped =
+                    _desiredPlaybackRate > 1.0 &&
+                    (_shouldBePlaying || enginePlaying) &&
+                    snapshot.actualRate < expectedNativeRate - 0.25;
+
+                bool shouldRecoverRate =
+                    (segmentChanged || rateDropped) &&
+                    _desiredPlaybackRate > 1.0 &&
+                    (_shouldBePlaying || enginePlaying) &&
+                    (DateTime.UtcNow - _lastRateRecoveryUtc).TotalMilliseconds > 250;
+
+                if (shouldRecoverRate)
+                {
+                    _lastRateRecoveryUtc = DateTime.UtcNow;
+                    await ApplyDesiredRateAsync(_shouldBePlaying || enginePlaying, true);
+                    _lastRateAppliedSegmentIndex = _currentSegmentIndex;
+                }
+
+                if (segmentChanged && localSeconds < 0.15)
+                    localSeconds = 0;
 
                 var seg = RecordingSegments[_currentSegmentIndex];
-                var posUtc = seg.StartTs.AddSeconds(Math.Max(0, localSeconds));
 
-                // update wall-clock timeline
-                CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-                CurrentTimelineSeconds = Math.Max(0, (posUtc - WindowStartUtc()).TotalSeconds);
-                UpdatePlayheadPx();
+                double segDur = snapshot.loadedDuration > 0.25
+                    ? snapshot.loadedDuration
+                    : seg.DurationSeconds;
 
-                double segDur = seg.DurationSeconds;
+                if (segDur > 0.25)
+                    localSeconds = Math.Min(localSeconds, Math.Max(0, segDur - 0.05));
 
-                // Look ahead earlier, especially at higher speeds.
-                double endLookAheadSec = Math.Max(0.35, 0.75 * Math.Max(1.0, _desiredPlaybackRate));
+                // Base calculation
+                DateTime calculatedTime = seg.StartTs.AddSeconds(localSeconds);
 
-                if (_shouldBePlaying && localSeconds >= Math.Max(0, segDur - endLookAheadSec))
+                // --- NEW: TIMELINE OVERFLOW PROTECTION ---
+                // If GStreamer accumulates time or the index update is delayed, 
+                // the time will "pass" the end of the segment. We must seamlessly overflow it into the next segment.
+                if (calculatedTime > seg.EndTs)
                 {
                     if (_currentSegmentIndex + 1 < RecordingSegments.Count)
                     {
-                        int nextIndex = _currentSegmentIndex + 1;
-                        var next = RecordingSegments[nextIndex];
-                        var gapSec = Math.Max(0, (next.StartTs - seg.EndTs).TotalSeconds);
-
-                        if (Interlocked.Exchange(ref _segmentAdvanceInFlight, 1) == 0)
-                        {
-                            try
-                            {
-                                Interlocked.Exchange(ref _suspendPolling, 1);
-
-                                // Seamless continuous mode:
-                                // always jump to next available recording block instead of stopping on gap
-                                await LoadAndPlaySegmentAsync(nextIndex, 0);
-                                _shouldBePlaying = true;
-
-                                ShowPlayerOverlay = false;
-
-                                if (gapSec > 0.05)
-                                    StatusMessage = $"Skipped gap {gapSec:0.###}s and continued playback.";
-                                else
-                                    StatusMessage = $"Advanced to segment {nextIndex}.";
-                            }
-                            finally
-                            {
-                                Interlocked.Exchange(ref _suspendPolling, 0);
-                                Interlocked.Exchange(ref _segmentAdvanceInFlight, 0);
-                            }
-                        }
+                        // Map the extra time smoothly into the next segment's timeline
+                        double overflowSeconds = (calculatedTime - seg.EndTs).TotalSeconds;
+                        calculatedTime = RecordingSegments[_currentSegmentIndex + 1].StartTs.AddSeconds(overflowSeconds);
                     }
                     else
                     {
+                        // If it's the very last segment in the list, clamp it so the slider doesn't fly off the track
+                        calculatedTime = seg.EndTs;
+                    }
+                }
+
+                // Prevent GStreamer jitter from pulling the timeline backwards during the gap
+                if (calculatedTime < _lastCalculatedGlobalTime && (DateTime.Now - _lastTransitionTime).TotalSeconds < 2.0)
+                {
+                    // Ignore this stale update; keep the UI frozen for a split second
+                    return;
+                }
+                _lastCalculatedGlobalTime = calculatedTime;
+
+                CurrentWallClockText = calculatedTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                
+                _isUpdatingUI = true;
+                CurrentTimelineSeconds = Math.Max(0, (calculatedTime - WindowStartUtc()).TotalSeconds);
+                _isUpdatingUI = false;
+                
+                UpdatePlayheadPx();
+
+                IsPlaying = _shouldBePlaying || enginePlaying;
+
+                if (_shouldBePlaying && snapshot.eosReached)
+                {
+                    if (_currentSegmentIndex >= RecordingSegments.Count - 1)
+                    {
                         await RunNativeAsync(() => _playbackEngineService.Pause());
+
                         IsPlaying = false;
                         _shouldBePlaying = false;
 

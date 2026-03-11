@@ -22,10 +22,15 @@ TSVMS_PLAYBACK_API int   tsplay_stop(void* engine);
 TSVMS_PLAYBACK_API int   tsplay_seek_seconds(void* engine, double seconds);
 TSVMS_PLAYBACK_API int   tsplay_set_rate(void* engine, double rate);
 TSVMS_PLAYBACK_API int   tsplay_step_frame(void* engine, int frames);
+TSVMS_PLAYBACK_API int   tsplay_set_playlist(void* engine, const wchar_t* const* paths, int count, int startIndex);
+TSVMS_PLAYBACK_API int   tsplay_get_playlist_index(void* engine);
+TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine);
+
 
 TSVMS_PLAYBACK_API double tsplay_get_position_seconds(void* engine);
 TSVMS_PLAYBACK_API double tsplay_get_duration_seconds(void* engine);
 TSVMS_PLAYBACK_API int    tsplay_get_state(void* engine);
+TSVMS_PLAYBACK_API int    tsplay_has_reached_eos(void* engine);
 TSVMS_PLAYBACK_API const wchar_t* tsplay_get_last_error(void* engine);
 
 TSVMS_PLAYBACK_API int TSPlayback_SetRotationDegrees(void* engine, int degrees);

@@ -486,9 +486,9 @@
                             Margin="0,8,0,0"
                             Minimum="0"
                             Maximum="{Binding TotalTimelineSeconds}"
-                            Value="{Binding CurrentTimelineSeconds, Mode=TwoWay}"
+                            Value="{Binding CurrentTimelineSeconds, Mode=OneWay}"
                             IsEnabled="{Binding HasSegments}"
-                            PreviewMouseLeftButtonUp="WindowSlider_PreviewMouseLeftButtonUp"/>
+                            Thumb.DragCompleted="WindowSlider_DragCompleted"/>
                 </StackPanel>
             </Border>
 
