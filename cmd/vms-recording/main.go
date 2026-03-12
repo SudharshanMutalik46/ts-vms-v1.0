@@ -93,7 +93,7 @@ func main() {
 
 	scheduler := recording.NewScheduleEngine(schedules)
 	license := recording.NewLicenseGate(cfg.Limits.MaxRecordingCameras)
-	supervisor := recording.NewSupervisor(&cfg, scheduler, license, store, keyring)
+	supervisor := recording.NewRecordingArchiverService(&cfg, scheduler, license, store, keyring)
 	health := recording.NewHealthServer(&cfg, supervisor, scheduler, store)
 	exporter := recording.NewExportService(&cfg, store)
 	reconciler := recording.NewReconciler(&cfg, store)
@@ -117,7 +117,7 @@ func main() {
 
 	internalAPI := &recording.InternalAPI{
 		ServiceKey:    os.Getenv("TS_VMS_SERVICE_KEY"),
-		Supervisor:    supervisor,
+		RecordingArchiver:    supervisor,
 		ScheduleStore: store,
 	}
 	go http.ListenAndServe(":8087", internalAPI.ServeMux())

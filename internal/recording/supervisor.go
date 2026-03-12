@@ -10,35 +10,35 @@ import (
 	"github.com/technosupport/ts-vms/internal/crypto"
 )
 
-type Supervisor struct {
+type RecordingArchiverService struct {
 	config        *Config
 	scheduler     *ScheduleEngine
 	license       *LicenseGate
 	store         *PostgresStore
-	workers       map[string]*CameraWorker
+	workers       map[string]*RecorderWorker
 	cameraConfigs map[string]CameraConfig
 	ctx           context.Context
 	keyring       *crypto.Keyring
 	mu            sync.RWMutex
 }
 
-func NewSupervisor(cfg *Config, sched *ScheduleEngine, lic *LicenseGate, store *PostgresStore, keyring *crypto.Keyring) *Supervisor {
+func NewRecordingArchiverService(cfg *Config, sched *ScheduleEngine, lic *LicenseGate, store *PostgresStore, keyring *crypto.Keyring) *RecordingArchiverService {
 	camMap := make(map[string]CameraConfig, len(cfg.Cameras))
 	for _, cam := range cfg.Cameras {
 		camMap[cam.ID] = cam
 	}
-	return &Supervisor{
+	return &RecordingArchiverService{
 		config:        cfg,
 		scheduler:     sched,
 		license:       lic,
 		store:         store,
-		workers:       make(map[string]*CameraWorker),
+		workers:       make(map[string]*RecorderWorker),
 		cameraConfigs: camMap,
 		keyring:       keyring,
 	}
 }
 
-func (s *Supervisor) Run(ctx context.Context) {
+func (s *RecordingArchiverService) Run(ctx context.Context) {
 	s.ctx = ctx
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -53,7 +53,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 	}
 }
 
-func (s *Supervisor) reconcile() {
+func (s *RecordingArchiverService) reconcile() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +93,7 @@ func (s *Supervisor) reconcile() {
 	}
 }
 
-func (s *Supervisor) ApplyManualState(camID, action string) error {
+func (s *RecordingArchiverService) ApplyManualState(camID, action string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cam, ok := s.cameraConfigs[camID]
@@ -121,7 +121,7 @@ func (s *Supervisor) ApplyManualState(camID, action string) error {
 	return nil
 }
 
-func (s *Supervisor) UpsertCamera(cam CameraConfig) {
+func (s *RecordingArchiverService) UpsertCamera(cam CameraConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (s *Supervisor) UpsertCamera(cam CameraConfig) {
 	s.cameraConfigs[cam.ID] = cam
 }
 
-func (s *Supervisor) RemoveCamera(camID string) {
+func (s *RecordingArchiverService) RemoveCamera(camID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.cameraConfigs, camID)
@@ -146,7 +146,7 @@ func (s *Supervisor) RemoveCamera(camID string) {
 	}
 }
 
-func (s *Supervisor) AttachCamera(cam CameraConfig) error {
+func (s *RecordingArchiverService) AttachCamera(cam CameraConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -188,12 +188,12 @@ func (s *Supervisor) AttachCamera(cam CameraConfig) error {
 	return nil
 }
 
-func (s *Supervisor) ReloadSchedules(cfgs []ScheduleConfig) {
+func (s *RecordingArchiverService) ReloadSchedules(cfgs []ScheduleConfig) {
 	s.scheduler.UpdateConfigs(cfgs)
-	log.Printf("[Supervisor] reloaded %d schedules", len(cfgs))
+	log.Printf("[RecordingArchiverService] reloaded %d schedules", len(cfgs))
 }
 
-func (s *Supervisor) BulkAction(action string) {
+func (s *RecordingArchiverService) BulkAction(action string) {
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.cameraConfigs))
 	for id := range s.cameraConfigs {
@@ -205,7 +205,7 @@ func (s *Supervisor) BulkAction(action string) {
 	}
 }
 
-func (s *Supervisor) StopAll() {
+func (s *RecordingArchiverService) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, w := range s.workers {
@@ -214,7 +214,7 @@ func (s *Supervisor) StopAll() {
 	}
 }
 
-func (s *Supervisor) GetStatus() map[string]any {
+func (s *RecordingArchiverService) GetStatus() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	workers := make([]map[string]any, 0, len(s.workers))
@@ -227,10 +227,10 @@ func (s *Supervisor) GetStatus() map[string]any {
 	}
 }
 
-func (s *Supervisor) ensureWorkerLocked(cam CameraConfig) *CameraWorker {
+func (s *RecordingArchiverService) ensureWorkerLocked(cam CameraConfig) *RecorderWorker {
 	w, exists := s.workers[cam.ID]
 	if !exists || w == nil {
-		w = NewCameraWorker(s.config, cam, s.store, s.keyring)
+		w = NewRecorderWorker(s.config, cam, s.store, s.keyring)
 		s.workers[cam.ID] = w
 		return w
 	}
@@ -240,7 +240,7 @@ func (s *Supervisor) ensureWorkerLocked(cam CameraConfig) *CameraWorker {
 	return w
 }
 
-func (s *Supervisor) acquireLicenseLocked(w *CameraWorker, camID string) bool {
+func (s *RecordingArchiverService) acquireLicenseLocked(w *RecorderWorker, camID string) bool {
 	if w.HasLicense() {
 		return true
 	}
@@ -252,7 +252,7 @@ func (s *Supervisor) acquireLicenseLocked(w *CameraWorker, camID string) bool {
 	return true
 }
 
-func (s *Supervisor) releaseLicenseLocked(w *CameraWorker) {
+func (s *RecordingArchiverService) releaseLicenseLocked(w *RecorderWorker) {
 	if w == nil || !w.HasLicense() {
 		return
 	}
@@ -260,7 +260,7 @@ func (s *Supervisor) releaseLicenseLocked(w *CameraWorker) {
 	w.SetLicenseHeld(false)
 }
 
-func (s *Supervisor) upsertCameraLocked(cam CameraConfig) {
+func (s *RecordingArchiverService) upsertCameraLocked(cam CameraConfig) {
 	s.cameraConfigs[cam.ID] = cam
 	replaced := false
 	for i := range s.config.Cameras {

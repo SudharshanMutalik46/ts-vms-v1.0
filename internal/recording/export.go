@@ -15,9 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
+
 type ExportService struct {
 	Config *Config
-	Store  *PostgresStore
+	Store  ArchiveIndex
 }
 
 type ExportRequest struct {
@@ -27,7 +28,7 @@ type ExportRequest struct {
 	UserID   string    `json:"user_id"`
 }
 
-func NewExportService(cfg *Config, store *PostgresStore) *ExportService {
+func NewExportService(cfg *Config, store ArchiveIndex) *ExportService {
 	return &ExportService{Config: cfg, Store: store}
 }
 

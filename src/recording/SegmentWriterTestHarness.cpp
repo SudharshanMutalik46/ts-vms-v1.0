@@ -1,9 +1,10 @@
 #include "SegmentWriter.h"
 #include "StartupScanner.h"
+
+#include <filesystem>
 #include <gst/gst.h>
 #include <iostream>
 #include <thread>
-#include <filesystem>
 
 using namespace ts::vms::recording;
 namespace fs = std::filesystem;
@@ -16,51 +17,87 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::string mode = argv[1];
-    std::string out_dir = (argc > 2) ? argv[2] : "./test_segments";
+    const std::string mode = argv[1];
+    const std::string out_dir = (argc > 2) ? argv[2] : "./test_segments";
 
     if (mode == "scan") {
         std::cout << "--- Running Startup Scanner ---\n";
-        auto report = StartupScanner::ScanAndClean(out_dir, 1); // 1 minute TTL for fast testing
+        // StartupScanner::ScanAndClean(path, retention_days)
+        auto report = StartupScanner::ScanAndClean(out_dir, 1);
         std::cout << "TMP Deleted: " << report.tmp_deleted << "\n";
-        std::cout << "MP4 Quarantined: " << report.mp4_quarantined << "\n";
+        std::cout << "Video Quarantined: " << report.video_quarantined << "\n";
         for (const auto& p : report.affected_paths) {
             std::cout << "  " << p << "\n";
         }
-    } 
-    else if (mode == "record") {
-        std::cout << "--- Running Segment Writer ---\n";
-        
-        WriterOptions opts;
-        opts.segment_duration_sec = 5; // Very short for testing
-        opts.enable_checksum = true;
-
-        SegmentWriter writer;
-        writer.OnSegmentFinalized([](const std::string& path, uint64_t size, const std::string& chk) {
-            std::cout << ">> Callback Received: " << path << " | Checksum: " << chk << "\n";
-        });
-        writer.OnError([](const std::string& err) {
-            std::cerr << ">> Pipeline Error: " << err << "\n";
-        });
-
-        // Use videotestsrc for reliable testing without network
-        std::string mock_rtsp = "videotestsrc is-live=true ! x265enc ! rtph265pay ! rtspclientsink"; 
-        // For harness simulation, we intercept and override inside SegmentWriter internally if we wanted, 
-        // but passing a real RTSP or letting it fail works for structure tests. 
-        // Since we want actual files, we assume the user provides a real RTSP url or we rely on the PS1 script.
-
-        writer.Start("cam_test", "rtsp://127.0.0.1:8554/mosaic_8x8", out_dir, opts);
-
-        // Run for 15 seconds (creates ~3 segments)
-        GMainLoop* loop = g_main_loop_new(NULL, FALSE);
-        std::thread([&]() {
-            std::this_thread::sleep_for(std::chrono::seconds(16));
-            g_main_loop_quit(loop);
-        }).detach();
-
-        g_main_loop_run(loop);
-        writer.Stop();
+        return 0;
     }
 
-    return 0;
+    if (mode == "record") {
+        std::cout << "--- Running Segment Writer (MKV archive mode) ---\n";
+
+        SegmentWriterOptions opts;
+        opts.base_path = out_dir;
+        opts.segment_duration_sec = 5;
+        opts.final_ext = ".mkv";
+        opts.enable_checksum = true;
+
+        SegmentWriter writer("cam_test", opts);
+
+        writer.SetCallbacks(
+            [](const FinalizedSegmentInfo& info) {
+                std::cout << ">> Finalized callback: " << info.final_path
+                          << " | size=" << info.size_bytes
+                          << " | checksum=" << info.checksum_sha256 << "\n";
+            },
+            [](const FinalizedSegmentInfo& info) {
+                std::cout << ">> ArchiveIndex accepted: " << info.final_path
+                          << " | container=" << info.container
+                          << " | checksum=" << info.checksum_sha256 << "\n";
+                return true;
+            },
+            [](const std::string& err) {
+                std::cerr << ">> Pipeline Error: " << err << "\n";
+            }
+        );
+
+        // We need a pipeline for splitmuxsink
+        std::string pipeline_str = 
+            "videotestsrc is-live=true ! openh264enc ! h264parse ! "
+            "splitmuxsink name=sink muxer=matroskamux";
+        
+        GError* err = nullptr;
+        GstElement* pipeline = gst_parse_launch(pipeline_str.c_str(), &err);
+        if (err) {
+            std::cerr << "Pipeline Parse Error: " << err->message << "\n";
+            g_error_free(err);
+            return 2;
+        }
+
+        if (!writer.Start(pipeline)) {
+            std::cerr << "Failed to start segment writer.\n";
+            gst_object_unref(pipeline);
+            return 2;
+        }
+
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+
+        std::cout << "Recording for 12 seconds...\n";
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+
+        writer.Stop();
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+
+        std::cout << "--- Files in output directory ---\n";
+        if (fs::exists(out_dir)) {
+            for (const auto& entry : fs::directory_iterator(out_dir)) {
+                std::cout << "  " << entry.path().filename().string() << "\n";
+            }
+        }
+
+        return 0;
+    }
+
+    std::cerr << "Unknown mode: " << mode << "\n";
+    return 1;
 }

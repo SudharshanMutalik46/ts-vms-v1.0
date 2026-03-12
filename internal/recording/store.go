@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/crypto"
@@ -21,17 +20,6 @@ type PostgresStore struct {
 	DB *sql.DB
 }
 
-type Segment struct {
-	ID         string    `json:"id"`
-	TenantID   string    `json:"tenant_id"`
-	SiteID     string    `json:"site_id"`
-	CameraID   string    `json:"camera_id"`
-	StartTS    time.Time `json:"start_ts"`
-	EndTS      time.Time `json:"end_ts"`
-	DurationMs int64     `json:"duration_ms"`
-	Path       string    `json:"path"`
-	SizeBytes  int64     `json:"size_bytes"`
-}
 
 func NewPostgresStore(db *sql.DB) *PostgresStore {
 	return &PostgresStore{DB: db}
@@ -201,122 +189,6 @@ func (s *PostgresStore) SaveSchedule(ctx context.Context, tenantID, siteID strin
 	return err
 }
 
-func (s *PostgresStore) FindSegmentByPath(ctx context.Context, path string) (*Segment, error) {
-	if !s.Available() {
-		return nil, ErrDBUnavailable
-	}
-	var seg Segment
-	err := s.DB.QueryRowContext(ctx, `
-		SELECT id, tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes
-		FROM recording_segments
-		WHERE path = $1`, path).
-		Scan(&seg.ID, &seg.TenantID, &seg.SiteID, &seg.CameraID, &seg.StartTS, &seg.EndTS, &seg.DurationMs, &seg.Path, &seg.SizeBytes)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &seg, nil
-}
-
-func (s *PostgresStore) UpsertSegmentFromDisk(ctx context.Context, seg *Segment) error {
-	if !s.Available() {
-		return ErrDBUnavailable
-	}
-	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO recording_segments (tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
-		ON CONFLICT (path) DO UPDATE SET
-			start_ts         = EXCLUDED.start_ts,
-			end_ts           = EXCLUDED.end_ts,
-			duration_ms      = EXCLUDED.duration_ms,
-			size_bytes       = EXCLUDED.size_bytes,
-			last_seen_on_disk = NOW(),
-			is_missing_on_disk = FALSE
-	`, seg.TenantID, seg.SiteID, seg.CameraID, seg.StartTS, seg.EndTS, seg.DurationMs, seg.Path, seg.SizeBytes)
-	return err
-}
-
-func (s *PostgresStore) MarkMissing(ctx context.Context, path string) error {
-	if !s.Available() {
-		return ErrDBUnavailable
-	}
-	_, err := s.DB.ExecContext(ctx, `
-		UPDATE recording_segments
-		SET is_missing_on_disk = TRUE, updated_at = NOW()
-		WHERE path = $1`, path)
-	if err == nil {
-		_ = s.AuditRecoveryEvent(ctx, path, "missing_on_disk", "")
-	}
-	return err
-}
-
-func (s *PostgresStore) MarkCorrupt(ctx context.Context, path, quarantinePath string) error {
-	if !s.Available() {
-		return ErrDBUnavailable
-	}
-	_, err := s.DB.ExecContext(ctx, `
-		UPDATE recording_segments
-		SET is_corrupt = TRUE, quarantine_path = $2, updated_at = NOW()
-		WHERE path = $1`, path, nullIfEmpty(quarantinePath))
-	if err == nil {
-		_ = s.AuditRecoveryEvent(ctx, path, "corrupt", quarantinePath)
-	}
-	return err
-}
-
-func (s *PostgresStore) ExpectedPathsSince(ctx context.Context, since time.Time) ([]string, error) {
-	if !s.Available() {
-		return nil, ErrDBUnavailable
-	}
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT path
-		FROM recording_segments
-		WHERE end_ts >= $1`, since)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
-}
-
-func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, to time.Time) ([]Segment, error) {
-	if !s.Available() {
-		return nil, ErrDBUnavailable
-	}
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, tenant_id, site_id, camera_id, start_ts, end_ts, duration_ms, path, size_bytes
-		FROM recording_segments
-		WHERE camera_id = $1
-		  AND end_ts > $2
-		  AND start_ts < $3
-		  AND is_missing_on_disk = FALSE
-		  AND is_corrupt = FALSE
-		ORDER BY start_ts ASC`, cameraID, from, to)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []Segment
-	for rows.Next() {
-		var seg Segment
-		if err := rows.Scan(&seg.ID, &seg.TenantID, &seg.SiteID, &seg.CameraID, &seg.StartTS, &seg.EndTS, &seg.DurationMs, &seg.Path, &seg.SizeBytes); err != nil {
-			return nil, err
-		}
-		out = append(out, seg)
-	}
-	return out, rows.Err()
-}
 
 func (s *PostgresStore) AuditRecoveryEvent(ctx context.Context, path, state, detail string) error {
 	if !s.Available() {
@@ -328,15 +200,6 @@ func (s *PostgresStore) AuditRecoveryEvent(ctx context.Context, path, state, det
 	return err
 }
 
-type ExportJob struct {
-	ID         string    `json:"id"`
-	CameraID   string    `json:"camera_id"`
-	FromTS     time.Time `json:"from_ts"`
-	ToTS       time.Time `json:"to_ts"`
-	State      string    `json:"state"`
-	OutputPath string    `json:"output_path"`
-	Error      string    `json:"error,omitempty"`
-}
 
 func (s *PostgresStore) CreateExportJob(ctx context.Context, job *ExportJob, requestedBy string) error {
 	if !s.Available() {

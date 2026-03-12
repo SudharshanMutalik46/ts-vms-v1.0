@@ -9,7 +9,7 @@ import (
 
 type ScannerReport struct {
 	TmpDeletedCount         int
-	Mp4QuarantinedCount     int
+	VideoQuarantinedCount   int
 	DbMissingFilesCount     int
 	DiskUnindexedFilesCount int
 }
@@ -46,7 +46,7 @@ func (s *Scanner) Scan(volumes []string) ([]FileFinding, ScannerReport, error) {
 				kind := "video"
 				if info.Size() == 0 {
 					kind = "corrupt"
-					report.Mp4QuarantinedCount++
+					report.VideoQuarantinedCount++
 				}
 				findings = append(findings, FileFinding{Path: path, Kind: kind, SizeBytes: info.Size(), ModTime: info.ModTime()})
 			}

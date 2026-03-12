@@ -29,6 +29,18 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("is_protected")]
         public bool IsProtected { get; set; }
 
+        [JsonPropertyName("container")]
+        public string Container { get; set; } = "mkv";
+
+        [JsonPropertyName("checksum_sha256")]
+        public string ChecksumSha256 { get; set; } = string.Empty;
+
+        [JsonPropertyName("health_state")]
+        public string HealthState { get; set; } = "finalized";
+
+        [JsonPropertyName("is_finalized")]
+        public bool IsFinalized { get; set; }
+
         [JsonIgnore]
         public string FileName => System.IO.Path.GetFileName(Path);
 

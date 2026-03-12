@@ -7,10 +7,11 @@ namespace recording {
 
 class FileSync {
 public:
-    // Forces the OS to flush file buffers to physical disk
+    // Forces OS buffers for an existing file to durable storage.
     static bool FlushToDisk(const std::string& filepath);
-    
-    // Computes a basic SHA256 checksum (stubbed for minimal dependencies)
+
+    // Computes a real SHA-256 digest for the finalized archive file.
+    // Returns empty string on failure.
     static std::string ComputeChecksum(const std::string& filepath);
 };
 

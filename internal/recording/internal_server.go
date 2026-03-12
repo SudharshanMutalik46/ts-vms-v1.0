@@ -8,9 +8,9 @@ import (
 )
 
 type InternalAPI struct {
-	ServiceKey    string
-	Supervisor    *Supervisor
-	ScheduleStore *PostgresStore
+	ServiceKey        string
+	RecordingArchiver *RecordingArchiverService
+	ScheduleStore     *PostgresStore
 }
 
 func (api *InternalAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -31,7 +31,7 @@ func (api *InternalAPI) actionHandler(action string) http.HandlerFunc {
 			return
 		}
 		camID := parts[4]
-		_ = api.Supervisor.ApplyManualState(camID, action)
+		_ = api.RecordingArchiver.ApplyManualState(camID, action)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "camera_id": camID, "action": action})
 	}
@@ -58,7 +58,7 @@ func (api *InternalAPI) syncCameraHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	api.Supervisor.UpsertCamera(CameraConfig{
+	api.RecordingArchiver.UpsertCamera(CameraConfig{
 		ID:      camID,
 		RtspURL: strings.TrimSpace(req.RtspURL),
 		Enabled: req.Enabled,
@@ -67,7 +67,7 @@ func (api *InternalAPI) syncCameraHandler(w http.ResponseWriter, r *http.Request
 	if req.Enabled {
 		action = "START"
 	}
-	if err := api.Supervisor.ApplyManualState(camID, action); err != nil {
+	if err := api.RecordingArchiver.ApplyManualState(camID, action); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -87,14 +87,14 @@ func (api *InternalAPI) deleteCameraHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	camID := parts[4]
-	api.Supervisor.RemoveCamera(camID)
+	api.RecordingArchiver.RemoveCamera(camID)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "camera_id": camID, "action": "DELETE"})
 }
 
 func (api *InternalAPI) bulkHandler(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		api.Supervisor.BulkAction(action)
+		api.RecordingArchiver.BulkAction(action)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "bulk_action": action})
 	}
@@ -110,7 +110,7 @@ func (api *InternalAPI) attachCameraHandler(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := api.Supervisor.AttachCamera(cam); err != nil {
+	if err := api.RecordingArchiver.AttachCamera(cam); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -157,13 +157,13 @@ func (api *InternalAPI) ServeMux() *http.ServeMux {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		api.Supervisor.ReloadSchedules(cfgs)
+		api.RecordingArchiver.ReloadSchedules(cfgs)
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(api.Supervisor.GetStatus())
+		_ = json.NewEncoder(w).Encode(api.RecordingArchiver.GetStatus())
 	})
 	return mux
 }

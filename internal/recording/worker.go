@@ -26,11 +26,11 @@ const (
 	StateThrottledByLicense WorkerState = "THROTTLED_BY_LICENSE"
 )
 
-type CameraWorker struct {
+type RecorderWorker struct {
 	CameraID         string
 	Camera           CameraConfig
 	Config           *Config
-	Store            *PostgresStore
+	Store            ArchiveIndex
 	State            WorkerState
 	cancel           context.CancelFunc
 	cmd              *exec.Cmd
@@ -51,8 +51,8 @@ type CameraWorker struct {
 	mu               sync.RWMutex
 }
 
-func NewCameraWorker(cfg *Config, cam CameraConfig, store *PostgresStore, keyring *crypto.Keyring) *CameraWorker {
-	return &CameraWorker{
+func NewRecorderWorker(cfg *Config, cam CameraConfig, store ArchiveIndex, keyring *crypto.Keyring) *RecorderWorker {
+	return &RecorderWorker{
 		CameraID:     cam.ID,
 		Camera:       cam,
 		Config:       cfg,
@@ -64,13 +64,13 @@ func NewCameraWorker(cfg *Config, cam CameraConfig, store *PostgresStore, keyrin
 	}
 }
 
-func (w *CameraWorker) IsRunning() bool {
+func (w *RecorderWorker) IsRunning() bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.running
 }
 
-func (w *CameraWorker) Start(ctx context.Context) {
+func (w *RecorderWorker) Start(ctx context.Context) {
 	w.mu.Lock()
 	if w.loopRunning {
 		w.mu.Unlock()
@@ -92,7 +92,7 @@ func (w *CameraWorker) Start(ctx context.Context) {
 	go w.loop(workerCtx, runID)
 }
 
-func (w *CameraWorker) loop(ctx context.Context, runID uint64) {
+func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 	defer func() {
 		w.finishRun(runID)
 		w.mu.Lock()
@@ -182,7 +182,7 @@ func gstPath(v string) string {
 	return filepath.ToSlash(filepath.Clean(v))
 }
 
-func (w *CameraWorker) startPipeline(ctx context.Context, runID uint64) error {
+func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error {
 	// Root storage for this camera
 	baseDir := filepath.Join(w.Config.Global.StorageRoot, w.Config.Global.DefaultTenantID, w.Config.Global.DefaultSiteID, w.CameraID)
 	// Unique subdirectory for this run to avoid filename collisions and data loss
@@ -212,7 +212,7 @@ func (w *CameraWorker) startPipeline(ctx context.Context, runID uint64) error {
 		}
 	}
 
-	pattern := filepath.Join(runDir, "segment_%05d"+w.segmentExt())
+	pattern := filepath.Join(runDir, "segment_%05d"+w.segmentExt()+".tmp")
 	args := w.gstRecorderArgs(gstPath(pattern))
 	cmd := exec.CommandContext(ctx, w.Config.Global.GstLaunchPath, args...)
 	cmd.Stdout = os.Stdout
@@ -233,7 +233,7 @@ func (w *CameraWorker) startPipeline(ctx context.Context, runID uint64) error {
 	return nil
 }
 
-func (w *CameraWorker) syncSegments(ctx context.Context) error {
+func (w *RecorderWorker) syncSegments(ctx context.Context) error {
 	w.mu.RLock()
 	dir := w.currentDir
 	w.mu.RUnlock()
@@ -242,7 +242,7 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 		return nil
 	}
 
-	matches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()))
+	matches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()+".tmp"))
 	if err != nil {
 		return err
 	}
@@ -250,15 +250,24 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 	sort.Strings(matches)
 
 	for _, p := range matches {
-		if _, done := w.knownFiles[p]; done {
-			continue
-		}
 		info, err := os.Stat(p)
 		if err != nil || info.IsDir() || info.Size() == 0 {
 			continue
 		}
-		// Wait a bit to ensure file is closed by GStreamer (splitmuxsink async-finalize helps)
-		if time.Since(info.ModTime()) < 2*time.Second {
+		// Wait a bit to ensure file is closed by GStreamer
+		if time.Since(info.ModTime()) < 5*time.Second {
+			continue
+		}
+
+		// Use the strict finalize pipeline: Flush -> Rename -> Checksum
+		finalPath, checksum, err := FinalizeSegment(p)
+		if err != nil {
+			log.Printf("[RecorderWorker] finalization failed for %s: %v", p, err)
+			continue
+		}
+
+		info, err = os.Stat(finalPath)
+		if err != nil {
 			continue
 		}
 		end := info.ModTime()
@@ -275,22 +284,27 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 		w.lastSegmentEndTS = end
 		w.mu.Unlock()
 
-		seg := &Segment{
+		seg := &ArchiveSegment{
 			TenantID:   w.Config.Global.DefaultTenantID,
 			SiteID:     w.Config.Global.DefaultSiteID,
 			CameraID:   w.CameraID,
 			StartTS:    start,
 			EndTS:      end,
 			DurationMs: end.Sub(start).Milliseconds(),
-			Path:       p,
-			SizeBytes:  info.Size(),
+			Path:           finalPath,
+			FilePath:       finalPath,
+			SizeBytes:      info.Size(),
+			FileSize:       info.Size(),
+			Container:      "mkv",
+			ChecksumSHA256: checksum,
+			Finalized:      true,
 		}
-		if w.Store != nil && w.Store.Available() {
-			if err := w.Store.UpsertSegmentFromDisk(ctx, seg); err != nil {
+		if w.Store != nil {
+			if err := w.Store.UpsertFinalizedSegment(ctx, seg); err != nil {
 				return err
 			}
 		}
-		w.knownFiles[p] = struct{}{}
+		w.knownFiles[finalPath] = struct{}{}
 		w.mu.Lock()
 		w.lastDataTime = time.Now()
 		w.mu.Unlock()
@@ -298,7 +312,7 @@ func (w *CameraWorker) syncSegments(ctx context.Context) error {
 	return nil
 }
 
-func (w *CameraWorker) checkWatchdog(runID uint64) bool {
+func (w *RecorderWorker) checkWatchdog(runID uint64) bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	if w.runID != runID || !w.running || w.paused || w.stopping {
@@ -309,7 +323,7 @@ func (w *CameraWorker) checkWatchdog(runID uint64) bool {
 	return time.Since(w.lastDataTime) > threshold
 }
 
-func (w *CameraWorker) Pause() {
+func (w *RecorderWorker) Pause() {
 	w.mu.Lock()
 	if !w.running {
 		w.State = StatePaused
@@ -328,7 +342,7 @@ func (w *CameraWorker) Pause() {
 	w.stopProcess()
 }
 
-func (w *CameraWorker) Resume(ctx context.Context) {
+func (w *RecorderWorker) Resume(ctx context.Context) {
 	w.mu.Lock()
 	w.paused = false
 	running := w.running
@@ -350,7 +364,7 @@ func (w *CameraWorker) Resume(ctx context.Context) {
 	}()
 }
 
-func (w *CameraWorker) Stop() {
+func (w *RecorderWorker) Stop() {
 	w.mu.Lock()
 	cancel := w.cancel
 	running := w.loopRunning
@@ -366,7 +380,7 @@ func (w *CameraWorker) Stop() {
 	}
 }
 
-func (w *CameraWorker) stopProcess() {
+func (w *RecorderWorker) stopProcess() {
 	w.mu.RLock()
 	cmd := w.cmd
 	w.mu.RUnlock()
@@ -379,7 +393,7 @@ func (w *CameraWorker) stopProcess() {
 	}
 }
 
-func (w *CameraWorker) cleanupEmptyRunDir() {
+func (w *RecorderWorker) cleanupEmptyRunDir() {
 	w.mu.RLock()
 	dir := w.currentDir
 	w.mu.RUnlock()
@@ -388,19 +402,19 @@ func (w *CameraWorker) cleanupEmptyRunDir() {
 	}
 }
 
-func (w *CameraWorker) HasLicense() bool {
+func (w *RecorderWorker) HasLicense() bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.licenseHeld
 }
 
-func (w *CameraWorker) SetLicenseHeld(v bool) {
+func (w *RecorderWorker) SetLicenseHeld(v bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.licenseHeld = v
 }
 
-func (w *CameraWorker) SetThrottled() {
+func (w *RecorderWorker) SetThrottled() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.running {
@@ -409,7 +423,7 @@ func (w *CameraWorker) SetThrottled() {
 	}
 }
 
-func (w *CameraWorker) markRecording(runID uint64) {
+func (w *RecorderWorker) markRecording(runID uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -421,7 +435,7 @@ func (w *CameraWorker) markRecording(runID uint64) {
 	w.lastBeat = time.Now()
 }
 
-func (w *CameraWorker) markError(runID uint64, err error) {
+func (w *RecorderWorker) markError(runID uint64, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -434,7 +448,7 @@ func (w *CameraWorker) markError(runID uint64, err error) {
 	}
 }
 
-func (w *CameraWorker) setStopped() {
+func (w *RecorderWorker) setStopped() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.running = false
@@ -442,7 +456,7 @@ func (w *CameraWorker) setStopped() {
 	w.State = StateStopped
 }
 
-func (w *CameraWorker) markStopped(runID uint64) {
+func (w *RecorderWorker) markStopped(runID uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -456,7 +470,7 @@ func (w *CameraWorker) markStopped(runID uint64) {
 	w.cmd = nil
 }
 
-func (w *CameraWorker) finishRun(runID uint64) {
+func (w *RecorderWorker) finishRun(runID uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -468,7 +482,7 @@ func (w *CameraWorker) finishRun(runID uint64) {
 	w.stopping = false
 }
 
-func (w *CameraWorker) clearProcessHandle(runID uint64) {
+func (w *RecorderWorker) clearProcessHandle(runID uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -477,7 +491,7 @@ func (w *CameraWorker) clearProcessHandle(runID uint64) {
 	w.cmd = nil
 }
 
-func (w *CameraWorker) touchHeartbeat(runID uint64) {
+func (w *RecorderWorker) touchHeartbeat(runID uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.runID != runID {
@@ -486,13 +500,13 @@ func (w *CameraWorker) touchHeartbeat(runID uint64) {
 	w.lastBeat = time.Now()
 }
 
-func (w *CameraWorker) isIntentionalStop(runID uint64) bool {
+func (w *RecorderWorker) isIntentionalStop(runID uint64) bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.runID == runID && (w.stopping || w.paused)
 }
 
-func (w *CameraWorker) waitBackoff(ctx context.Context, runID uint64) bool {
+func (w *RecorderWorker) waitBackoff(ctx context.Context, runID uint64) bool {
 	w.mu.RLock()
 	retries := w.retries
 	validRun := w.runID == runID
@@ -513,13 +527,13 @@ func (w *CameraWorker) waitBackoff(ctx context.Context, runID uint64) bool {
 	}
 }
 
-func (w *CameraWorker) currentCmd() *exec.Cmd {
+func (w *RecorderWorker) currentCmd() *exec.Cmd {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.cmd
 }
 
-func (w *CameraWorker) cameraCodec() string {
+func (w *RecorderWorker) cameraCodec() string {
 	c := strings.ToLower(strings.TrimSpace(w.Camera.Codec))
 	if c == "" {
 		return "h265"
@@ -527,7 +541,7 @@ func (w *CameraWorker) cameraCodec() string {
 	return c
 }
 
-func (w *CameraWorker) cameraSegmentFormat() string {
+func (w *RecorderWorker) cameraSegmentFormat() string {
 	f := strings.ToLower(strings.TrimSpace(w.Camera.SegmentFormat))
 	if f == "" {
 		return "mkv"
@@ -535,7 +549,7 @@ func (w *CameraWorker) cameraSegmentFormat() string {
 	return f
 }
 
-func (w *CameraWorker) segmentExt() string {
+func (w *RecorderWorker) segmentExt() string {
 	switch w.cameraSegmentFormat() {
 	case "mp4":
 		return ".mp4"
@@ -544,7 +558,7 @@ func (w *CameraWorker) segmentExt() string {
 	}
 }
 
-func (w *CameraWorker) rtspTransport() string {
+func (w *RecorderWorker) rtspTransport() string {
 	t := strings.ToLower(strings.TrimSpace(w.Camera.RTSPTransport))
 	if t == "udp" {
 		return "udp"
@@ -552,7 +566,7 @@ func (w *CameraWorker) rtspTransport() string {
 	return "tcp"
 }
 
-func (w *CameraWorker) gstRecorderArgs(pattern string) []string {
+func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 	latency := 200
 	if w.Config != nil && w.Config.Performance.Pipeline.RTSPSrcLatencyMs > 0 {
 		latency = w.Config.Performance.Pipeline.RTSPSrcLatencyMs
@@ -620,7 +634,7 @@ func (w *CameraWorker) gstRecorderArgs(pattern string) []string {
 	return base
 }
 
-func (w *CameraWorker) Status() map[string]any {
+func (w *RecorderWorker) Status() map[string]any {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return map[string]any{

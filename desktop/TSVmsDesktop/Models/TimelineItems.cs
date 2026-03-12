@@ -16,6 +16,7 @@ namespace TSVmsDesktop.Models
         public RecordingSegment Segment { get; set; } = new();
         public bool IsSelected { get; set; }
         public bool IsProtected => Segment.IsProtected;
+        public bool HasGapBefore { get; set; }
     }
 
     public sealed class TimelineGapItem : TimelineItemBase

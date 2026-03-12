@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using TSVmsDesktop.Interop;
+using TSVmsDesktop.Models;
 
 namespace TSVmsDesktop.Services
 {
@@ -41,26 +42,24 @@ namespace TSVmsDesktop.Services
             }
         }
 
-        public void LoadPlaylist(IReadOnlyList<string> mediaPaths, int startIndex)
+        public void LoadSession(PlaybackSessionModel session, int startIndex)
         {
+            if (session == null)
+                throw new ArgumentNullException(nameof(session));
+
+            var playlist = session.Segments
+                .Select(s => s.Segment.Path)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToArray();
+
             lock (_sync)
             {
                 EnsureReady();
-
-                if (mediaPaths == null || mediaPaths.Count == 0)
-                    throw new ArgumentException("Playlist is empty.", nameof(mediaPaths));
-
-                var paths = mediaPaths
-                    .Where(p => !string.IsNullOrWhiteSpace(p))
-                    .ToArray();
-
-                if (paths.Length == 0)
-                    throw new ArgumentException("Playlist is empty.", nameof(mediaPaths));
-
-                if (startIndex < 0 || startIndex >= paths.Length)
+                if (playlist.Length == 0)
+                    throw new InvalidOperationException("Playback session contains no archive segments.");
+                if (startIndex < 0 || startIndex >= playlist.Length)
                     startIndex = 0;
-
-                ThrowIfFailed(NativePlayback.tsplay_set_playlist(_engine, paths, paths.Length, startIndex));
+                ThrowIfFailed(NativePlayback.tsplay_set_playlist(_engine, playlist, playlist.Length, startIndex));
             }
         }
 
@@ -72,48 +71,19 @@ namespace TSVmsDesktop.Services
             }
         }
 
-        public void Play()
-        {
-            lock (_sync)
-            {
-                EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_play(_engine));
-            }
-        }
-
-        public void Pause()
-        {
-            lock (_sync)
-            {
-                EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_pause(_engine));
-            }
-        }
-
-        public void Stop()
-        {
-            lock (_sync)
-            {
-                EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_stop(_engine));
-            }
-        }
-
-        public void Seek(double seconds)
-        {
-            lock (_sync)
-            {
-                EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_seek_seconds(_engine, seconds));
-            }
-        }
+        public void Play() { lock (_sync) { EnsureReady(); ThrowIfFailed(NativePlayback.tsplay_play(_engine)); } }
+        public void Pause() { lock (_sync) { EnsureReady(); ThrowIfFailed(NativePlayback.tsplay_pause(_engine)); } }
+        public void Stop() { lock (_sync) { EnsureReady(); ThrowIfFailed(NativePlayback.tsplay_stop(_engine)); } }
+        public void Seek(double seconds) { lock (_sync) { EnsureReady(); ThrowIfFailed(NativePlayback.tsplay_seek_seconds(_engine, seconds)); } }
 
         public void SetRate(double rate)
         {
+            var clamped = Math.Clamp(rate, 0.25, 4.0);
+
             lock (_sync)
             {
                 EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, rate));
+                ThrowIfFailed(NativePlayback.tsplay_set_rate(_engine, clamped));
             }
         }
 

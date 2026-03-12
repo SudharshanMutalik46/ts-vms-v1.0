@@ -258,7 +258,6 @@ public:
         self->_eosReached.store(false, std::memory_order_release);
     }
 
-    // --- FIX: Gapless Transition Wrap-Around Detection ---
     void CheckForGaplessTransitionLocked(double currentPos)
     {
         int current = _currentPlaylistIndex.load(std::memory_order_acquire);
@@ -266,15 +265,30 @@ public:
 
         if (queued > current)
         {
-            // Detect file switch: 
-            // We removed the "< 3.0" check because your segments are very short.
-            // Now, we ONLY transition when the position physically drops back to zero,
-            // or drops backwards by more than half a second.
-            if ((_lastPos - currentPos > 0.5) || (currentPos < 0.2))
+            const bool switched =
+                ((_lastPos - currentPos) > 0.5) ||
+                (currentPos < 0.2);
+
+            if (switched)
             {
                 _currentPlaylistIndex.store(queued, std::memory_order_release);
+
+                // Re-apply the active playback rate to the newly transitioned segment.
+                // Gapless URI switching can leave the next file effectively running at 1x
+                // even though _currentRate still remembers the previous requested rate.
+                if (_pipeline && _mediaLoaded && std::abs(_currentRate - 1.0) > 0.001)
+                {
+                    gint64 pos = static_cast<gint64>(std::max(0.0, currentPos) * GST_SECOND);
+
+                    if (!TrySeekRateLocked(_currentRate, pos))
+                    {
+                        // Non-fatal: keep playback alive, but surface a useful diagnostic.
+                        SetErrorLocked(L"Failed to reapply playback rate after segment transition");
+                    }
+                }
             }
         }
+
         _lastPos = currentPos;
     }
 
@@ -528,13 +542,15 @@ public:
             return 0;
         }
 
-        if (rate == 1.0 && _currentRate == 1.0)
-            return 1;
-            
+        if (rate < 0.25)
+            rate = 0.25;
+        if (rate > 4.0)
+            rate = 4.0;
+
         GstState state = GST_STATE_NULL;
         GstState pending = GST_STATE_VOID_PENDING;
         gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
-        
+
         if (state < GST_STATE_PAUSED)
         {
             auto change = gst_element_set_state(_pipeline, GST_STATE_PAUSED);
@@ -549,35 +565,17 @@ public:
         gint64 pos = 0;
         if (!gst_element_query_position(_pipeline, GST_FORMAT_TIME, &pos))
             pos = 0;
-        double appliedRate = rate;
 
+        // Do NOT early-return just because the requested rate matches _currentRate.
+        // The actual stream may have transitioned to a new segment and silently fallen
+        // back to normal playback, so we must reassert the rate onto the pipeline.
         if (!TrySeekRateLocked(rate, pos))
         {
-            if (rate > 2.0)
-            {
-                gst_element_get_state(_pipeline, &state, &pending, 200 * GST_MSECOND);
-                if (TrySeekRateLocked(2.0, pos))
-                {
-                    appliedRate = 2.0;
-                }
-                else
-                {
-                    SetErrorLocked(L"Requested high-speed playback is not supported for the current stream");
-                    return 0;
-                }
-            }
-            else if (rate != 1.0 && TrySeekRateLocked(1.0, pos))
-            {
-                appliedRate = 1.0;
-            }
-            else
-            {
-                SetErrorLocked(L"Requested playback speed is not supported for the current stream");
-                return 0;
-            }
+            SetErrorLocked(L"Requested playback rate is not supported for the current stream");
+            return 0;
         }
 
-        _currentRate = appliedRate;
+        _currentRate = rate;
         _eosReached.store(false, std::memory_order_release);
         return 1;
     }

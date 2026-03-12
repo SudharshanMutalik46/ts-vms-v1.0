@@ -13,12 +13,12 @@ import (
 
 type HealthServer struct {
 	config     *Config
-	supervisor *Supervisor
+	supervisor *RecordingArchiverService
 	scheduler  *ScheduleEngine
 	store      *PostgresStore
 }
 
-func NewHealthServer(cfg *Config, sup *Supervisor, sched *ScheduleEngine, store *PostgresStore) *HealthServer {
+func NewHealthServer(cfg *Config, sup *RecordingArchiverService, sched *ScheduleEngine, store *PostgresStore) *HealthServer {
 	return &HealthServer{config: cfg, supervisor: sup, scheduler: sched, store: store}
 }
 
