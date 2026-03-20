@@ -143,8 +143,14 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 
 				// Use a shorter timeout for segment syncing to prevent hanging the whole worker
 				syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				_ = w.syncSegments(syncCtx)
+				syncErr := w.syncSegments(syncCtx)
 				cancel()
+
+				if syncErr != nil {
+					log.Printf("[WARNING] syncSegments failed for %s: %v", w.CameraID, syncErr)
+					w.stopProcess() // force handle release, let errCh path restart cleanly
+				}
+
 
 				if w.checkWatchdog(runID) {
 					log.Printf("[WARNING] watchdog triggered for %s: no data for too long. killing process.", w.CameraID)
@@ -152,6 +158,7 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 				}
 			case err := <-errCh:
 				ticker.Stop()
+				time.Sleep(2 * time.Second) // let GStreamer/taskkill release handles on Windows
 				_ = w.syncSegments(ctx)
 				w.cleanupEmptyRunDir()
 				if ctx.Err() != nil || w.isIntentionalStop(runID) {
@@ -237,60 +244,65 @@ func (w *RecorderWorker) syncSegments(ctx context.Context) error {
 	w.mu.RLock()
 	dir := w.currentDir
 	w.mu.RUnlock()
-
 	if dir == "" {
 		return nil
 	}
 
-	matches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()+".tmp"))
-	if err != nil {
-		return err
+	segmentDuration := time.Duration(w.Config.Global.SegmentDurationSec) * time.Second
+	settleDelay := 30 * time.Second
+	activeTmpWindow := 2 * time.Minute
+	if d := 2 * segmentDuration; d > activeTmpWindow {
+		activeTmpWindow = d
 	}
-	// Important: process in order
-	sort.Strings(matches)
 
-	for _, p := range matches {
-		info, err := os.Stat(p)
-		if err != nil || info.IsDir() || info.Size() == 0 {
-			continue
+	// Windows-friendly retry spread for rename/close races.
+	retryDelays := []time.Duration{
+		0,
+		1 * time.Second,
+		2 * time.Second,
+		5 * time.Second,
+		10 * time.Second,
+	}
+
+	upsertFinalized := func(finalPath string, info os.FileInfo, checksum string) error {
+		if info == nil {
+			var err error
+			info, err = os.Stat(finalPath)
+			if err != nil {
+				return err
+			}
 		}
-		// Wait a bit to ensure file is closed by GStreamer
-		if time.Since(info.ModTime()) < 5*time.Second {
-			continue
+		if info.IsDir() || info.Size() == 0 {
+			return nil
 		}
 
-		// Use the strict finalize pipeline: Flush -> Rename -> Checksum
-		finalPath, checksum, err := FinalizeSegment(p)
-		if err != nil {
-			log.Printf("[RecorderWorker] finalization failed for %s: %v", p, err)
-			continue
+		if _, ok := w.knownFiles[finalPath]; ok {
+			return nil
 		}
 
-		info, err = os.Stat(finalPath)
-		if err != nil {
-			continue
-		}
 		end := info.ModTime()
-		start := end.Add(-time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+		start := end.Add(-segmentDuration)
 
 		w.mu.Lock()
 		if !w.lastSegmentEndTS.IsZero() {
 			// If drift is small (< 10s), snap to previous end to ensure perfect continuity
 			if diff := start.Sub(w.lastSegmentEndTS); diff > -10*time.Second && diff < 10*time.Second {
 				start = w.lastSegmentEndTS
-				end = start.Add(time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+				end = start.Add(segmentDuration)
 			}
 		}
-		w.lastSegmentEndTS = end
+		if end.After(w.lastSegmentEndTS) {
+			w.lastSegmentEndTS = end
+		}
 		w.mu.Unlock()
 
 		seg := &ArchiveSegment{
-			TenantID:   w.Config.Global.DefaultTenantID,
-			SiteID:     w.Config.Global.DefaultSiteID,
-			CameraID:   w.CameraID,
-			StartTS:    start,
-			EndTS:      end,
-			DurationMs: end.Sub(start).Milliseconds(),
+			TenantID:       w.Config.Global.DefaultTenantID,
+			SiteID:         w.Config.Global.DefaultSiteID,
+			CameraID:       w.CameraID,
+			StartTS:        start,
+			EndTS:          end,
+			DurationMs:     end.Sub(start).Milliseconds(),
 			Path:           finalPath,
 			FilePath:       finalPath,
 			SizeBytes:      info.Size(),
@@ -299,16 +311,122 @@ func (w *RecorderWorker) syncSegments(ctx context.Context) error {
 			ChecksumSHA256: checksum,
 			Finalized:      true,
 		}
+
 		if w.Store != nil {
 			if err := w.Store.UpsertFinalizedSegment(ctx, seg); err != nil {
 				return err
 			}
 		}
+
 		w.knownFiles[finalPath] = struct{}{}
+
+		w.mu.Lock()
+		w.lastDataTime = time.Now()
+		w.mu.Unlock()
+
+		return nil
+	}
+
+	// 1) Backfill finalized files first.
+	// This covers the case where rename succeeded earlier but DB upsert failed or process restarted.
+	finalizedMatches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()))
+	if err != nil {
+		return err
+	}
+	sort.Strings(finalizedMatches)
+
+	for _, finalPath := range finalizedMatches {
+		info, err := os.Stat(finalPath)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		if _, ok := w.knownFiles[finalPath]; ok {
+			continue
+		}
+
+		checksum, err := ComputeSHA256(finalPath)
+		if err != nil {
+			log.Printf("[RecorderWorker] checksum failed for finalized segment %s: %v", finalPath, err)
+			continue
+		}
+
+		if err := upsertFinalized(finalPath, info, checksum); err != nil {
+			return err
+		}
+	}
+
+	// 2) Process tmp files in order.
+	tmpMatches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()+".tmp"))
+	if err != nil {
+		return err
+	}
+	sort.Strings(tmpMatches)
+
+	var staleLockedTmp string
+	var recentlyActiveTmp bool
+
+	for _, p := range tmpMatches {
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+
+		age := time.Since(info.ModTime())
+		if age < activeTmpWindow {
+			recentlyActiveTmp = true
+		}
+
+		// Give GStreamer enough time to fully release the file on Windows.
+		if age < settleDelay {
+			continue
+		}
+
+		var finalPath, checksum string
+		var finalizeErr error
+
+		for i, delay := range retryDelays {
+			if i > 0 {
+				time.Sleep(delay)
+			}
+			finalPath, checksum, finalizeErr = FinalizeSegment(p)
+			if finalizeErr == nil {
+				break
+			}
+		}
+
+		if finalizeErr != nil {
+			if isSharingViolation(finalizeErr) && age >= activeTmpWindow {
+				staleLockedTmp = p
+				log.Printf("[RecorderWorker] stale locked tmp detected for %s (age=%s): %v", p, age, finalizeErr)
+				break
+			}
+
+			log.Printf("[RecorderWorker] finalization failed after retries for %s: %v", p, finalizeErr)
+			continue
+		}
+
+		info, err = os.Stat(finalPath)
+		if err != nil {
+			continue
+		}
+
+		if err := upsertFinalized(finalPath, info, checksum); err != nil {
+			return err
+		}
+	}
+
+	if staleLockedTmp != "" {
+		return fmt.Errorf("stale tmp requires recorder restart: %s", staleLockedTmp)
+	}
+
+	// 3) Refresh watchdog only if there is evidence of recent ingest activity,
+	// not merely because a stale tmp file exists.
+	if recentlyActiveTmp {
 		w.mu.Lock()
 		w.lastDataTime = time.Now()
 		w.mu.Unlock()
 	}
+
 	return nil
 }
 
@@ -616,7 +734,6 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 			"!", "splitmuxsink",
 			"location="+gstPath(pattern),
 			"max-size-time="+fmt.Sprintf("%d", segmentNs),
-			"async-finalize=true",
 			"muxer-factory=mp4mux",
 			"muxer-properties=properties,streamable=true",
 		)
@@ -625,7 +742,6 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 			"!", "splitmuxsink",
 			"location="+gstPath(pattern),
 			"max-size-time="+fmt.Sprintf("%d", segmentNs),
-			"async-finalize=true",
 			"muxer-factory=matroskamux",
 			"muxer-properties=properties,streamable=true",
 		)
@@ -654,4 +770,14 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func isSharingViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "being used by another process") ||
+		strings.Contains(s, "sharing violation") ||
+		strings.Contains(s, "access is denied")
 }

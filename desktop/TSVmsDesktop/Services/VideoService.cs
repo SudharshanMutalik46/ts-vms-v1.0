@@ -144,8 +144,12 @@ namespace TSVmsDesktop.Services
             Log($"[TS-VMS] StartStream Request Original: '{rtspUrl}'");
 
             // Avoid blocking the UI thread while waiting for layout.
-            if (!HasWindowSize(windowHandle))
-                Log($"[TS-VMS] Warning: window {windowHandle} is currently 0x0; starting stream without blocking.");
+            if (!WaitForWindowSize(windowHandle, 2000))
+            {
+                Log($"[TS-VMS] Window {windowHandle} never became ready; aborting stream start.");
+                StreamError?.Invoke(windowHandle, "Video surface not ready");
+                return IntPtr.Zero;
+            }
 
             Log($"[TS-VMS] Window Handle: {windowHandle}");
 
@@ -225,8 +229,20 @@ namespace TSVmsDesktop.Services
 
                                 if (!token.IsCancellationRequested && _activeStreams.ContainsKey(pipeline))
                                 {
-                                    Log($"[GSTREAMER-ERROR] {errWrap}. Triggering auto-restart...");
+                                    Log($"[GSTREAMER-ERROR] {errWrap}");
                                     StreamError?.Invoke(ctx.WindowHandle, errWrap);
+
+                                    if (IsSurfaceError(errWrap))
+                                    {
+                                        Log("[TS-VMS] Surface error detected; stopping without auto-restart.");
+                                        if (_activeStreams.TryRemove(pipeline, out var stopCtx))
+                                        {
+                                            _ = Task.Run(() => StopStreamInternal(pipeline, stopCtx));
+                                        }
+                                        break;
+                                    }
+
+                                    Log("[TS-VMS] Triggering auto-restart...");
                                     _ = RestartStreamAsync(pipeline);
                                     break;
                                 }
@@ -392,6 +408,32 @@ namespace TSVmsDesktop.Services
             if (cleanUrl.Contains("@"))
                 cleanUrl = cleanUrl.Substring(cleanUrl.IndexOf('@') + 1);
             return $"rtsp://{username}:{password}@{cleanUrl}";
+        }
+
+        private static bool WaitForWindowSize(IntPtr hwnd, int timeoutMs = 2000)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+
+            int waited = 0;
+            while (waited < timeoutMs)
+            {
+                if (HasWindowSize(hwnd))
+                    return true;
+
+                Thread.Sleep(10);
+                waited += 10;
+            }
+
+            return HasWindowSize(hwnd);
+        }
+
+        private static bool IsSurfaceError(string msg)
+        {
+            if (string.IsNullOrEmpty(msg)) return false;
+
+            return msg.Contains("Output window was closed", StringComparison.OrdinalIgnoreCase) ||
+                   msg.Contains("Cannot create d3d11window", StringComparison.OrdinalIgnoreCase) ||
+                   msg.Contains("Resource not found", StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<bool> RecordLiveEventAsync(string eventType, string details)

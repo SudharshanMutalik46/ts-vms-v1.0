@@ -10,7 +10,7 @@ namespace TSVmsDesktop.Services
         public PlaybackSessionModel Build(string cameraId, DateTime fromUtc, DateTime toUtc, IReadOnlyList<RecordingSegment> rawSegments)
         {
             var segments = Normalize(rawSegments)
-                .Where(s => s.EndTs > fromUtc && s.StartTs < toUtc && s.IsFinalized)
+                .Where(s => s.EndTs > fromUtc && s.StartTs < toUtc && (s.IsFinalized || s.HealthState == "finalized"))
                 .Select(s => new PlaybackSessionSegment
                 {
                     Segment = s,

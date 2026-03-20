@@ -115,92 +115,10 @@ namespace TSVmsDesktop.Controls
         [DllImport("user32.dll", EntryPoint = "DestroyWindow", CharSet = CharSet.Unicode)]
         internal static extern bool DestroyWindow(IntPtr hwnd);
 
-        [DllImport("user32.dll")]
-        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
-
-        [DllImport("user32.dll")]
-        static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll")]
-        static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        private const int SW_SHOW = 5;
-        private const int GWL_EXSTYLE = -20;
-        private const int WS_EX_LAYERED = 0x80000;
-        private const int LWA_ALPHA = 0x2;
-
         public VideoCanvas()
         {
-            // We NO LONGER set this.Visibility = Hidden here. 
-            // Local values override Bindings, which was causing offline cameras 
-            // to show a "white" empty video surface instead of the "NO SIGNAL" UI.
-            
-            this.IsVisibleChanged += VideoCanvas_IsVisibleChanged;
-            this.Loaded += VideoCanvas_Loaded;
-        }
-
-        private void VideoCanvas_Loaded(object sender, System.Windows.RoutedEventArgs e)
-        {
-            // The 150ms rendering delay is now robustly handled in IsVisibleChanged
-        }
-
-        private async void VideoCanvas_IsVisibleChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
-        {
-            if ((bool)e.NewValue) // Becoming Visible
-            {
-                System.Diagnostics.Debug.WriteLine($"[VideoCanvas] Becoming Visible. Starting reveal...");
-                await RevealVideoAsync();
-            }
-            else // Becoming Hidden (Camera went offline!)
-            {
-                System.Diagnostics.Debug.WriteLine($"[VideoCanvas] Becoming Hidden.");
-                if (Handle != IntPtr.Zero) ShowWindow(Handle, 0); 
-            }
-        }
-
-        private async System.Threading.Tasks.Task RevealVideoAsync()
-        {
-            // 1. Wait for Handle (Ensures logic works even if fired before BuildWindowCore)
-            int retries = 50; // 500ms max wait
-            while (Handle == IntPtr.Zero && retries-- > 0)
-            {
-                await System.Threading.Tasks.Task.Delay(10);
-                if (!this.IsVisible) return;
-            }
-
-            if (Handle == IntPtr.Zero) return; // Still no handle, bail.
-
-            // 2. Prepare for Layering (Opacity control)
-            int style = GetWindowLong(Handle, GWL_EXSTYLE);
-            SetWindowLong(Handle, GWL_EXSTYLE, style | WS_EX_LAYERED);
-            SetLayeredWindowAttributes(Handle, 0, 0, LWA_ALPHA); // Start at 0% opacity
-
-            // 3. Hide HWND initially to ensure WPF renders background first
-            ShowWindow(Handle, 0); // SW_HIDE
-
-            // 4. Synchronization delay (Increased to 400ms)
-            // Combined with 500ms in MainWindow, this ensures the UI has over 900ms 
-            // of head-start to paint before the Win32 surface appears.
-            await System.Threading.Tasks.Task.Delay(400); 
-            
-            if (!this.IsVisible) return;
-
-            // 5. Show at 0 opacity
-            ShowWindow(Handle, SW_SHOW);
-
-            // 6. Smooth Fade In Animation (approx 250ms)
-            for (int i = 0; i <= 255; i += 32) // 8 steps
-            {
-                if (!this.IsVisible) break;
-                SetLayeredWindowAttributes(Handle, 0, (byte)Math.Min(255, i), LWA_ALPHA);
-                await System.Threading.Tasks.Task.Delay(30);
-            }
-
-            // 7. Ensure final state is fully opaque
-            if (this.IsVisible) SetLayeredWindowAttributes(Handle, 0, 255, LWA_ALPHA);
+            // Do not hide/fade the native HWND.
+            // Let WPF layout complete normally and let VideoService wait for a real size.
         }
         protected override IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {

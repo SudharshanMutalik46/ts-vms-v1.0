@@ -12,15 +12,7 @@ global:
 
 
 cameras:
-  - id: "cam_01"
-    rtsp_url: "rtsp://localhost/1"
-    enabled: true
-  - id: "cam_02"
-    rtsp_url: "rtsp://localhost/2"
-    enabled: true
-  - id: "cam_03"
-    rtsp_url: "rtsp://localhost/3"
-    enabled: true
+  
 
 schedules:
   - camera_id: "cam_01"

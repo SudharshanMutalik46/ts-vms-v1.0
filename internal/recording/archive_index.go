@@ -96,7 +96,8 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 				SELECT 1
 				FROM recording_event_segments res
 				WHERE res.segment_id = rs.id
-			) AS is_protected
+			) AS is_protected,
+			COALESCE(rs.is_finalized, TRUE) AS is_finalized
 		FROM recording_segments rs
 		WHERE rs.camera_id = $1
 		  AND rs.end_ts > $2
@@ -131,6 +132,7 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 			&seg.IsMissing,
 			&seg.IsCorrupt,
 			&seg.IsProtected,
+			&seg.Finalized,
 		); err != nil {
 			return nil, err
 		}
