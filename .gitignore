@@ -41,6 +41,7 @@ venv/
 # IDE & AI Helpers
 .gemini/
 brain/
+.claude/
 .vscode/
 .idea/
 
