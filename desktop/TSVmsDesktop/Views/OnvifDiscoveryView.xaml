@@ -53,9 +53,12 @@
                 </Style>
             </DataGrid.Resources>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="150"/>
-                <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="150"/>
-                <DataGridTextColumn Header="IP Address" Binding="{Binding IpAddress}" Width="150"/>
+                <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="120"/>
+                <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="120"/>
+                <DataGridTextColumn Header="IP Address" Binding="{Binding IpAddress}" Width="120"/>
+                <DataGridTextColumn Header="Codec" Binding="{Binding EncodingDisplay}" Width="80"/>
+                <DataGridTextColumn Header="Resolution" Binding="{Binding ResolutionDisplay}" Width="100"/>
+                <DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateDisplay}" Width="80"/>
                 <DataGridTemplateColumn Header="Action" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

@@ -161,6 +161,13 @@ void IngestPipeline::SetupPipeline() {
     gst_object_unref(tee_src_pad_sink);
     gst_object_unref(q_sink_pad);
 
+    // Watchdog Pad Probe
+    GstPad* tee_sink_pad = gst_element_get_static_pad(tee_, "sink");
+    if (tee_sink_pad) {
+        gst_pad_add_probe(tee_sink_pad, GST_PAD_PROBE_TYPE_BUFFER, OnMainPathPadProbe, this, nullptr);
+        gst_object_unref(tee_sink_pad);
+    }
+
     GstPad *tee_src_pad_fake = gst_element_request_pad_simple(tee_, "src_%u");
     GstPad *q_fake_pad = gst_element_get_static_pad(q_fake, "sink");
     if (gst_pad_link(tee_src_pad_fake, q_fake_pad) != GST_PAD_LINK_OK) {
@@ -272,8 +279,8 @@ GstFlowReturn IngestPipeline::OnNewSample(GstElement* sink, gpointer data) {
     
     if (sample) {
         std::lock_guard<std::mutex> lock(self->data_mutex_);
-        self->last_frame_ts_ = std::chrono::steady_clock::now();
         self->frame_count_++;
+
         self->metrics_frames_processed_.fetch_add(1, std::memory_order_relaxed);
 
         GstBuffer* buffer = gst_sample_get_buffer(sample);
@@ -342,6 +349,13 @@ GstFlowReturn IngestPipeline::OnNewSample(GstElement* sink, gpointer data) {
     }
 
     return GST_FLOW_OK;
+}
+
+GstPadProbeReturn IngestPipeline::OnMainPathPadProbe(GstPad* /*pad*/, GstPadProbeInfo* /*info*/, gpointer data) {
+    IngestPipeline* self = static_cast<IngestPipeline*>(data);
+    std::lock_guard<std::mutex> lock(self->data_mutex_);
+    self->last_frame_ts_ = std::chrono::steady_clock::now();
+    return GST_PAD_PROBE_OK;
 }
 
 gboolean IngestPipeline::OnBusMessage(GstBus* /*bus*/, GstMessage* msg, gpointer data) {
@@ -451,12 +465,15 @@ bool IngestPipeline::IsSfuEgressRunning() const {
 bool IngestPipeline::StartSfuRtpEgress(const SfuConfig& config) {
     if (sfu_egress_running_) return true;
 
-    spdlog::info("[{}] starting SFU egress to {}:{}", config_.camera_id, config.dst_ip, config.dst_port);
+    spdlog::info("[{}] starting SFU egress to {}:{} codec={}", config_.camera_id, config.dst_ip, config.dst_port, config.codec);
 
     sfu_queue_ = gst_element_factory_make("queue", "sfu_queue");
     
-    // Always use rtph264pay for SFU (mediasoup only supports H.264)
-    sfu_pay_ = gst_element_factory_make("rtph264pay", "sfu_pay");
+    if (config.codec == "H265") {
+        sfu_pay_ = gst_element_factory_make("rtph265pay", "sfu_pay");
+    } else {
+        sfu_pay_ = gst_element_factory_make("rtph264pay", "sfu_pay");
+    }
     sfu_sink_ = gst_element_factory_make("udpsink", "sfu_sink");
 
     if (!sfu_queue_ || !sfu_pay_ || !sfu_sink_) {
@@ -513,8 +530,8 @@ bool IngestPipeline::StartSfuRtpEgress(const SfuConfig& config) {
     GstElement* decoder = nullptr;
     GstElement* encoder = nullptr;
     
-    if (codec_type_ == CodecType::H265) {
-        spdlog::info("[{}] H.265 detected - transcoding to H.264 for SFU", config_.camera_id);
+    if (codec_type_ == CodecType::H265 && config.codec != "H265") {
+        spdlog::info("[{}] H.265 detected but target is {} - transcoding to H.264 for SFU", config_.camera_id, config.codec);
         
         // Use Windows-native DirectX decoder and OpenH264 encoder (CPU)
         decoder = gst_element_factory_make("d3d11h265dec", "sfu_decoder");

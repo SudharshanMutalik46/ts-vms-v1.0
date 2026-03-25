@@ -55,6 +55,7 @@ public:
         int dst_port;
         uint32_t ssrc;
         uint32_t pt;
+        std::string codec;
     };
     bool StartSfuRtpEgress(const SfuConfig& config);
     void StopSfuRtpEgress();
@@ -76,6 +77,7 @@ private:
     static void OnPadAdded(GstElement* src, GstPad* pad, gpointer data);
     static GstFlowReturn OnNewSample(GstElement* sink, gpointer data);
     static gboolean OnBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
+    static GstPadProbeReturn OnMainPathPadProbe(GstPad *pad, GstPadProbeInfo *info, gpointer user_data);
 
     void HandleStall();
     void SetupPipeline();

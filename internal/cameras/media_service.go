@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/audit"
 	"github.com/technosupport/ts-vms/internal/data"
-	"github.com/technosupport/ts-vms/internal/discovery"
 	"github.com/technosupport/ts-vms/internal/media"
+	"github.com/technosupport/ts-vms/internal/onvif"
 )
 
 type MediaRepository interface {
@@ -27,9 +27,9 @@ type CredentialProvider interface {
 }
 
 type OnvifClient interface {
-	GetCapabilities(ctx context.Context) (map[string]bool, string, error)
-	GetProfiles(ctx context.Context, mediaURI string) ([]discovery.MediaProfile, error)
-	GetStreamUri(ctx context.Context, mediaURI, token string) (string, error)
+	GetCapabilities(ctx context.Context) (map[string]bool, string, string, string, error)
+	GetProfiles(ctx context.Context, mediaURI string) ([]onvif.MediaProfile, error)
+	GetStreamUri(ctx context.Context, mediaURI, token string, useMedia2 bool) (string, error)
 }
 
 type OnvifClientFactory func(xaddr, username, password string) (OnvifClient, error)
@@ -67,7 +67,7 @@ func NewMediaService(mRepo MediaRepository, cRepo Repository, credSvc Credential
 		Validator:   validator,
 		Auditor:     aud,
 		ClientFactory: func(x, u, p string) (OnvifClient, error) {
-			return discovery.NewOnvifClient(x, u, p)
+			return onvif.NewOnvifClient(x, u, p)
 		},
 	}
 }
@@ -107,16 +107,22 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	}
 
 	// Get Capabilities/Media URI
-	_, mediaURI, err := client.GetCapabilities(ctx)
+	features, mediaURI, _, media2URI, err := client.GetCapabilities(ctx)
 	if err != nil {
 		// Log warning, try default
 	}
-	if mediaURI == "" {
-		mediaURI = xaddr
+
+	bestMediaURI := mediaURI
+	useMedia2 := false
+	if features["Media2"] && media2URI != "" {
+		bestMediaURI = media2URI
+		useMedia2 = true
+	} else if bestMediaURI == "" {
+		bestMediaURI = xaddr
 	}
 
 	// Get Profiles
-	onvifProfiles, err := client.GetProfiles(ctx, mediaURI)
+	onvifProfiles, err := client.GetProfiles(ctx, bestMediaURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch profiles: %w", err)
 	}
@@ -125,7 +131,7 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	var domainProfiles []media.Profile
 	for _, op := range onvifProfiles {
 		// Get Stream URI for each
-		uri, err := client.GetStreamUri(ctx, mediaURI, op.Token)
+		uri, err := client.GetStreamUri(ctx, bestMediaURI, op.Token, useMedia2)
 		if err != nil {
 			continue // Skip broken profiles
 		}
@@ -135,24 +141,29 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 
 		// Codec Mapping
 		codec := media.CodecUnknown
-		enc := strings.ToUpper(op.VideoEncoderConfiguration.Encoding)
-		if strings.Contains(enc, "H264") {
-			codec = media.CodecH264
-		} else if strings.Contains(enc, "H265") {
-			codec = media.CodecH265
-		} else if strings.Contains(enc, "JPEG") {
-			codec = media.CodecMJPEG
+		if op.VideoEncoderConfiguration != nil {
+			enc := strings.ToUpper(op.VideoEncoderConfiguration.Encoding)
+			if strings.Contains(enc, "H264") {
+				codec = media.CodecH264
+			} else if strings.Contains(enc, "H265") || strings.Contains(enc, "HEVC") {
+				codec = media.CodecH265
+			} else if strings.Contains(enc, "JPEG") {
+				codec = media.CodecMJPEG
+			}
 		}
 
 		p := media.Profile{
-			Token:       op.Token,
-			Name:        op.Name,
-			VideoCodec:  codec,
-			Width:       op.VideoEncoderConfiguration.Resolution.Width,
-			Height:      op.VideoEncoderConfiguration.Resolution.Height,
-			FPS:         op.VideoEncoderConfiguration.Rate,    // FIXED: Map ONVIF Rate to FPS
-			BitrateKbps: op.VideoEncoderConfiguration.Bitrate, // FIXED: Map ONVIF Bitrate to BitrateKbps
-			RTSPURL:     sanitizedURI,
+			Token:      op.Token,
+			Name:       op.Name,
+			VideoCodec: codec,
+			RTSPURL:    sanitizedURI,
+		}
+
+		if op.VideoEncoderConfiguration != nil {
+			p.Width = op.VideoEncoderConfiguration.Resolution.Width
+			p.Height = op.VideoEncoderConfiguration.Resolution.Height
+			p.FPS = op.VideoEncoderConfiguration.RateControl.FrameRateLimit
+			p.BitrateKbps = op.VideoEncoderConfiguration.RateControl.BitrateLimit
 		}
 
 		domainProfiles = append(domainProfiles, p)
@@ -174,7 +185,7 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	}
 
 	// 4. Run Selection
-	selRes := media.SelectProfiles(domainProfiles)
+	selRes := media.SelectProfilesForCodecs(domainProfiles, []media.Codec{media.CodecH264, media.CodecH265})
 
 	// Persist Selection
 	dbSel := &data.CameraStreamSelection{
@@ -324,4 +335,26 @@ func getHostFromURL(raw string) string {
 		raw = raw[:idx]
 	}
 	return raw
+}
+
+func (s *MediaService) SelectProfilesForCodecs(ctx context.Context, tenantID, cameraID uuid.UUID, prefs []media.Codec) (*media.SelectionResult, error) {
+	dbProfiles, err := s.GetProfiles(ctx, tenantID, cameraID)
+	if err != nil {
+		return nil, err
+	}
+	var profiles []media.Profile
+	for _, p := range dbProfiles {
+		profiles = append(profiles, media.Profile{
+			Token:       p.ProfileToken,
+			Name:        p.ProfileName,
+			VideoCodec:  media.Codec(p.VideoCodec),
+			Width:       p.Width,
+			Height:      p.Height,
+			FPS:         p.FPS,
+			BitrateKbps: p.BitrateKbps,
+			RTSPURL:     p.RTSPURLSanitized,
+		})
+	}
+	res := media.SelectProfilesForCodecs(profiles, prefs)
+	return &res, nil
 }

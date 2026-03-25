@@ -109,6 +109,17 @@ func (m *MockRepo) GetBootstrapCred(ctx context.Context, id uuid.UUID) (*data.On
 	return nil, nil
 }
 
+type MockNvrRepo struct {
+	data.NVRRepository // Embed interface for default unimplemented methods
+}
+
+func (m *MockNvrRepo) List(ctx context.Context, tid uuid.UUID, f data.NVRFilter, l, o int) ([]*data.NVR, int, error) {
+	return nil, 0, nil
+}
+func (m *MockNvrRepo) UpsertChannel(ctx context.Context, ch *data.NVRChannel) error {
+	return nil
+}
+
 type MockAuditor struct{ Events []audit.AuditEvent }
 
 func (m *MockAuditor) WriteEvent(ctx context.Context, evt audit.AuditEvent) error {
@@ -119,8 +130,9 @@ func (m *MockAuditor) WriteEvent(ctx context.Context, evt audit.AuditEvent) erro
 func TestStartDiscovery(t *testing.T) {
 	// Integration-lite test for service orchestration
 	repo := &MockRepo{Runs: make(map[string]*data.DiscoveryRun), Devs: make(map[string]*data.DiscoveredDevice)}
+	nvrRepo := &MockNvrRepo{}
 	aud := &MockAuditor{}
-	svc := NewService(repo, nil, aud)
+	svc := NewService(repo, nvrRepo, nil, aud)
 
 	// Test Async Start
 	uid := uuid.New()

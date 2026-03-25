@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+    #video { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #status {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: #aaa; font-family: sans-serif; font-size: 12px;
+      text-align: center; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+<video id="video" autoplay playsinline muted style="display:none"></video>
+<div id="status">Connecting WebRTC…</div><script>
+const p = %%PARAMS%%;
+const sfuUrl         = p.sfuUrl;
+const cameraId       = p.cameraId;
+const sessionId      = p.sessionId;
+const token          = p.token;
+const signalingTimeoutMs = p.timeoutMs || 10000;
+const firstFrameTimeoutMs = p.trackTimeoutMs || 10000;
+
+const STATUS = document.getElementById('status');
+const VIDEO  = document.getElementById('video');
+const H = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+
+let _pc = null;
+let _signalingTimer = null;
+let _frameTimer = null;
+let _done = false;
+
+function postMsg(obj) {
+  try { window.chrome.webview.postMessage(JSON.stringify(obj)); } catch (_) {}
+}
+
+function debug(msg, extra) {
+  postMsg({ type: 'webrtc-debug', message: msg, extra });
+}
+
+function setStatus(msg) {
+  STATUS.textContent = msg;
+}
+
+function clearTimers() {
+  if (_signalingTimer) clearTimeout(_signalingTimer);
+  if (_frameTimer) clearTimeout(_frameTimer);
+  _signalingTimer = null;
+  _frameTimer = null;
+}
+
+function cleanupPc() {
+  try {
+    if (_pc) {
+      _pc.ontrack = null;
+      _pc.oniceconnectionstatechange = null;
+      _pc.onconnectionstatechange = null;
+      _pc.onicegatheringstatechange = null;
+      _pc.close();
+    }
+  } catch (_) {}
+  _pc = null;
+}
+
+function fail(reason) {
+  if (_done) return;
+  _done = true;
+  clearTimers();
+  cleanupPc();
+  setStatus('WebRTC failed: ' + reason);
+  postMsg({ type: 'webrtc-failed', reason });
+  debug('fail', reason);
+}
+
+function success(codec) {
+  if (_done) return;
+  _done = true;
+  clearTimers();
+  STATUS.style.display = 'none';
+  VIDEO.style.display = 'block';
+  postMsg({ type: 'webrtc-connected', codec });
+  debug('success', codec);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: H };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+
+  const res = await fetch(sfuUrl + path, opts);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => String(res.status));
+    throw new Error('HTTP ' + res.status + ' ' + path + ': ' + txt.substring(0, 400));
+  }
+
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : null;
+}
+
+function extractDtls(sdp) {
+  const fp = sdp.match(/a=fingerprint:(\S+)\s+(\S+)/);
+  const setup = sdp.match(/a=setup:(\S+)/);
+  if (!fp) return null;
+
+  const s = setup ? setup[1] : 'actpass';
+  const role = s === 'active' ? 'client' : s === 'passive' ? 'server' : 'auto';
+  return { role, fingerprints: [{ algorithm: fp[1], value: fp[2] }] };
+}
+
+function normalizeCodecName(v) {
+  const s = String(v || '').toUpperCase();
+  if (s.includes('H265') || s.includes('HEVC')) return 'H265';
+  if (s.includes('H264')) return 'H264';
+  if (s.includes('VP9')) return 'VP9';
+  if (s.includes('VP8')) return 'VP8';
+  return s;
+}
+
+function browserVideoCodecOrder() {
+  const caps = RTCRtpReceiver.getCapabilities?.('video');
+  const codecs = caps?.codecs || [];
+  const out = [];
+
+  for (const c of codecs) {
+    const n = normalizeCodecName(c.mimeType || '');
+    if ((n === 'H265' || n === 'H264') && !out.includes(n)) {
+      out.push(n);
+    }
+  }
+
+  if (!out.includes('H264')) out.push('H264');
+  return out;
+}
+
+function routerHasCodec(routerCaps, codecName) {
+  const want = normalizeCodecName(codecName);
+  return (routerCaps?.codecs || []).some(c => normalizeCodecName(c.mimeType || '') === want);
+}
+
+function dedupeHeaderExtensions(exts) {
+  const seen = new Set();
+  return (exts || [])
+    .filter(h => {
+      const key = `video|${h.uri}|${h.preferredId || 1}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(h => ({
+      kind: 'video',
+      uri: h.uri,
+      preferredId: h.preferredId || 1
+    }));
+}
+
+function parseOfferVideoCaps(sdp) {
+  const lines = sdp.split(/\r?\n/);
+  const rtpmap = {};
+  const fmtpMap = {};
+  const extmaps = {};
+
+  for (const line of lines) {
+    let m;
+
+    m = line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)\/(\d+)(?:\/(\d+))?/i);
+    if (m) {
+      const pt = parseInt(m[1], 10);
+      const codecName = m[2].toUpperCase();
+      rtpmap[pt] = {
+        pt,
+        mimeType: 'video/' + codecName,
+        codecName,
+        clockRate: parseInt(m[3], 10),
+        channels: m[4] ? parseInt(m[4], 10) : undefined
+      };
+      continue;
+    }
+
+    m = line.match(/^a=fmtp:(\d+)\s+(.*)/i);
+    if (m) {
+      const pt = parseInt(m[1], 10);
+      const params = {};
+      for (const part of m[2].split(';')) {
+        const idx = part.indexOf('=');
+        if (idx >= 0) {
+          const k = part.slice(0, idx).trim();
+          const v = part.slice(idx + 1).trim();
+          params[k] = v;
+        }
+      }
+      fmtpMap[pt] = params;
+      continue;
+    }
+
+    m = line.match(/^a=extmap:(\d+)(?:\/\S+)?\s+(\S+)/);
+    if (m) extmaps[m[2]] = parseInt(m[1], 10);
+  }
+
+  return { rtpmap, fmtpMap, extmaps };
+}
+
+function chooseH264Pm1Codec(offerCaps) {
+  const { rtpmap, fmtpMap } = offerCaps;
+  const targetProfiles = ['42001f', '42e01f', '420032', '4d001f', '640c1f', '64001f'];
+
+  const entries = Object.values(rtpmap)
+    .filter(c => normalizeCodecName(c.codecName) === 'H264')
+    .map(c => {
+      const params = fmtpMap[c.pt] || {};
+      return {
+        mimeType: c.mimeType,
+        preferredPayloadType: c.pt,
+        clockRate: c.clockRate,
+        channels: c.channels,
+        parameters: params,
+        packetizationMode: Number(params['packetization-mode'] ?? 0),
+        profileLevelId: String(params['profile-level-id'] || '').toLowerCase()
+      };
+    });
+
+  for (const want of targetProfiles) {
+    const exact = entries.find(e => e.packetizationMode === 1 && e.profileLevelId === want);
+    if (exact) return exact;
+  }
+
+  return entries.find(e => e.packetizationMode === 1) || null;
+}
+
+function chooseCodecFromOffer(preferredCodec, offerCaps) {
+  const want = normalizeCodecName(preferredCodec);
+
+  if (want === 'H264') {
+    return chooseH264Pm1Codec(offerCaps);
+  }
+
+  const { rtpmap, fmtpMap } = offerCaps;
+  const entries = Object.values(rtpmap).filter(c => normalizeCodecName(c.codecName) === want);
+  if (!entries.length) return null;
+
+  const first = entries[0];
+  return {
+    mimeType: first.mimeType,
+    preferredPayloadType: first.pt,
+    clockRate: first.clockRate,
+    channels: first.channels,
+    parameters: fmtpMap[first.pt] || {}
+  };
+}
+
+function buildConsumeCaps(routerCaps, offerCaps, preferredCodec) {
+  const want = normalizeCodecName(preferredCodec);
+
+  if (!routerHasCodec(routerCaps, want)) {
+    throw new Error(`SFU router has no ${want} codec`);
+  }
+
+  if (want === 'H264') {
+    const chosen = chooseH264Pm1Codec(offerCaps);
+    if (!chosen) {
+      throw new Error('Browser offer has no H264 packetization-mode=1 codec');
+    }
+
+    return {
+      codecs: [{
+        mimeType: 'video/H264',
+        clockRate: chosen.clockRate,
+        preferredPayloadType: chosen.preferredPayloadType,
+        channels: chosen.channels,
+        parameters: {
+          'packetization-mode': 1,
+          'profile-level-id': '42001f',
+          'level-asymmetry-allowed': 1
+        },
+        rtcpFeedback: [
+          { type: 'nack' },
+          { type: 'nack', parameter: 'pli' }
+        ]
+      }],
+      headerExtensions: dedupeHeaderExtensions(routerCaps.headerExtensions || [])
+    };
+  }
+
+  const chosen = chooseCodecFromOffer(want, offerCaps);
+  if (!chosen) throw new Error(`Browser offer has no ${want} codec`);
+
+  return {
+    codecs: [{
+      mimeType: chosen.mimeType,
+      clockRate: chosen.clockRate,
+      preferredPayloadType: chosen.preferredPayloadType,
+      channels: chosen.channels,
+      parameters: chosen.parameters,
+      rtcpFeedback: [
+        { type: 'nack' },
+        { type: 'nack', parameter: 'pli' }
+      ]
+    }],
+    headerExtensions: dedupeHeaderExtensions(routerCaps.headerExtensions || [])
+  };
+}
+
+function buildRemoteSdp(transport, consumer, offerExtmaps) {
+  const iceP   = transport.iceParameters;
+  const cands  = transport.iceCandidates || [];
+  const fp     = transport.dtlsParameters.fingerprints[0];
+  const rtpP   = consumer.rtpParameters;
+  const codec  = rtpP.codecs[0];
+  const enc    = (rtpP.encodings || [{}])[0] || {};
+  const pt     = codec.payloadType;
+  const mime   = codec.mimeType.split('/')[1];
+  const firstCand = cands[0] || {};
+  const ip   = firstCand.ip || '0.0.0.0';
+  const port = firstCand.port || 7;
+
+  const candLines = cands.map(c => {
+    let line = `a=candidate:${c.foundation} ${c.component || 1} ${(c.protocol || 'udp').toUpperCase()} ${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
+    if (c.tcpType) line += ` tcptype ${c.tcpType}`;
+    return line;
+  }).join('\r\n');
+
+  let rtpmap = `a=rtpmap:${pt} ${mime}/${codec.clockRate}`;
+  if (codec.channels && codec.channels > 1) rtpmap += `/${codec.channels}`;
+
+  let fmtp = '';
+  if (codec.parameters && Object.keys(codec.parameters).length) {
+    const ps = Object.entries(codec.parameters).map(([k, v]) => `${k}=${v}`).join(';');
+    fmtp = `\r\na=fmtp:${pt} ${ps}`;
+  }
+
+  let rtxLines = '';
+  if (rtpP.codecs.length > 1) {
+    const rtx = rtpP.codecs[1];
+    if (rtx && String(rtx.mimeType || '').toLowerCase().includes('rtx')) {
+      rtxLines =
+        `\r\na=rtpmap:${rtx.payloadType} rtx/${rtx.clockRate}` +
+        `\r\na=fmtp:${rtx.payloadType} apt=${pt}`;
+    }
+  }
+
+  const allPt = rtxLines ? `${pt} ${rtpP.codecs[1].payloadType}` : String(pt);
+
+  const extLines = (rtpP.headerExtensions || [])
+    .filter(x => offerExtmaps && offerExtmaps[x.uri] !== undefined)
+    .map(x => `a=extmap:${offerExtmaps[x.uri]} ${x.uri}`)
+    .join('\r\n');
+
+  const ssrc = enc.ssrc;
+  const cname = enc.cname || ('video-' + ssrc);
+  const ssrcLines = ssrc
+    ? `a=ssrc:${ssrc} cname:${cname}\r\na=ssrc:${ssrc} msid:mediasoup video0`
+    : '';
+
+  return [
+    'v=0',
+    'o=mediasoup-server 10000 1 IN IP4 0.0.0.0',
+    's=mediasoup',
+    't=0 0',
+    'a=group:BUNDLE 0',
+    'a=msid-semantic: WMS *',
+    `m=video ${port} UDP/TLS/RTP/SAVPF ${allPt}`,
+    `c=IN IP4 ${ip}`,
+    'a=mid:0',
+    `a=ice-ufrag:${iceP.usernameFragment}`,
+    `a=ice-pwd:${iceP.password}`,
+    'a=ice-options:renomination',
+    `a=fingerprint:${fp.algorithm} ${fp.value}`,
+    'a=setup:passive',
+    rtpmap + fmtp + rtxLines,
+    extLines || '',
+    'a=sendonly',
+    'a=rtcp-mux',
+    candLines || '',
+    'a=end-of-candidates',
+    ssrcLines || ''
+  ].filter(Boolean).join('\r\n') + '\r\n';
+}
+
+function armFirstFrameHandlers(codec) {
+  const maybeConnected = () => {
+    const hasFrame =
+      VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      VIDEO.videoWidth > 0 &&
+      VIDEO.videoHeight > 0 &&
+      !VIDEO.paused &&
+      !VIDEO.ended;
+
+    if (hasFrame) success(codec);
+  };
+
+  VIDEO.addEventListener('loadeddata', maybeConnected, { once: true });
+  VIDEO.addEventListener('playing', maybeConnected, { once: true });
+
+  if (typeof VIDEO.requestVideoFrameCallback === 'function') {
+    VIDEO.requestVideoFrameCallback(() => maybeConnected());
+  }
+
+  _frameTimer = setTimeout(() => {
+    const hasFrame =
+      VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+      VIDEO.videoWidth > 0 &&
+      VIDEO.videoHeight > 0 &&
+      !VIDEO.paused &&
+      !VIDEO.ended;
+
+    if (!hasFrame) fail('First frame timeout');
+  }, firstFrameTimeoutMs);
+}
+
+async function connectOnce(preferredCodec) {
+  setStatus(`Trying WebRTC (${preferredCodec})…`);
+  debug('attempt-start', preferredCodec);
+
+  _signalingTimer = setTimeout(() => fail('Signaling timeout'), signalingTimeoutMs);
+
+  const routerCaps = await api('GET', `/rooms/${cameraId}/rtp-capabilities`);
+  await api('POST', `/rooms/${cameraId}/join`, {
+    sessionId,
+    codecPreferences: [preferredCodec]
+  });
+
+  const transport = await api('POST', `/rooms/${cameraId}/transports`, {});
+  const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+  _pc = pc;
+
+  pc.addTransceiver('video', { direction: 'recvonly' });
+
+  pc.oniceconnectionstatechange = () => debug('iceConnectionState', pc.iceConnectionState);
+  pc.onconnectionstatechange = () => debug('connectionState', pc.connectionState);
+  pc.onicegatheringstatechange = () => debug('iceGatheringState', pc.iceGatheringState);
+
+  pc.ontrack = (e) => {
+    debug('ontrack', { kind: e.track?.kind, muted: e.track?.muted });
+    const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+    VIDEO.srcObject = stream;
+
+    if (e.track) {
+      e.track.onunmute = () => debug('track-unmute', e.track.kind);
+      e.track.onmute = () => debug('track-mute', e.track.kind);
+      e.track.onended = () => debug('track-ended', e.track.kind);
+    }
+
+    armFirstFrameHandlers(preferredCodec);
+
+    VIDEO.play().then(() => {
+      debug('video-play-ok');
+    }).catch(err => {
+      fail('VIDEO.play() failed: ' + (err?.message || String(err)));
+    });
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  const dtlsParams = extractDtls(offer.sdp);
+  if (!dtlsParams) throw new Error('No DTLS fingerprint in local SDP');
+
+  await api('POST', `/rooms/${cameraId}/transports/${transport.id}/connect`, { dtlsParameters: dtlsParams });
+
+  const offerCaps = parseOfferVideoCaps(offer.sdp || '');
+  const consumeRtpCaps = buildConsumeCaps(routerCaps, offerCaps, preferredCodec);
+
+  const consumer = await api(
+    'POST',
+    `/rooms/${cameraId}/transports/${transport.id}/consume`,
+    { rtpCapabilities: consumeRtpCaps }
+  );
+
+  const remoteSdp = buildRemoteSdp(transport, consumer, offerCaps.extmaps);
+  await pc.setRemoteDescription({ type: 'answer', sdp: remoteSdp });
+
+  await api(
+    'POST',
+    `/rooms/${cameraId}/transports/${transport.id}/consumers/${consumer.id}/resume`,
+    {}
+  );
+
+  clearTimeout(_signalingTimer);
+  _signalingTimer = null;
+  debug('signaling-complete', preferredCodec);
+}
+
+async function connect() {
+  const attempts = browserVideoCodecOrder().filter(c => c === 'H265' || c === 'H264');
+  let lastErr = null;
+
+  for (const codec of attempts) {
+    try {
+      cleanupPc();
+      clearTimers();
+      VIDEO.srcObject = null;
+      await connectOnce(codec);
+      return;
+    } catch (e) {
+      lastErr = e;
+      debug('attempt-failed', { codec, error: e?.message || String(e) });
+      cleanupPc();
+      clearTimers();
+    }
+  }
+
+  fail(lastErr?.message || 'All codec attempts failed');
+}
+
+connect().catch(e => fail(e.message || String(e)));
+</script>
+</body>
+</html>

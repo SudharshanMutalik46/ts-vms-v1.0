@@ -90,6 +90,8 @@ func (h *SfuHandler) GetRtpCapabilities(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+
+
 	tenantID, err := getTenantID(r)
 	if err != nil {
 		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
@@ -121,7 +123,8 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		SessionID string `json:"sessionId"`
+		SessionID        string   `json:"sessionId"`
+		CodecPreferences []string `json:"codecPreferences"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -130,15 +133,12 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 		sessionID = uuid.New().String()
 	}
 
-	res, err := h.Service.JoinRoom(r.Context(), tenantID, cameraID, sessionID)
+	res, err := h.Service.JoinRoom(r.Context(), tenantID, cameraID, sessionID, body.CodecPreferences)
 	if err != nil {
 		h.writeStructuredError(w, r, err)
 		return
 	}
 
-	// Inject X-Request-ID logic is handled by middleware, but we return explicit JSON on failure.
-	// On success, we just return the caps.
-	// We MUST include X-Request-ID in header (Middleware does it).
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(res)
 }
@@ -186,6 +186,30 @@ func (h *SfuHandler) ConnectTransport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Service.ConnectTransport(r.Context(), tenantID.String(), idStr, transportID, body.DtlsParameters); err != nil {
+		h.writeStructuredError(w, r, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *SfuHandler) ResumeConsumer(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	transportID := r.PathValue("transportId")
+	consumerID := r.PathValue("consumerId")
+
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		h.writeStructuredError(w, r, cameras.NewSfuError("auth", "ERR_AUTH_INVALID", "unauthorized", err))
+		return
+	}
+
+	if idStr == "" || transportID == "" || consumerID == "" {
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "missing route parameters", nil))
+		return
+	}
+
+	if err := h.Service.ResumeConsumer(r.Context(), tenantID.String(), idStr, transportID, consumerID); err != nil {
 		h.writeStructuredError(w, r, err)
 		return
 	}

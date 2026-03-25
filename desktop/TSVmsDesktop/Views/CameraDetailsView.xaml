@@ -66,11 +66,12 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Button Grid.Row="0" Command="{Binding FetchProfilesCommand}" Content="Refresh Profiles" HorizontalAlignment="Left" Width="150" Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#999" Height="35" Margin="0,0,0,15"/>
+                    <Button Grid.Row="0" Command="{Binding SyncProfilesCommand}" Content="Refresh Profiles" HorizontalAlignment="Left" Width="150" Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#999" Height="35" Margin="0,0,0,15"/>
                     
                     <DataGrid Grid.Row="1" ItemsSource="{Binding Profiles}" AutoGenerateColumns="False" 
                               Background="White" BorderThickness="0" HeadersVisibility="Column" RowHeight="40"
-                              GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEE">
+                              GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEE"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto">
                         <DataGrid.Resources>
                              <Style TargetType="DataGridColumnHeader">
                                 <Setter Property="Background" Value="#F5F7FA"/>
@@ -80,12 +81,28 @@
                             </Style>
                         </DataGrid.Resources>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Token" Binding="{Binding Token}" Width="150"/>
-                            <DataGridTextColumn Header="Encoding" Binding="{Binding Encoding}" Width="100"/>
-                            <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="120"/>
-                            <DataGridTextColumn Header="Bitrate" Binding="{Binding Bitrate}" Width="100"/>
+                            <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="80">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="Text" Value="MAIN">
+                                                <Setter Property="Foreground" Value="#E65100"/>
+                                            </Trigger>
+                                            <Trigger Property="Text" Value="SUB">
+                                                <Setter Property="Foreground" Value="#2E7D32"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
+                            <DataGridTextColumn Header="Token" Binding="{Binding Token}" Width="80"/>
+                            <DataGridTextColumn Header="Encoding" Binding="{Binding Encoding}" Width="80"/>
+                            <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="100"/>
+                            <DataGridTextColumn Header="Bitrate" Binding="{Binding Bitrate}" Width="80"/>
                              <DataGridTextColumn Header="Framerate" Binding="{Binding Framerate}" Width="80"/>
+                             <DataGridTextColumn Header="RTSP URL" Binding="{Binding RtspUrl}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                     

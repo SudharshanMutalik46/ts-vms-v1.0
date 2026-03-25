@@ -55,7 +55,8 @@ app.post('/rooms/:roomID/join', async (req, res) => {
 });
 app.post('/rooms/:roomID/ingest', async (req, res) => {
     try {
-        const info = await msMgr.prepareIngest(req.params.roomID);
+        const codec = String(req.body?.codec || 'H264').toUpperCase() === 'H265' ? 'H265' : 'H264';
+        const info = await msMgr.prepareIngest(req.params.roomID, codec);
         res.json(info);
     }
     catch (e) {

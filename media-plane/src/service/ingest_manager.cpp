@@ -130,7 +130,7 @@ std::optional<IngestManager::Snapshot> IngestManager::CaptureSnapshot(const std:
     };
 }
 
-IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt) {
+IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt, const std::string& codec) {
     std::lock_guard<std::mutex> lock(map_mutex_);
     auto it = pipelines_.find(camera_id);
     if (it == pipelines_.end()) {
@@ -140,7 +140,7 @@ IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera
 
     if (it->second->IsSfuEgressRunning()) return Result::ALREADY_RUNNING;
 
-    pipeline::IngestPipeline::SfuConfig config{dst_ip, dst_port, ssrc, pt};
+    pipeline::IngestPipeline::SfuConfig config{dst_ip, dst_port, ssrc, pt, codec};
     if (it->second->StartSfuRtpEgress(config)) {
         return Result::SUCCESS;
     }

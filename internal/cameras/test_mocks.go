@@ -118,3 +118,6 @@ func (m *MockCameraRepo) DeleteGroup(ctx context.Context, id, tenantID uuid.UUID
 func (m *MockCameraRepo) SetGroupMembers(ctx context.Context, groupID, tenantID uuid.UUID, cameraIDs []uuid.UUID) error {
 	return nil
 }
+func (m *MockCameraRepo) ResolveSiteID(ctx context.Context, cameraID string) (string, error) {
+	return "", nil
+}

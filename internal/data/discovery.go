@@ -42,6 +42,15 @@ type DiscoveredDevice struct {
 	SupportsProfileT bool `json:"supports_profile_t"`
 	SupportsProfileG bool `json:"supports_profile_g"`
 
+	// Phase 1 enrichment
+	MACAddress     string   `json:"mac_address,omitempty"`
+	SnapshotURI    string   `json:"snapshot_uri,omitempty"`
+	ClockOffsetSec int      `json:"clock_offset_sec,omitempty"`
+	SupportsAudio  bool     `json:"supports_audio"`
+	SupportsEvents bool     `json:"supports_events"`
+	SupportsPTZ    bool     `json:"supports_ptz"`
+	EventTopics    []string `json:"event_topics,omitempty"`
+
 	Capabilities  json.RawMessage `json:"capabilities,omitempty"`
 	MediaProfiles json.RawMessage `json:"media_profiles,omitempty"`
 	RTSP_URIs     json.RawMessage `json:"rtsp_uris,omitempty"`
@@ -103,20 +112,32 @@ func (m *DiscoveryModel) UpsertDevice(ctx context.Context, d *DiscoveredDevice) 
 		xaddrsJSON = []byte("[]")
 	}
 
+	eventTopicsJSON, err := json.Marshal(d.EventTopics)
+	if err != nil {
+		return err
+	}
+	if len(d.EventTopics) == 0 {
+		eventTopicsJSON = []byte("[]")
+	}
+
 	query := `
 			INSERT INTO onvif_discovered_devices (
 				tenant_id, discovery_run_id, ip_address, endpoint_ref,
 				manufacturer, model, firmware_version, serial_number,
 				supports_profile_s, supports_profile_t, supports_profile_g,
+				mac_address, snapshot_uri, clock_offset_sec,
+				supports_audio, supports_events, supports_ptz, event_topics,
 				capabilities, media_profiles, rtsp_uris, xaddrs,
 				last_probe_at, last_error_code
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 			RETURNING id, created_at, updated_at
 		`
 	return m.DB.QueryRowContext(ctx, query,
 		d.TenantID, d.DiscoveryRunID, d.IPAddress, d.EndpointRef,
 		d.Manufacturer, d.Model, d.FirmwareVersion, d.SerialNumber,
 		d.SupportsProfileS, d.SupportsProfileT, d.SupportsProfileG,
+		d.MACAddress, d.SnapshotURI, d.ClockOffsetSec,
+		d.SupportsAudio, d.SupportsEvents, d.SupportsPTZ, string(eventTopicsJSON),
 		d.Capabilities, d.MediaProfiles, d.RTSP_URIs, string(xaddrsJSON),
 		d.LastProbeAt, d.LastErrorCode,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
@@ -127,18 +148,26 @@ func (m *DiscoveryModel) UpdateDeviceProbe(ctx context.Context, d *DiscoveredDev
 	if err != nil {
 		return err
 	}
+	eventTopicsJSON, err := json.Marshal(d.EventTopics)
+	if err != nil {
+		return err
+	}
 
 	query := `
 			UPDATE onvif_discovered_devices
 			SET manufacturer=$2, model=$3, firmware_version=$4, serial_number=$5,
 			    supports_profile_s=$6, supports_profile_t=$7, supports_profile_g=$8,
-			    capabilities=$9, media_profiles=$10, rtsp_uris=$11, xaddrs=$12,
-			    last_probe_at=$13, last_error_code=$14, updated_at=NOW()
+			    mac_address=$9, snapshot_uri=$10, clock_offset_sec=$11,
+			    supports_audio=$12, supports_events=$13, supports_ptz=$14, event_topics=$15,
+			    capabilities=$16, media_profiles=$17, rtsp_uris=$18, xaddrs=$19,
+			    last_probe_at=$20, last_error_code=$21, updated_at=NOW()
 			WHERE id=$1
 		`
 	res, err := m.DB.ExecContext(ctx, query,
 		d.ID, d.Manufacturer, d.Model, d.FirmwareVersion, d.SerialNumber,
 		d.SupportsProfileS, d.SupportsProfileT, d.SupportsProfileG,
+		d.MACAddress, d.SnapshotURI, d.ClockOffsetSec,
+		d.SupportsAudio, d.SupportsEvents, d.SupportsPTZ, string(eventTopicsJSON),
 		d.Capabilities, d.MediaProfiles, d.RTSP_URIs, string(xaddrsJSON),
 		d.LastProbeAt, d.LastErrorCode,
 	)
@@ -156,17 +185,22 @@ func (m *DiscoveryModel) GetDevice(ctx context.Context, id uuid.UUID) (*Discover
 			SELECT id, tenant_id, discovery_run_id, ip_address, endpoint_ref,
 			       manufacturer, model, firmware_version, serial_number,
 			       supports_profile_s, supports_profile_t, supports_profile_g,
+			       mac_address, snapshot_uri, clock_offset_sec,
+			       supports_audio, supports_events, supports_ptz, event_topics,
 			       capabilities, media_profiles, rtsp_uris, xaddrs,
 			       last_probe_at, last_error_code, created_at, updated_at
 			FROM onvif_discovered_devices WHERE id = $1
 		`
 	var d DiscoveredDevice
 	var xaddrsJSON []byte
+	var eventTopicsJSON []byte
 
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&d.ID, &d.TenantID, &d.DiscoveryRunID, &d.IPAddress, &d.EndpointRef,
 		&d.Manufacturer, &d.Model, &d.FirmwareVersion, &d.SerialNumber,
 		&d.SupportsProfileS, &d.SupportsProfileT, &d.SupportsProfileG,
+		&d.MACAddress, &d.SnapshotURI, &d.ClockOffsetSec,
+		&d.SupportsAudio, &d.SupportsEvents, &d.SupportsPTZ, &eventTopicsJSON,
 		&d.Capabilities, &d.MediaProfiles, &d.RTSP_URIs, &xaddrsJSON,
 		&d.LastProbeAt, &d.LastErrorCode, &d.CreatedAt, &d.UpdatedAt,
 	)
@@ -178,6 +212,9 @@ func (m *DiscoveryModel) GetDevice(ctx context.Context, id uuid.UUID) (*Discover
 	}
 	if len(xaddrsJSON) > 0 {
 		_ = json.Unmarshal(xaddrsJSON, &d.XAddrs)
+	}
+	if len(eventTopicsJSON) > 0 {
+		_ = json.Unmarshal(eventTopicsJSON, &d.EventTopics)
 	}
 	return &d, nil
 }

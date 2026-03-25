@@ -49,7 +49,7 @@ func (c *Client) GetIngestStatus(ctx context.Context, cameraID string) (*mediav1
 	return c.client.GetIngestStatus(ctx, req)
 }
 
-func (c *Client) StartSfuRtpEgress(ctx context.Context, cameraID, roomID string, ssrc, pt uint32, dstIP string, dstPort int32) (bool, error) {
+func (c *Client) StartSfuRtpEgress(ctx context.Context, cameraID, roomID string, ssrc, pt uint32, dstIP string, dstPort int32, codec string) (bool, error) {
 	req := &mediav1.StartSfuRtpEgressRequest{
 		CameraId: cameraID,
 		RoomId:   roomID,
@@ -57,6 +57,7 @@ func (c *Client) StartSfuRtpEgress(ctx context.Context, cameraID, roomID string,
 		Pt:       pt,
 		DstIp:    dstIP,
 		DstPort:  dstPort,
+		Codec:    codec,
 	}
 
 	// Use Background context - SFU egress is long-running and must persist beyond HTTP request
@@ -66,6 +67,14 @@ func (c *Client) StartSfuRtpEgress(ctx context.Context, cameraID, roomID string,
 	}
 
 	return resp.AlreadyRunning, nil
+}
+
+func (c *Client) StopIngest(ctx context.Context, cameraID string) error {
+	req := &mediav1.StopIngestRequest{
+		CameraId: cameraID,
+	}
+	_, err := c.client.StopIngest(ctx, req)
+	return err
 }
 
 func (c *Client) StopSfuRtpEgress(ctx context.Context, cameraID string) error {

@@ -125,9 +125,10 @@ type IngestResponse struct {
 	PT   uint32 `json:"pt"`
 }
 
-func (c *Client) PrepareIngest(ctx context.Context, roomID string) (*IngestResponse, error) {
+func (c *Client) PrepareIngest(ctx context.Context, roomID string, codec string) (*IngestResponse, error) {
 	var resp IngestResponse
-	err := c.do(ctx, "POST", "/rooms/"+roomID+"/ingest", nil, &resp)
+	body := map[string]string{"codec": codec}
+	err := c.do(ctx, "POST", "/rooms/"+roomID+"/ingest", body, &resp)
 	if err != nil {
 		return nil, err
 	}

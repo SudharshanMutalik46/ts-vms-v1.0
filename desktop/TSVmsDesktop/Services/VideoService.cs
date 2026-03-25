@@ -129,6 +129,13 @@ namespace TSVmsDesktop.Services
         {
             if (!_isInitialized) Initialize();
 
+            // HLS streams (http/https .m3u8) use playbin — no credentials needed.
+            if (rtspUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                rtspUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return StartHlsStream(windowHandle, rtspUrl, hasAudio);
+            }
+
             string authUrl = rtspUrl;
             string userIdProp = "";
             string userPwProp = "";
@@ -290,6 +297,104 @@ namespace TSVmsDesktop.Services
             return pipeline;
         }
 
+        private IntPtr StartHlsStream(IntPtr windowHandle, string hlsUrl, bool hasAudio)
+        {
+            Log($"[TS-VMS] StartHlsStream: '{hlsUrl}'");
+
+            if (!WaitForWindowSize(windowHandle, 2000))
+            {
+                Log($"[TS-VMS] Window {windowHandle} never became ready; aborting HLS stream start.");
+                StreamError?.Invoke(windowHandle, "Video surface not ready");
+                return IntPtr.Zero;
+            }
+
+            // playbin handles HLS demux automatically.
+            // Set video-sink to d3d11videosink; mute audio if not needed.
+            string audioSinkProp = hasAudio ? "" : " audio-sink=\"fakesink sync=false\"";
+            string pipelineStr = $"playbin uri=\"{hlsUrl}\" video-sink=\"d3d11videosink name=mysink sync=false force-aspect-ratio=true\"{audioSinkProp}";
+
+            IntPtr error = IntPtr.Zero;
+            IntPtr pipeline = GstNative.gst_parse_launch(pipelineStr, out error);
+
+            if (pipeline == IntPtr.Zero)
+            {
+                Log($"[TS-VMS] HLS Pipeline Creation Failed for {hlsUrl}");
+                StreamError?.Invoke(windowHandle, "Invalid HLS Pipeline");
+                return IntPtr.Zero;
+            }
+
+            IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
+            if (sink != IntPtr.Zero)
+            {
+                GstNative.gst_video_overlay_set_window_handle(sink, windowHandle);
+                GstNative.SafeObjectUnref(sink);
+                Log("[TS-VMS] HLS: Handle set on 'mysink'.");
+            }
+
+            var ctx = new StreamContext
+            {
+                Url = hlsUrl,
+                WindowHandle = windowHandle,
+                CTS = new CancellationTokenSource(),
+                HasAudio = hasAudio
+            };
+
+            IntPtr bus = GstNative.gst_element_get_bus(pipeline);
+            if (bus != IntPtr.Zero)
+            {
+                var token = ctx.CTS.Token;
+                ctx.WatchTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!token.IsCancellationRequested)
+                        {
+                            IntPtr errMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_ERROR);
+                            if (errMsg != IntPtr.Zero)
+                            {
+                                IntPtr errPtr, debugPtr;
+                                GstNative.gst_message_parse_error(errMsg, out errPtr, out debugPtr);
+                                string errWrap = ReadGErrorMessage(errPtr, "Unknown HLS Error");
+                                GstNative.SafeGErrorFree(errPtr);
+                                GstNative.SafeGFree(debugPtr);
+                                GstNative.gst_message_unref(errMsg);
+
+                                if (!token.IsCancellationRequested && _activeStreams.ContainsKey(pipeline))
+                                {
+                                    Log($"[GSTREAMER-HLS-ERROR] {errWrap}");
+                                    StreamError?.Invoke(ctx.WindowHandle, errWrap);
+
+                                    // 404/401/403 are permanent — retrying the same URL will never succeed.
+                                    if (IsPermanentHttpError(errWrap))
+                                    {
+                                        Log("[TS-VMS] Permanent HLS error — not retrying.");
+                                        if (_activeStreams.TryRemove(pipeline, out var stopCtx2))
+                                            _ = Task.Run(() => StopStreamInternal(pipeline, stopCtx2));
+                                    }
+                                    else
+                                    {
+                                        _ = RestartStreamAsync(pipeline);
+                                    }
+                                    break;
+                                }
+                            }
+                            await Task.Delay(100, token);
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { Log($"[HLS-BUS-TASK] {ex.Message}"); }
+                    finally { GstNative.SafeObjectUnref(bus); }
+                }, token);
+
+                _activeStreams.TryAdd(pipeline, ctx);
+            }
+
+            int stateResult = GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
+            Log($"[TS-VMS] HLS Set State PLAYING returned: {stateResult} ({hlsUrl})");
+
+            return pipeline;
+        }
+
         private async Task RestartStreamAsync(IntPtr oldPipeline)
         {
             if (!_activeStreams.TryGetValue(oldPipeline, out var ctx)) return;
@@ -434,6 +539,18 @@ namespace TSVmsDesktop.Services
             return msg.Contains("Output window was closed", StringComparison.OrdinalIgnoreCase) ||
                    msg.Contains("Cannot create d3d11window", StringComparison.OrdinalIgnoreCase) ||
                    msg.Contains("Resource not found", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>HTTP-level permanent failures that should never be retried with the same URL.</summary>
+        private static bool IsPermanentHttpError(string msg)
+        {
+            if (string.IsNullOrEmpty(msg)) return false;
+
+            return msg.Contains("Not Found", StringComparison.OrdinalIgnoreCase)       // 404
+                || msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)    // 401
+                || msg.Contains("Forbidden", StringComparison.OrdinalIgnoreCase)       // 403
+                || msg.Contains("404", StringComparison.Ordinal)
+                || msg.Contains("401", StringComparison.Ordinal);
         }
 
         public async Task<bool> RecordLiveEventAsync(string eventType, string details)

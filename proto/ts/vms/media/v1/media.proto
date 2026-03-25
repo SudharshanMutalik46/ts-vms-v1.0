@@ -109,6 +109,7 @@ message StartSfuRtpEgressRequest {
   uint32 pt = 4; // Payload Type
   string dst_ip = 5;
   int32 dst_port = 6;
+  string codec = 7;
 }
 
 message StartSfuRtpEgressResponse {

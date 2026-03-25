@@ -33,7 +33,12 @@ type HMockRepo struct {
 
 func (m *HMockRepo) Create(ctx context.Context, c *data.Camera) error { c.ID = uuid.New(); return nil }
 func (m *HMockRepo) GetByID(ctx context.Context, id uuid.UUID) (*data.Camera, error) {
-	return &data.Camera{ID: id, Name: "Handler Cam", IsEnabled: true}, nil
+	// Extract tenant from context to avoid mismatch if possible, or just use a dummy that matches
+	var tid uuid.UUID
+	if ac, ok := middleware.GetAuthContext(ctx); ok {
+		tid = uuid.MustParse(ac.TenantID)
+	}
+	return &data.Camera{ID: id, TenantID: tid, Name: "Handler Cam", IsEnabled: true}, nil
 }
 func (m *HMockRepo) Update(ctx context.Context, c *data.Camera) error             { return nil }
 func (m *HMockRepo) SetStatus(ctx context.Context, id, t uuid.UUID, e bool) error { return nil }

@@ -22,7 +22,7 @@ export declare class MediasoupManager {
     joinRoom(roomID: string, sessionID: string): Promise<void>;
     createWebRtcTransport(roomID: string): Promise<any>;
     connectWebRtcTransport(transportID: string, dtlsParameters: mediasoup.types.DtlsParameters): Promise<void>;
-    prepareIngest(roomID: string): Promise<any>;
+    prepareIngest(roomID: string, codec?: 'H265' | 'H264'): Promise<any>;
     consume(roomID: string, transportID: string, rtpCapabilities: mediasoup.types.RtpCapabilities): Promise<any>;
     resumeConsumer(consumerID: string): Promise<void>;
     cleanupRoom(roomID: string): Promise<void>;

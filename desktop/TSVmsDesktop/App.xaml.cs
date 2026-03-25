@@ -42,6 +42,7 @@ namespace TSVmsDesktop
             services.AddSingleton<Services.SiteService>();
             services.AddSingleton<Services.PlaybackService>();
             services.AddSingleton<Services.RecordingService>();
+            services.AddSingleton<Services.LiveSessionService>();
             services.AddSingleton<Services.PlaybackTimelineBuilder>();
             services.AddSingleton<Services.GapResolver>();
             services.AddSingleton<Services.PlaybackManifestService>();

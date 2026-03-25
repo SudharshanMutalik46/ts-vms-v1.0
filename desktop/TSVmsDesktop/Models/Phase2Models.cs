@@ -30,6 +30,14 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("is_claimed")] public bool IsClaimed { get; set; }
         [JsonPropertyName("xaddrs")] public List<string> XAddrs { get; set; } = new(); // Service URIs
         [JsonPropertyName("rtsp_uris")] public List<string> RtspUris { get; set; } = new(); // Discovered RTSP Endpoints
+        [JsonPropertyName("media_profiles")] public List<MediaProfile> MediaProfiles { get; set; } = new();
+
+        [JsonIgnore]
+        public string EncodingDisplay => MediaProfiles?.FirstOrDefault()?.Encoding ?? "UNKNOWN";
+        [JsonIgnore]
+        public string ResolutionDisplay => MediaProfiles?.FirstOrDefault()?.Resolution ?? "0x0";
+        [JsonIgnore]
+        public string BitrateDisplay => (MediaProfiles?.FirstOrDefault()?.Bitrate ?? 0).ToString();
     }
 
     // --- Phase 2.4: Media ---
@@ -42,9 +50,13 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("height")] public int Height { get; set; }
         [JsonPropertyName("fps")] public double Framerate { get; set; }
         [JsonPropertyName("bitrate_kbps")] public int Bitrate { get; set; }
+        [JsonPropertyName("rtsp_url_sanitized")] public string RtspUrl { get; set; } = "";
 
         [JsonIgnore]
         public string Resolution => $"{Width}x{Height}";
+
+        [JsonIgnore]
+        public string TypeDisplay { get; set; } = "—";
     }
 
     public class RtspValidationResult

@@ -183,13 +183,17 @@ func main() {
 	credRepo := data.CredentialModel{DB: db}
 	credService := cameras.NewCredentialService(credRepo, keyring, auditService)
 
+	// NVR Components (Phase 2.6)
+	nvrRepo := data.NVRModel{DB: db}
+	nvrService := nvr.NewService(&nvrRepo, keyring, auditService, camService)
+	nvrHandler := api.NewNVRHandler(nvrService)
+
 	// Discovery Components (Phase 2.3)
 	discRepo := &data.DiscoveryModel{DB: db}
-	discService := discovery.NewService(discRepo, keyring, auditService)
+	discService := discovery.NewService(discRepo, &nvrRepo, keyring, auditService)
 
 	// Media Components (Phase 2.4)
 	mediaRepo := &data.MediaModel{DB: db}
-	// Note: CredService and OnvifClient used internally
 	mediaService := cameras.NewMediaService(mediaRepo, &camRepo, credService, auditService)
 	mediaHandler := api.NewMediaHandler(mediaService)
 
@@ -199,13 +203,8 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to connect to Media Plane: %v", err)
 	}
-	sfuService := cameras.NewSfuService(sfuClient, mediaClient, &camRepo, mediaRepo)
+	sfuService := cameras.NewSfuService(sfuClient, mediaClient, &camRepo, mediaRepo, credService, mediaService)
 	sfuHandler := api.NewSfuHandler(sfuService)
-
-	// NVR Components (Phase 2.6)
-	nvrRepo := data.NVRModel{DB: db}
-	nvrService := nvr.NewService(&nvrRepo, keyring, auditService, camService)
-	nvrHandler := api.NewNVRHandler(nvrService)
 
 	// Health Components (Phase 2.5)
 	healthRepo := &data.HealthModel{DB: db}
@@ -237,8 +236,14 @@ func main() {
 
 	// --- Phase 3.6 WebRTC-HLS Fallback ---
 	// Live Service & Handler (Needed for NATS AI Sub)
+	hlsHMACKey := []byte(os.Getenv("HLS_HMAC_KEY_V1"))
+	if len(hlsHMACKey) == 0 {
+		hlsHMACKey = []byte("dev-hls-secret")
+	}
 	liveService := live.NewService(rdb, camService, "http://localhost:8080", live.HLSParams{
 		BaseURL: "http://localhost:8081",
+		HMACKey: hlsHMACKey,
+		HMACKid: "v1",
 	})
 	telemetryService := live.NewTelemetryService(rdb)
 	liveHandler := api.NewLiveHandler(liveService, telemetryService)
@@ -420,10 +425,10 @@ func main() {
 	mux.Handle("GET /api/v1/sfu/rooms/{id}/rtp-capabilities", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.GetRtpCapabilities))))
 	mux.Handle("POST /api/v1/sfu/rooms/{id}/join", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom))))
 	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.CreateTransport))))
-	mux.Handle("POST /api/v1/sfu/transports/{transportId}/connect", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.ConnectTransport))))
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/connect", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.ConnectTransport))))
 	mux.Handle("POST /api/v1/sfu/producers", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.JoinRoom)))) // Re-using Join for simpler flow or add explicit?
 	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/consume", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.Consume))))
-	mux.Handle("POST /api/v1/sfu/consumers/{id}/resume", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.Consume)))) // Placeholder
+	mux.Handle("POST /api/v1/sfu/rooms/{id}/transports/{transportId}/consumers/{consumerId}/resume", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.ResumeConsumer))))
 	mux.Handle("POST /api/v1/sfu/sessions/{id}/leave", Protect(permsMiddleware.RequirePermission("video.view", "tenant")(http.HandlerFunc(sfuHandler.LeaveRoom))))
 
 	// NVR Routes (Phase 2.6)

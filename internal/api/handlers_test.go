@@ -14,6 +14,7 @@ import (
 	"github.com/technosupport/ts-vms/internal/auth"
 	"github.com/technosupport/ts-vms/internal/session"
 	"github.com/technosupport/ts-vms/internal/tokens"
+	"github.com/technosupport/ts-vms/internal/audit"
 )
 
 // Mock DBTX
@@ -41,6 +42,7 @@ func TestLoginHandler(t *testing.T) {
 		DB:      db,
 		Session: sessionMgr,
 		Tokens:  tokenMgr,
+		Audit:   &audit.Service{DB: db},
 	}
 
 	// Prepare Request

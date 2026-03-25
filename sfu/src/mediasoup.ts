@@ -106,53 +106,89 @@ export class MediasoupManager {
 
     async getRouter(roomID: string): Promise<mediasoup.types.Router> {
         let room = this.rooms.get(roomID);
-        if (!room) {
-            const worker = this.getNextWorker();
-            const router = await worker.createRouter({
+        if (room) return room.router;
+
+        const worker = this.getNextWorker();
+
+        const h264Codecs: any[] = [
+            {
+                kind: 'video',
+                mimeType: 'video/H264',
+                clockRate: 90000,
+                parameters: {
+                    'packetization-mode': 1,
+                    'profile-level-id': '42001f',
+                    'level-asymmetry-allowed': 1
+                }
+            },
+            {
+                kind: 'video',
+                mimeType: 'video/H264',
+                clockRate: 90000,
+                parameters: {
+                    'packetization-mode': 1,
+                    'profile-level-id': '42e01f',
+                    'level-asymmetry-allowed': 1
+                }
+            },
+            {
+                kind: 'video',
+                mimeType: 'video/H264',
+                clockRate: 90000,
+                parameters: {
+                    'packetization-mode': 1,
+                    'profile-level-id': '4d001f',
+                    'level-asymmetry-allowed': 1
+                }
+            },
+            {
+                kind: 'video',
+                mimeType: 'video/H264',
+                clockRate: 90000,
+                parameters: {
+                    'packetization-mode': 1,
+                    'profile-level-id': '640c1f',
+                    'level-asymmetry-allowed': 1
+                }
+            }
+        ];
+
+        let router: mediasoup.types.Router;
+
+        try {
+            router = await worker.createRouter({
                 mediaCodecs: [
                     {
                         kind: 'video',
-                        mimeType: 'video/H264',
+                        mimeType: 'video/H265',
                         clockRate: 90000,
-                        parameters: {
-                            'packetization-mode': 1,
-                            'profile-level-id': '42e01f',
-                            'level-asymmetry-allowed': 1
-                        }
+                        parameters: {}
                     },
-                    {
-                        kind: 'video',
-                        mimeType: 'video/H264',
-                        clockRate: 90000,
-                        parameters: {
-                            'packetization-mode': 1,
-                            'profile-level-id': '4d001f',
-                            'level-asymmetry-allowed': 1
-                        }
-                    },
-                    {
-                        kind: 'video',
-                        mimeType: 'video/H264',
-                        clockRate: 90000,
-                        parameters: {
-                            'packetization-mode': 1,
-                            'profile-level-id': '64001f',
-                            'level-asymmetry-allowed': 1
-                        }
-                    },
+                    ...h264Codecs
                 ]
             });
-            // Attach worker PID to router for WebRtcServer lookup
-            (router as any).appData = { workerPid: worker.pid };
+            console.log(`Created router for room: ${roomID} (H265+H264)`);
+        } catch (e: any) {
+            console.warn(
+                `H265 router creation failed for ${roomID}; falling back to H264-only: ${e?.message || e}`
+            );
 
-            room = {
-                router,
-                viewerSessions: new Set(),
-                lastActivity: Date.now()
-            };
-            this.rooms.set(roomID, room);
-            console.log(`Created router for room: ${roomID}`);
+            router = await worker.createRouter({
+                mediaCodecs: h264Codecs
+            });
+            console.log(`Created router for room: ${roomID} (H264-only fallback)`);
         }
+
+        // Attach worker PID to router for WebRtcServer lookup
+        (router as any).appData = { workerPid: worker.pid };
+
+        room = {
+            router,
+            viewerSessions: new Set(),
+            lastActivity: Date.now()
+        };
+        this.rooms.set(roomID, room);
+
         return room.router;
     }
 
@@ -202,22 +238,14 @@ export class MediasoupManager {
         await transport.connect({ dtlsParameters });
     }
 
-    async prepareIngest(roomID: string): Promise<any> {
+    async prepareIngest(roomID: string, codec: 'H265' | 'H264' = 'H264'): Promise<any> {
         const router = await this.getRouter(roomID);
 
-        // Fix: Reuse existing producer/transport if already ingesting
+        // Reuse existing producer/transport if already ingesting (and not closed)
         const existingProducer = this.producers.get(roomID + ':video');
-        if (existingProducer) {
-            // Find associated transport using appData (we need to iterate or store it better)
-            // For now, iterate transports to find the one with appData.ingestPort matching?
-            // Or simply store the Ingest Transport ID in the RoomState?
-            // Since we don't have RoomState ref here easily without lookup.
-
-            // Optimization: Just return the stored info if we had it.
-            // But we need the PORT.
-            // Let's iterate transports.
+        if (existingProducer && !existingProducer.closed) {
             for (const transport of this.transports.values()) {
-                if ((transport as any).appData && (transport as any).appData.ingestPort && (transport as any).appData.roomID === roomID) {
+                if ((transport as any).appData && (transport as any).appData.ingestPort && (transport as any).appData.roomID === roomID && !transport.closed) {
                     console.log(`Reusing existing Ingest Transport for room ${roomID} on port ${(transport as any).appData.ingestPort}`);
                     return {
                         ip: '127.0.0.1',
@@ -229,20 +257,41 @@ export class MediasoupManager {
             }
         }
 
-        const localIp = process.env['ANNOUNCED_IP'] || '127.0.0.1';
-        const port = this.getFreeIngestPort();
+        // Clean up stale closed producer entry if present
+        if (existingProducer && existingProducer.closed) {
+            this.producers.delete(roomID + ':video');
+        }
 
-        // Fix 1: Explicit PlainTransport port
-        const transport = await router.createPlainTransport({
-            listenInfo: {
-                protocol: 'udp',
-                ip: '0.0.0.0',
-                announcedAddress: localIp,
-                port: port
-            },
-            rtcpMux: true,
-            comedia: true, // receive from any port (Media Plane)
-        });
+        const localIp = process.env['ANNOUNCED_IP'] || '127.0.0.1';
+
+        // Retry port allocation: skip ports already in use by other processes (e.g. AnyDesk).
+        let transport: mediasoup.types.PlainTransport | undefined;
+        let port: number = 0;
+        const MAX_PORT_RETRIES = 20;
+        for (let attempt = 0; attempt < MAX_PORT_RETRIES; attempt++) {
+            port = this.getFreeIngestPort();
+            try {
+                transport = await router.createPlainTransport({
+                    listenInfo: {
+                        protocol: 'udp',
+                        ip: '0.0.0.0',
+                        announcedAddress: localIp,
+                        port: port
+                    },
+                    rtcpMux: true,
+                    comedia: true,
+                });
+                break; // success
+            } catch (e: any) {
+                if (e.message && e.message.includes('address already in use')) {
+                    console.warn(`Port ${port} already in use (attempt ${attempt + 1}), trying next port`);
+                    // Port stays in usedIngestPorts so we don't retry it; just get the next one
+                    continue;
+                }
+                throw e; // unexpected error
+            }
+        }
+        if (!transport) throw new Error('No free ingest ports available after retries');
 
         // Store port AND roomID in appData for release/lookup
         (transport as any).appData = { ingestPort: port, roomID: roomID };
@@ -260,23 +309,29 @@ export class MediasoupManager {
         const ssrc = 11111111;
         const pt = 96;
 
-        // Start Producer for this transport (H.264 or H.265)
-        // For simplicity, we default to H.264 PT (96). H.265 would use different PT if needed.
+        const codecDef =
+            codec === 'H265'
+                ? {
+                    mimeType: 'video/H265',
+                    payloadType: pt,
+                    clockRate: 90000,
+                    parameters: {}
+                }
+                : {
+                    mimeType: 'video/H264',
+                    payloadType: pt,
+                    clockRate: 90000,
+                    parameters: {
+                        'packetization-mode': 1,
+                        'profile-level-id': '42001f',
+                        'level-asymmetry-allowed': 1
+                    }
+                };
+
         const producer = await transport.produce({
             kind: 'video',
             rtpParameters: {
-                codecs: [
-                    {
-                        mimeType: 'video/H264',
-                        payloadType: pt,
-                        clockRate: 90000,
-                        parameters: {
-                            'packetization-mode': 1,
-                            'profile-level-id': '42e01f',
-                            'level-asymmetry-allowed': 1
-                        }
-                    }
-                ],
+                codecs: [codecDef],
                 encodings: [{ ssrc }]
             }
         });
@@ -374,6 +429,22 @@ export class MediasoupManager {
     async cleanupRoom(roomID: string) {
         const room = this.rooms.get(roomID);
         if (room) {
+            // Clean up consumers belonging to this room's transports before closing router
+            for (const [cid, consumer] of this.consumers) {
+                const t = this.transports.get((consumer as any).transportId);
+                if (t && (t as any).appData?.roomID === roomID) {
+                    this.consumers.delete(cid);
+                }
+            }
+            // Clean up transports belonging to this room
+            for (const [tid, transport] of this.transports) {
+                if ((transport as any).appData?.roomID === roomID || (transport as any).appData?.ingestPort !== undefined && (transport as any).appData?.roomID === roomID) {
+                    this.transports.delete(tid);
+                }
+            }
+            // Clean up producer for this room
+            this.producers.delete(roomID + ':video');
+
             room.router.close();
             this.rooms.delete(roomID);
             console.log(`Cleaned up room: ${roomID}`);

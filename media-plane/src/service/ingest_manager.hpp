@@ -41,7 +41,7 @@ public:
 
     // SFU Egress (Phase 3.4)
     enum class Result { SUCCESS, ALREADY_RUNNING, FAILED, CAMERA_NOT_FOUND };
-    Result StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt);
+    Result StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt, const std::string& codec);
     void StopSfuRtpEgress(const std::string& camera_id);
 
 private:

@@ -111,17 +111,58 @@ namespace TSVmsDesktop.ViewModels
         }
 
         [RelayCommand]
+        public async Task SyncProfiles()
+        {
+            RtspValidationResult = "Syncing profiles from camera...";
+            try
+            {
+                // Trigger backend re-discovery (POST)
+                bool success = await _mediaService.SelectProfilesAsync(_cameraId, "", "");
+                if (success)
+                {
+                    RtspValidationResult = "Sync successful. Loading...";
+                    await FetchProfiles();
+                }
+                else
+                {
+                    RtspValidationResult = "Sync failed. Check credentials.";
+                }
+            }
+            catch (System.Exception ex)
+            {
+                RtspValidationResult = $"Sync Error: {ex.Message}";
+            }
+        }
+
+        [RelayCommand]
         public async Task FetchProfiles()
         {
             try
             {
                 var list = await _mediaService.GetProfilesAsync(_cameraId);
+                var info = await _mediaService.GetMediaInfoAsync(_cameraId);
+                var selection = info?.Selection;
+
                 Profiles.Clear();
-                foreach(var p in list) Profiles.Add(p);
+                foreach(var p in list) 
+                {
+                    if (selection != null)
+                    {
+                        if (p.Token == selection.MainProfileToken) p.TypeDisplay = "MAIN";
+                        else if (p.Token == selection.SubProfileToken) p.TypeDisplay = "SUB";
+                        else p.TypeDisplay = "—";
+                    }
+                    Profiles.Add(p);
+                }
                 
-                // Debug: Show count for a moment if validation result is empty
-                if (string.IsNullOrWhiteSpace(RtspValidationResult))
+                if (Profiles.Count == 0 && !string.IsNullOrWhiteSpace(RtspValidationResult) && !RtspValidationResult.Contains("Syncing"))
+                {
+                     RtspValidationResult = "No profiles found. Try Sync.";
+                }
+                else if (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded"))
+                {
                     RtspValidationResult = $"Loaded {list.Count} profiles.";
+                }
             }
             catch (System.Exception ex)
             {

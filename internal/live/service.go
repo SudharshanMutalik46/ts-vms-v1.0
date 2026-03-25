@@ -2,6 +2,9 @@ package live
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -21,6 +24,18 @@ type Service struct {
 
 type HLSParams struct {
 	BaseURL string
+	HMACKey []byte // Matches HLS_HMAC_KEY_V1 on the HLS daemon
+	HMACKid string // Key ID sent in token (default "v1")
+}
+
+// signHLS generates an HMAC-SHA256 hex signature for the canonical string.
+func signHLS(canonical string, key []byte) string {
+	if len(key) == 0 {
+		key = []byte("dev-hls-secret") // dev fallback matches hlsd default
+	}
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(canonical))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 const (
@@ -287,23 +302,25 @@ func (s *Service) GetCamerasWithOverlayEnabled(ctx context.Context) ([]string, e
 }
 
 func (s *Service) buildResponse(sess *ViewerSession, requestedQuality string) *LiveSessionResponse {
-	// Quality Selection Logic (Deterministic)
-	// If quality="sub", we try to verify/use sub stream.
-	// For now, if "sub" requested, we map to sub. Otherwise "main".
-	// Implementation gap: We don't check if sub actually exists in DB here strictly for MVP.
-	// But per plan: "If quality=sub, use sub... else main".
-
 	selectedQuality := "main"
 	if requestedQuality == "sub" {
 		selectedQuality = "sub"
 	}
-	// Note: In real world, we'd check s.CameraMonitor.HasSubStream(sess.CameraID)
 
-	// Mock HLS Token
-	hlsToken := fmt.Sprintf("sub=%s&sid=%s&scope=hls&q=%s&sig=mock_sig", sess.CameraID, sess.ID, selectedQuality)
+	// Real HMAC token — canonical: hls|{camId}|{sessId}|{exp}
+	exp := time.Now().Add(SessionTTL).Unix()
+	canonical := fmt.Sprintf("hls|%s|%s|%d", sess.CameraID, sess.ID, exp)
+	kid := s.HLSParams.HMACKid
+	if kid == "" {
+		kid = "v1"
+	}
+	sig := signHLS(canonical, s.HLSParams.HMACKey)
+	hlsToken := fmt.Sprintf("sub=%s&sid=%s&scope=hls&exp=%d&kid=%s&sig=%s",
+		sess.CameraID, sess.ID, exp, kid, sig)
 
-	hlsURL := fmt.Sprintf("%s/hls/live/%s/%s/index.m3u8?token=%s",
-		s.HLSParams.BaseURL, sess.CameraID, sess.ID, hlsToken)
+	// Route: /hls/live/{tenant_id}/{camera_id}/{session_id}/{file}
+	hlsURL := fmt.Sprintf("%s/hls/live/%s/%s/%s/index.m3u8?%s",
+		s.HLSParams.BaseURL, sess.TenantID.String(), sess.CameraID, sess.ID, hlsToken)
 
 	// WebRTC Config
 	sfuURL := fmt.Sprintf("%s/api/v1/sfu", s.BaseURL)
@@ -317,7 +334,7 @@ func (s *Service) buildResponse(sess *ViewerSession, requestedQuality string) *L
 		WebRTC: &WebRTCBlock{
 			SFUURL:           sfuURL,
 			RoomID:           sess.CameraID, // In Phase 3.7+ this might be mapped to "room_id_sub"
-			ConnectTimeoutMs: 5000,
+			ConnectTimeoutMs: 15000,
 		},
 		HLS: &HLSBlock{
 			PlaylistURL:     hlsURL,

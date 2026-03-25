@@ -20,178 +20,100 @@ type Profile struct {
 	VideoCodec  Codec
 	Width       int
 	Height      int
-	FPS         float64 // 0 if missing
-	BitrateKbps int     // 0 if missing
-	RTSPURL     string  // Raw/Sanitized? Input should arguably be raw, output selection uses it.
+	FPS         float64
+	BitrateKbps int
+	RTSPURL     string
 }
 
 type SelectionResult struct {
 	MainToken     string
 	MainSupported bool
 	MainRTSP      string
+	MainCodec     string
 
 	SubToken        string
 	SubSupported    bool
 	SubIsSameAsMain bool
 	SubRTSP         string
+	SubCodec        string
 
 	ReasonCode string
 }
 
-// Configurable priorities
-var SupportedCodecs = []Codec{CodecH264} // Default
-
-func IsSupported(c Codec) bool {
-	for _, sc := range SupportedCodecs {
-		if strings.EqualFold(string(c), string(sc)) {
-			return true
+func codecRank(preferred []Codec, c Codec) int {
+	for i, p := range preferred {
+		if strings.EqualFold(string(p), string(c)) {
+			return i
 		}
 	}
-	return false
+	return 999
 }
 
-// SelectProfiles Deterministic Selection Logic
-// Determinism: Supported > Res > FPS > Bitrate > Token
-func SelectProfiles(profiles []Profile) SelectionResult {
+func isSupportedFor(preferred []Codec, c Codec) bool {
+	return codecRank(preferred, c) < 999
+}
+
+func SelectProfilesForCodecs(profiles []Profile, preferred []Codec) SelectionResult {
 	if len(profiles) == 0 {
 		return SelectionResult{ReasonCode: "missing_profiles"}
 	}
+	if len(preferred) == 0 {
+		preferred = []Codec{CodecH264}
+	}
 
-	// 1. Sort Profiles Deterministically (Best First)
 	sort.SliceStable(profiles, func(i, j int) bool {
 		p1, p2 := profiles[i], profiles[j]
 
-		// A. Supported Codec
-		s1 := IsSupported(p1.VideoCodec)
-		s2 := IsSupported(p2.VideoCodec)
-		if s1 != s2 {
-			return s1 // True (supported) comes first
+		r1 := codecRank(preferred, p1.VideoCodec)
+		r2 := codecRank(preferred, p2.VideoCodec)
+		if r1 != r2 {
+			return r1 < r2
 		}
 
-		// B. Resolution (WxH)
-		res1 := p1.Width * p1.Height
-		res2 := p2.Width * p2.Height
-		if res1 != res2 {
-			return res1 > res2 // Higher res first
+		a1 := p1.Width * p1.Height
+		a2 := p2.Width * p2.Height
+		if a1 != a2 {
+			return a1 > a2
 		}
 
-		// C. FPS
 		if p1.FPS != p2.FPS {
 			return p1.FPS > p2.FPS
 		}
 
-		// D. Bitrate
 		if p1.BitrateKbps != p2.BitrateKbps {
 			return p1.BitrateKbps > p2.BitrateKbps
 		}
 
-		// E. Token Lexical (Tie-Breaker, Ascending for stability)
 		return p1.Token < p2.Token
 	})
 
-	// Main is highest score
 	main := profiles[0]
 
-	res := SelectionResult{
-		MainToken:     main.Token,
-		MainSupported: IsSupported(main.VideoCodec),
-		MainRTSP:      main.RTSPURL,
-	}
-	if !res.MainSupported {
-		res.ReasonCode = "unsupported_codec"
-	}
-
-	// Sub Selection
-	// Filter for Sub candidates
-	// Rule: Prefer distinct, supported, lower res (Target <= 640x360 or similar class)
-	// If no distinct sub, fallback to Main.
-
-	// Create candidates list for sub (exclude Main unless forced)
-	// Sort for Sub: Prefer Supported, then "Best Fit Low Res", then standard quality
-	// Actually "Best Fit Low Res" means closest to target without going over?
-	// Or just smallest available?
-	// Req: "Prefer <= 640x360 or <= 704x576 class if available. Otherwise choose smallest supported."
-
-	sub := selectSubProfile(profiles, main)
-
-	res.SubToken = sub.Token
-	res.SubSupported = IsSupported(sub.VideoCodec)
-	res.SubRTSP = sub.RTSPURL
-	res.SubIsSameAsMain = (sub.Token == main.Token)
-
-	return res
-}
-
-func selectSubProfile(profiles []Profile, main Profile) Profile {
-	// Filter candidates:
-	// 1. IsSupported (Strong preference)
-	// 2. Distinct from Main (Preference)
-	// 3. Resolution tiers
-
-	var candidates []Profile
+	// Pick a smaller substream, but stay in supported/preferred codecs if possible.
+	sub := main
 	for _, p := range profiles {
-		candidates = append(candidates, p)
+		if p.Token == main.Token {
+			continue
+		}
+		if !isSupportedFor(preferred, p.VideoCodec) {
+			continue
+		}
+		if p.Width*p.Height < main.Width*main.Height {
+			sub = p
+			break
+		}
 	}
 
-	// Sort candidates for SUB preference:
-	// 1. Supported Codec
-	// 2. Distinctness (p != main) ?? Maybe hard constraint or weight?
-	//    Let's prioritize: Supported > Distinct > Resolution Match (Target) > Smallest Res
+	return SelectionResult{
+		MainToken:     main.Token,
+		MainSupported: isSupportedFor(preferred, main.VideoCodec),
+		MainRTSP:      main.RTSPURL,
+		MainCodec:     string(main.VideoCodec),
 
-	sort.SliceStable(candidates, func(i, j int) bool {
-		p1, p2 := candidates[i], candidates[j]
-
-		// A. Supported
-		s1 := IsSupported(p1.VideoCodec)
-		s2 := IsSupported(p2.VideoCodec)
-		if s1 != s2 {
-			return s1
-		}
-
-		// B. Distinctness (Prefer distinct from Main)
-		d1 := (p1.Token != main.Token)
-		d2 := (p2.Token != main.Token)
-		if d1 != d2 {
-			return d1 // True (distinct) first
-		}
-
-		// C. Target Class logic
-		// We want "Smallest resolution that is reasonably usable" or "Closest to 360p"?
-		// User rule: "Prefer <= 640x360 ... Otherwise choose smallest supported."
-		// Let's implement: "Smallest available" as the driver, but prefer supported.
-		// Actually, if we just sort by Resolution ASCENDING, we get smallest.
-
-		res1 := p1.Width * p1.Height
-		res2 := p2.Width * p2.Height
-
-		// Which is better? Usually 640x360 for grid. 100x100 is too small.
-		// Detailed logic:
-		// Priority Class 1: <= 640x360 AND >= 320x240 (Ideal Grid)
-		// Priority Class 2: <= 704x576 (SD)
-		// Priority Class 3: Anything else (Higher or Tiny)
-
-		// Simplifying for standard VMS:
-		// Just sort by ABS(res - target_res) to find closest to 640x360?
-		// Or strictly follow user prompt "Prefer <= ... otherwise smallest".
-		// Interpreted:
-		// 1. If in <= 640x360 class: Prefer Largest within this class (quality maximization within constraints) or Smallest (bandwidth min)?
-		// User said "Sub stream selection (lower resolution for grid view)".
-		// Let's prefer "Closest to 640x360".
-
-		// Let's implement simpler sort:
-		// Just ascending resolution. Smallest is usually 320x240 or 640x360.
-		// If main is 4K, and we have 1080p and 720p.
-		// Ascending -> 720p picked. Good.
-		// If main is 720p, and we have 720p.
-		// Ascending -> 720p.
-		// Distinctness check handled earlier.
-
-		if res1 != res2 {
-			return res1 < res2 // Ascending Resolution (Smaller first)
-		}
-
-		return p1.Token < p2.Token
-	})
-
-	return candidates[0]
+		SubToken:        sub.Token,
+		SubSupported:    isSupportedFor(preferred, sub.VideoCodec),
+		SubIsSameAsMain: sub.Token == main.Token,
+		SubRTSP:         sub.RTSPURL,
+		SubCodec:        string(sub.VideoCodec),
+	}
 }

@@ -7,22 +7,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/data"
-	"github.com/technosupport/ts-vms/internal/discovery"
+	"github.com/technosupport/ts-vms/internal/onvif"
 )
 
 // MockOnvifClient
 type MockOnvifClient struct {
-	Profiles  []discovery.MediaProfile
+	Profiles  []onvif.MediaProfile
 	StreamURI string
 }
 
-func (m *MockOnvifClient) GetCapabilities(ctx context.Context) (map[string]bool, string, error) {
-	return map[string]bool{"Media": true}, "http://mock/media", nil
+func (m *MockOnvifClient) GetCapabilities(ctx context.Context) (map[string]bool, string, string, string, error) {
+	return map[string]bool{"Media": true}, "http://mock/media", "http://mock/events", "", nil
 }
-func (m *MockOnvifClient) GetProfiles(ctx context.Context, mediaURI string) ([]discovery.MediaProfile, error) {
+func (m *MockOnvifClient) GetProfiles(ctx context.Context, mediaURI string) ([]onvif.MediaProfile, error) {
 	return m.Profiles, nil
 }
-func (m *MockOnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string) (string, error) {
+func (m *MockOnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string, useMedia2 bool) (string, error) {
 	return m.StreamURI + "/" + token, nil
 }
 
@@ -39,31 +39,27 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 	// Inject Mock Factory
 	svc.ClientFactory = func(x, u, p string) (OnvifClient, error) {
 		return &MockOnvifClient{
-			Profiles: []discovery.MediaProfile{
-				{Token: "t1", Name: "Main", VideoEncoderConfiguration: &struct {
-					Encoding   string
-					Resolution struct {
-						Width  int
-						Height int
-					}
-					Rate    float64 `xml:"FrameRateLimit"`
-					Bitrate int     `xml:"BitrateLimit"`
-				}{Encoding: "H264", Resolution: struct {
-					Width  int
-					Height int
-				}{1920, 1080}, Rate: 30, Bitrate: 4096}},
-				{Token: "t2", Name: "Sub", VideoEncoderConfiguration: &struct {
-					Encoding   string
-					Resolution struct {
-						Width  int
-						Height int
-					}
-					Rate    float64 `xml:"FrameRateLimit"`
-					Bitrate int     `xml:"BitrateLimit"`
-				}{Encoding: "H264", Resolution: struct {
-					Width  int
-					Height int
-				}{640, 360}, Rate: 15, Bitrate: 1024}},
+			Profiles: []onvif.MediaProfile{
+				{Token: "t1", Name: "Main", VideoEncoderConfiguration: &onvif.VideoEncoderConfiguration{
+					Encoding: "H264",
+					Resolution: onvif.Resolution{
+						Width:  1920,
+						Height: 1080,
+					},
+					RateControl: onvif.RateControl{
+						FrameRateLimit: 30,
+						BitrateLimit:   4096,
+					}}},
+				{Token: "t2", Name: "Sub", VideoEncoderConfiguration: &onvif.VideoEncoderConfiguration{
+					Encoding: "H264",
+					Resolution: onvif.Resolution{
+						Width:  640,
+						Height: 360,
+					},
+					RateControl: onvif.RateControl{
+						FrameRateLimit: 15,
+						BitrateLimit:   1024,
+					}}},
 			},
 			StreamURI: "rtsp://camera",
 		}, nil

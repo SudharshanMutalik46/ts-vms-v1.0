@@ -52,6 +52,8 @@ type DiscoveredDevice struct {
 	Scopes           []string
 	Types            []string
 	EndpointRef      string
+	Manufacturer     string
+	Model            string
 	SupportsProfileS bool
 	SupportsProfileT bool
 	SupportsProfileG bool
@@ -229,8 +231,9 @@ func parseProbeMatch(data []byte) (DiscoveredDevice, bool) {
 
 	log.Printf("Discovery: Parsed Device - Endpoint: %s, XAddrs: %v, Scopes: %d", match.EndpointReference.Address, xaddrs, len(scopes))
 
-	// Profile Hints
+	// Profile Hints & Metadata
 	s, t, g := detectProfileHints(scopes)
+	manufacturer, model := parseScopes(scopes)
 
 	return DiscoveredDevice{
 		EndpointRef:      match.EndpointReference.Address,
@@ -238,10 +241,51 @@ func parseProbeMatch(data []byte) (DiscoveredDevice, bool) {
 		Scopes:           scopes,
 		Types:            types,
 		IPAddress:        ip,
+		Manufacturer:     manufacturer,
+		Model:            model,
 		SupportsProfileS: s,
 		SupportsProfileT: t,
 		SupportsProfileG: g,
 	}, true
+}
+
+func parseScopes(scopes []string) (mfr, model string) {
+	isNVT := false
+	for _, s := range scopes {
+		lower := strings.ToLower(s)
+		
+		if strings.Contains(lower, "/type/network_video_transmitter") {
+			isNVT = true
+		}
+
+		// Standard ONVIF Name/Hardware
+		if strings.Contains(lower, "/name/") {
+			val := extractScopeValue(s, "/name/")
+			if val != "" { mfr = val }
+		} else if strings.Contains(lower, "/hardware/") {
+			val := extractScopeValue(s, "/hardware/")
+			if val != "" { model = val }
+		} else if strings.Contains(lower, "/model/") {
+			val := extractScopeValue(s, "/model/")
+			if val != "" { model = val }
+		} else if strings.Contains(lower, "/manufacturer/") {
+			val := extractScopeValue(s, "/manufacturer/")
+			if val != "" { mfr = val }
+		}
+	}
+
+	if mfr == "" && isNVT {
+		mfr = "ONVIF"
+	}
+	return
+}
+
+func extractScopeValue(scope, key string) string {
+	idx := strings.Index(strings.ToLower(scope), key)
+	if idx == -1 { return "" }
+	val := scope[idx+len(key):]
+	val = strings.ReplaceAll(val, "_", " ")
+	return strings.TrimSpace(val)
 }
 
 func extractIPv4(xaddrs []string) string {

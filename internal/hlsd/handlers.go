@@ -93,17 +93,25 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. RBAC Check (Camera View)
-	// We check this AFTER token validation so that missing token returns 401, not 403.
-	allowed, err := h.perms.CheckPermission(r.Context(), "camera.view", "camera", cameraID)
-	if err != nil || !allowed {
-		http.Error(w, "Forbidden (RBAC)", http.StatusForbidden)
-		return
+	// 3. RBAC Check (Camera View) — only when a JWT auth context is present.
+	// HMAC-authenticated requests (GStreamer, HLS players with signed URL) have no
+	// JWT context; the signed HMAC already proves the control plane authorized the
+	// session, so RBAC is skipped. Only JWT-authenticated callers (browser) are
+	// checked via RBAC.
+	if _, hasJWT := middleware.GetAuthContext(r.Context()); hasJWT {
+		allowed, rbacErr := h.perms.CheckPermission(r.Context(), "camera.view", "camera", cameraID)
+		if rbacErr != nil || !allowed {
+			http.Error(w, "Forbidden (RBAC)", http.StatusForbidden)
+			return
+		}
 	}
 
-	// 5. Path Resolution
+	// 5. Path Resolution — resolve actual segment directory (viewer UUID may differ from
+	//    media plane's session directory name; fall back to the most recently modified one).
+	resolvedSessionID := h.resolveSessionDir(cameraID, sessionID)
+
 	if strings.HasSuffix(file, ".m3u8") {
-		pl, err := h.generatePlaylist(cameraID, sessionID)
+		pl, err := h.generatePlaylist(cameraID, resolvedSessionID, r.URL.RawQuery)
 		if err != nil {
 			log.Printf("[ERROR] Playlist generation failed: %v", err)
 			http.Error(w, "Playlist generation error", http.StatusInternalServerError)
@@ -115,7 +123,7 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetPath, err := paths.SafeJoin(h.cfg.HlsRoot, "live", cameraID, sessionID, file)
+	targetPath, err := paths.SafeJoin(h.cfg.HlsRoot, "live", cameraID, resolvedSessionID, file)
 	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
@@ -133,7 +141,39 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, targetPath)
 }
 
-func (h *Handler) generatePlaylist(cameraID, sessionID string) (string, error) {
+// resolveSessionDir returns the actual HLS segment directory for a camera.
+// The viewer session UUID used in the URL may differ from the media plane's
+// session directory name. If the exact directory is missing, fall back to
+// the most recently modified session directory under the camera folder.
+func (h *Handler) resolveSessionDir(cameraID, sessionID string) string {
+	dir := filepath.Join(h.cfg.HlsRoot, "live", cameraID, sessionID)
+	if _, err := os.Stat(dir); err == nil {
+		return sessionID // exact match, use as-is
+	}
+	cameraDir := filepath.Join(h.cfg.HlsRoot, "live", cameraID)
+	entries, err := os.ReadDir(cameraDir)
+	if err != nil {
+		return sessionID // can't scan, return original (will fail downstream with a clean error)
+	}
+	var latestName string
+	var latestTime int64
+	for _, e := range entries {
+		if e.IsDir() {
+			info, err2 := e.Info()
+			if err2 == nil && info.ModTime().Unix() > latestTime {
+				latestTime = info.ModTime().Unix()
+				latestName = e.Name()
+			}
+		}
+	}
+	if latestName != "" {
+		log.Printf("[hlsd] session dir %q not found for camera %s, using latest: %s", sessionID, cameraID, latestName)
+		return latestName
+	}
+	return sessionID
+}
+
+func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (string, error) {
 	dir := filepath.Join(h.cfg.HlsRoot, "live", cameraID, sessionID)
 
 	entries, err := os.ReadDir(dir)
@@ -175,7 +215,14 @@ func (h *Handler) generatePlaylist(cameraID, sessionID string) (string, error) {
 
 	for _, seg := range segments {
 		sb.WriteString("#EXTINF:2.000,\n")
-		sb.WriteString(seg + "\n")
+		// Embed the original HMAC query string so GStreamer (which does not
+		// send cookies for segment requests) can authenticate each segment
+		// via query params instead of the cookie set on the manifest response.
+		if rawQuery != "" {
+			sb.WriteString(seg + "?" + rawQuery + "\n")
+		} else {
+			sb.WriteString(seg + "\n")
+		}
 	}
 
 	return sb.String(), nil

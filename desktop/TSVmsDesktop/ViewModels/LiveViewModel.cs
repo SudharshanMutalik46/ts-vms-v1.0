@@ -12,15 +12,32 @@ using System.Collections.Generic;
 
 namespace TSVmsDesktop.ViewModels
 {
+    /// <summary>Priority cascade for live streaming: WebRtc → Hls → Rtsp.</summary>
+    public enum StreamTier { WebRtc, Hls, Rtsp }
+
     public partial class CameraSlot : ObservableObject
     {
         [ObservableProperty] private string _overlayText = "";
-        
-        [ObservableProperty] 
-        private bool _isConnected = false; 
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsGStreamerActive))]
+        [NotifyPropertyChangedFor(nameof(IsWebRtcActive))]
+        private bool _isConnected = false;
 
         [ObservableProperty] private bool _isSelected = false;
-        [ObservableProperty] private bool _isLoading = false; 
+        [ObservableProperty] private bool _isLoading = false;
+
+        /// <summary>Current streaming tier. Changes trigger WebRtc/GStreamer surface swap.</summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsGStreamerActive))]
+        [NotifyPropertyChangedFor(nameof(IsWebRtcActive))]
+        private StreamTier _activeTier = StreamTier.Rtsp;
+
+        /// <summary>True when VideoCanvas (GStreamer) should be visible.</summary>
+        public bool IsGStreamerActive => IsConnected && (ActiveTier == StreamTier.Hls || ActiveTier == StreamTier.Rtsp);
+
+        /// <summary>True when WebView2 (WebRTC) surface should be visible.</summary>
+        public bool IsWebRtcActive => IsConnected && ActiveTier == StreamTier.WebRtc;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(StatusColor))]
@@ -44,11 +61,28 @@ namespace TSVmsDesktop.ViewModels
 
         public string Id { get; set; } = "";
         public IntPtr PipelineHandle { get; set; } = IntPtr.Zero;
-        public IntPtr WindowHandle { get; set; } = IntPtr.Zero; 
-        public string RtspUrl { get; set; } = ""; 
+        public IntPtr WindowHandle { get; set; } = IntPtr.Zero;
+        /// <summary>Direct RTSP URL — used when ActiveTier == Rtsp.</summary>
+        public string RtspUrl { get; set; } = "";
+        /// <summary>HLS playlist URL — used when ActiveTier == Hls.</summary>
+        public string HlsUrl { get; set; } = "";
+        /// <summary>SFU base URL (e.g. http://localhost:8080/api/v1/sfu) — used when ActiveTier == WebRtc.</summary>
+        public string WebRtcSfuUrl { get; set; } = "";
+        /// <summary>Camera UUID passed to the SFU as the room identifier.</summary>
+        public string WebRtcRoomId { get; set; } = "";
+        public int WebRtcTimeoutMs { get; set; } = 5000;
+        public int WebRtcTrackTimeoutMs { get; set; } = 2500;
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
-        
+        public string SessionId { get; set; } = "";
+        /// <summary>
+        /// Set to true after NavigateToString is called for WebRTC.
+        /// Prevents the restart loop caused by brief IsConnected toggles
+        /// (status polls, AdvanceToNextTier) re-navigating an already-playing WebView2.
+        /// Reset when the WebRtc tier is abandoned (ActiveTier changes away).
+        /// </summary>
+        public bool IsWebRtcStarted { get; set; } = false;
+
         [ObservableProperty] private bool _hasAudioCapability = false;
         [ObservableProperty] private bool _isAudioPlaying = false;
         
@@ -61,6 +95,7 @@ namespace TSVmsDesktop.ViewModels
         private readonly CameraService _cameraService;
         private readonly CredentialService _credentialService;
         private readonly RecordingService _recordingService;
+        private readonly LiveSessionService _liveSessionService;
         private readonly IServiceProvider _serviceProvider;
         
         private System.Threading.SemaphoreSlim _refreshLock = new(1, 1);
@@ -75,12 +110,13 @@ namespace TSVmsDesktop.ViewModels
 
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
 
-        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, RecordingService recordingService, IServiceProvider serviceProvider) 
+        public LiveViewModel(VideoService videoService, CameraService cameraService, CredentialService credentialService, RecordingService recordingService, LiveSessionService liveSessionService, IServiceProvider serviceProvider)
         {
             _videoService = videoService;
             _cameraService = cameraService;
             _credentialService = credentialService;
             _recordingService = recordingService;
+            _liveSessionService = liveSessionService;
             _serviceProvider = serviceProvider;
 
             _videoService.Initialize();
@@ -120,6 +156,12 @@ namespace TSVmsDesktop.ViewModels
             {
                 await _cameraService.LoadCamerasAsync();
             }
+
+            // Load health BEFORE the first grid render so cameras already have
+            // their true Online/Offline status when ConnectAll() runs.
+            // Without this, cameras start as "Checking…" and ConnectAll() skips
+            // them entirely — the user would have to wait 5 s for the poll to fire.
+            await _cameraService.LoadHealthAsync();
 
             await RefreshGrid();
 
@@ -250,10 +292,13 @@ namespace TSVmsDesktop.ViewModels
                 if (!string.IsNullOrEmpty(slot.Id) && !slot.IsConnected &&
                     string.Equals(slot.BackendStatus, "Online", StringComparison.OrdinalIgnoreCase))
                 {
-                    await FetchCredentialsForSlot(slot);
+                    // Only fetch credentials/session if not already resolved during slot creation.
+                    if (string.IsNullOrEmpty(slot.RtspUrl))
+                        await FetchCredentialsForSlot(slot);
+
                     slot.IsConnected = true;
                     slot.CameraName = string.IsNullOrEmpty(slot.CameraName) ? "Live Stream" : slot.CameraName;
-                    await Task.Delay(600);
+                    await Task.Delay(200); // Reduced from 600 ms — just enough to stagger pipeline creation
                 }
             }
             UpdateAudioStates();
@@ -348,12 +393,70 @@ namespace TSVmsDesktop.ViewModels
             slot.Password = cam.Password ?? "";
             InvalidateStreamCaches(cam.Id);
 
+            // --- Always resolve RTSP as the final fallback tier ---
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
-            if (!string.IsNullOrWhiteSpace(resolvedSub))
+            slot.RtspUrl = resolvedSub;
+
+            // --- Try live/start to populate WebRTC and HLS tiers ---
+            try
             {
-                slot.RtspUrl = resolvedSub;
-                _subStreamCache[cam.Id] = resolvedSub;
+                var session = await _liveSessionService.StartSessionAsync(cam.Id, "sub");
+                if (session != null)
+                {
+                    slot.SessionId = session.ViewerSessionId;
+
+                    // WebRTC tier
+                    if (!string.IsNullOrWhiteSpace(session.WebRtc?.SfuUrl))
+                    {
+                        slot.WebRtcSfuUrl = session.WebRtc.SfuUrl;
+
+                        slot.WebRtcRoomId =
+                            !string.IsNullOrWhiteSpace(session.WebRtc.RoomId)
+                                ? session.WebRtc.RoomId
+                                : cam.Id;
+
+                        slot.WebRtcTimeoutMs =
+                            session.FallbackPolicy?.WebRtcConnectTimeoutMs > 0
+                                ? session.FallbackPolicy.WebRtcConnectTimeoutMs
+                                : (session.WebRtc.ConnectTimeoutMs > 0 ? session.WebRtc.ConnectTimeoutMs : 5000);
+
+                        slot.WebRtcTrackTimeoutMs =
+                            session.FallbackPolicy?.WebRtcTrackTimeoutMs > 0
+                                ? session.FallbackPolicy.WebRtcTrackTimeoutMs
+                                : 2500;
+                    }
+
+                    // HLS tier
+                    if (!string.IsNullOrWhiteSpace(session.Hls?.PlaylistUrl))
+                    {
+                        slot.HlsUrl = session.Hls.PlaylistUrl;
+                    }
+                }
             }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[TS-VMS] live/start failed cam={cam.Name} id={cam.Id}: {ex.Message}");
+            }
+
+            // --- Set initial tier based on what is available ---
+            if (!string.IsNullOrEmpty(slot.WebRtcSfuUrl))
+            {
+                slot.ActiveTier = StreamTier.WebRtc;
+                System.Console.WriteLine($"[TS-VMS] Tier=WebRtc cam={slot.CameraName} sfuUrl={slot.WebRtcSfuUrl}");
+            }
+            else if (!string.IsNullOrEmpty(slot.HlsUrl))
+            {
+                slot.ActiveTier = StreamTier.Hls;
+                System.Console.WriteLine($"[TS-VMS] Tier=Hls cam={slot.CameraName}");
+            }
+            else
+            {
+                slot.ActiveTier = StreamTier.Rtsp;
+                System.Console.WriteLine($"[TS-VMS] Tier=Rtsp cam={slot.CameraName} (no WebRTC/HLS)");
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolvedSub))
+                _subStreamCache[cam.Id] = resolvedSub;
         }
 
         [RelayCommand]
@@ -555,13 +658,86 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
+        // ── WebRTC ─────────────────────────────────────────────────────────────────
+
+        /// <summary>Called by LiveView code-behind when the WebRTC page posts a failure message.</summary>
+        public void OnWebRtcFailed(CameraSlot slot, string reason)
+        {
+            System.Console.WriteLine($"[TS-VMS] WebRTC failed cam={slot.CameraName}: {reason}");
+            AdvanceToNextTier(slot, "WebRTC: " + reason);
+        }
+
+        // ── Tier cascade ────────────────────────────────────────────────────────
+
+        private void AdvanceToNextTier(CameraSlot slot, string reason)
+        {
+            System.Console.WriteLine(
+                $"[TS-VMS] Tier advance {slot.ActiveTier} → next for {slot.CameraName} ({reason})");
+
+            // Stop current GStreamer pipeline (WebRTC pipeline is inside WebView2)
+            var oldHandle = slot.PipelineHandle;
+            if (oldHandle != IntPtr.Zero)
+            {
+                slot.PipelineHandle = IntPtr.Zero;
+                _videoService.StopStream(oldHandle);
+            }
+
+            // Determine next tier
+            var next = slot.ActiveTier switch
+            {
+                StreamTier.WebRtc => string.IsNullOrEmpty(slot.HlsUrl) ? StreamTier.Rtsp : StreamTier.Hls,
+                StreamTier.Hls   => StreamTier.Rtsp,
+                _                => StreamTier.Rtsp,
+            };
+
+            // Check that the next tier has a URL
+            string nextUrl = next == StreamTier.Hls  ? slot.HlsUrl  :
+                             next == StreamTier.Rtsp  ? slot.RtspUrl : "";
+            if (string.IsNullOrEmpty(nextUrl))
+            {
+                slot.IsStreamFailed    = true;
+                slot.StreamErrorMessage = "No stream URL available for any tier";
+                OnPropertyChanged(nameof(ActiveStreamCount));
+                return;
+            }
+
+            slot.ActiveTier = next;
+            slot.IsStreamFailed    = false;
+            slot.StreamErrorMessage = "";
+
+            // Re-trigger the IsVisible path by toggling IsConnected
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                slot.IsConnected = false;
+                slot.IsConnected = true;
+            });
+            OnPropertyChanged(nameof(ActiveStreamCount));
+        }
+
+        private static bool IsPermanentGStreamerError(string msg) =>
+            msg.Contains("Not Found",    StringComparison.OrdinalIgnoreCase)
+         || msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
+         || msg.Contains("Forbidden",    StringComparison.OrdinalIgnoreCase)
+         || msg.Contains("404", StringComparison.Ordinal)
+         || msg.Contains("401", StringComparison.Ordinal);
+
         private void OnStreamError(IntPtr windowHandle, string message)
         {
             var slot = CameraGrid.FirstOrDefault(s => s.WindowHandle == windowHandle);
             if (slot != null)
             {
-                slot.IsConnected = false;
-                slot.IsStreamFailed = true;
+                // HLS permanent error → advance to RTSP
+                if (slot.ActiveTier == StreamTier.Hls && IsPermanentGStreamerError(message))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[TS-VMS] HLS permanent failure for {slot.CameraName}, advancing tier");
+                    AdvanceToNextTier(slot, "HLS permanent: " + message);
+                    return;
+                }
+
+                // All other errors: mark stream as failed (GStreamer will auto-restart for RTSP)
+                slot.IsConnected       = false;
+                slot.IsStreamFailed    = true;
                 slot.StreamErrorMessage = message;
                 OnPropertyChanged(nameof(ActiveStreamCount));
                 return;
@@ -571,9 +747,7 @@ namespace TSVmsDesktop.ViewModels
             {
                 var activeSlot = CameraGrid.FirstOrDefault(s => s.CameraName == SelectedCameraName);
                 if (activeSlot != null && FullScreenUrl != activeSlot.RtspUrl)
-                {
                     FullScreenUrl = activeSlot.RtspUrl;
-                }
             }
         }
     }

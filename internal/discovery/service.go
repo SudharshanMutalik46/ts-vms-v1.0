@@ -13,6 +13,7 @@ import (
 	"github.com/technosupport/ts-vms/internal/audit"
 	"github.com/technosupport/ts-vms/internal/crypto"
 	"github.com/technosupport/ts-vms/internal/data"
+	"github.com/technosupport/ts-vms/internal/onvif"
 )
 
 const (
@@ -41,12 +42,13 @@ type DiscoveryRepository interface {
 
 type Service struct {
 	Repo    DiscoveryRepository
+	NvrRepo data.NVRRepository
 	Keyring *crypto.Keyring
 	Auditor Auditor
 }
 
-func NewService(repo DiscoveryRepository, keyring *crypto.Keyring, auditor Auditor) *Service {
-	return &Service{Repo: repo, Keyring: keyring, Auditor: auditor}
+func NewService(repo DiscoveryRepository, nvrRepo data.NVRRepository, keyring *crypto.Keyring, auditor Auditor) *Service {
+	return &Service{Repo: repo, NvrRepo: nvrRepo, Keyring: keyring, Auditor: auditor}
 }
 
 // StartDiscovery (Async)
@@ -110,6 +112,8 @@ func (s *Service) runScan(ctx context.Context, runID, tenantID uuid.UUID) {
 			TenantID:         tenantID,
 			DiscoveryRunID:   runID,
 			IPAddress:        dev.IPAddress,
+			Manufacturer:     dev.Manufacturer,
+			Model:            dev.Model,
 			EndpointRef:      dev.EndpointRef,
 			SupportsProfileS: dev.SupportsProfileS,
 			SupportsProfileT: dev.SupportsProfileT,
@@ -126,6 +130,14 @@ func (s *Service) runScan(ctx context.Context, runID, tenantID uuid.UUID) {
 			errCount++
 		} else {
 			count++
+			// Best-effort enrichment: Fetch Info/Profiles in background if possible
+			// We use anonymous probing since we don't have credentials yet
+			go func(d *data.DiscoveredDevice) {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				// Run Probe with empty creds
+				_ = s.ProbeDevice(bgCtx, d.ID, uuid.Nil, d.TenantID)
+			}(dbDev)
 		}
 	}
 
@@ -136,6 +148,10 @@ func (s *Service) runScan(ctx context.Context, runID, tenantID uuid.UUID) {
 
 func (s *Service) GetRun(ctx context.Context, runID uuid.UUID) (*data.DiscoveryRun, error) {
 	return s.Repo.GetRun(ctx, runID)
+}
+
+func (s *Service) GetDevice(ctx context.Context, deviceID uuid.UUID) (*data.DiscoveredDevice, error) {
+	return s.Repo.GetDevice(ctx, deviceID)
 }
 
 func (s *Service) ListDevices(ctx context.Context, runID uuid.UUID) ([]*data.DiscoveredDevice, error) {
@@ -211,7 +227,7 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 		xaddr = fmt.Sprintf("http://%s/onvif/device_service", dev.IPAddress)
 	}
 
-	cli, err := NewOnvifClient(xaddr, username, password)
+	cli, err := onvif.NewOnvifClient(xaddr, username, password)
 	if err != nil {
 		fmt.Printf("[PROBE] Client Init Failed for %s: %v\n", dev.IPAddress, err)
 		return s.failProbe(ctx, dev, "client_init_error")
@@ -238,40 +254,40 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 	dev.SerialNumber = info.SerialNumber
 
 	// B. Capabilities (Profiles Hint)
-	capsMap, mediaURI, err := cli.GetCapabilities(probeCtx)
+	capsMap, mediaURI, eventsURI, media2URI, err := cli.GetCapabilities(probeCtx)
 	if err != nil {
 		fmt.Printf("[PROBE] GetCapabilities Failed for %s (Non-Fatal): %v\n", dev.IPAddress, err)
 	} else {
-		fmt.Printf("[PROBE] Media URI for %s: %s\n", dev.IPAddress, mediaURI)
+		fmt.Printf("[PROBE] Media URI: %s, Media2 URI: %s, Events URI: %s\n", mediaURI, media2URI, eventsURI)
 	}
 	// Temporarily marshal capsMap into dev.Capabilities in case GetProfiles fails.
 	dev.Capabilities, _ = json.Marshal(capsMap)
 
-	// C. Profiles (Authoritative)
-	if mediaURI != "" {
-		profiles, err := cli.GetProfiles(probeCtx, mediaURI)
+	var chosenProfileToken string
+	var mergedCaps onvif.CameraCapabilities
+
+	bestMediaURI := mediaURI
+	useMedia2 := false
+	if capsMap["Media2"] && media2URI != "" {
+		bestMediaURI = media2URI
+		useMedia2 = true
+	}
+
+	if bestMediaURI != "" {
+		profiles, err := cli.GetProfiles(probeCtx, bestMediaURI)
 		if err == nil {
-			// Infer S/T/G from profiles?
-			// Profiles usually just list token/config.
-			// Real check is if GetProfiles SUCCEEDS usually implies S.
-			// Detailed check would inspect config types.
-			// Let's assume Success = Profile S supported at least.
 			dev.SupportsProfileS = true
-
-			// Parse Audio/PTZ capabilities from profiles
-			devCaps := DetermineCapabilities(profiles)
-			dev.Capabilities, _ = json.Marshal(devCaps)
-
-			// Store raw profiles summary
+			mergedCaps = onvif.DetermineCapabilities(profiles)
 			dev.MediaProfiles, _ = json.Marshal(profiles)
 
-			// D. RTSP URIs
+			if len(profiles) > 0 {
+				chosenProfileToken = profiles[0].Token
+			}
+
 			var uris []string
 			for _, p := range profiles {
-				uri, err := cli.GetStreamUri(probeCtx, mediaURI, p.Token)
+				uri, err := cli.GetStreamUri(probeCtx, bestMediaURI, p.Token, useMedia2)
 				if err == nil {
-					// Strip Credentials from URI
-					// e.g., rtsp://user:pass@IP...
 					safeURI := stripCredentials(uri)
 					uris = append(uris, fmt.Sprintf("%s|%s", p.Token, safeURI))
 				}
@@ -279,6 +295,50 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 			dev.RTSP_URIs, _ = json.Marshal(uris)
 		}
 	}
+
+	// D. Phase 1 enrichment
+	if mac, err := cli.GetNetworkInterfaces(probeCtx); err == nil && mac != "" {
+		dev.MACAddress = mac
+	}
+
+	if chosenProfileToken != "" && mediaURI != "" {
+		if snap, err := cli.GetSnapshotURI(probeCtx, mediaURI, chosenProfileToken); err == nil && snap != "" {
+			dev.SnapshotURI = stripCredentials(snap)
+		}
+	}
+
+	if offsetSec, err := cli.GetSystemDateAndTime(probeCtx); err == nil {
+		dev.ClockOffsetSec = offsetSec
+	}
+
+	if mediaURI != "" {
+		if n, err := cli.GetAudioSources(probeCtx, mediaURI); err == nil && n > 0 {
+			dev.SupportsAudio = true
+		}
+	}
+
+	if eventsURI != "" {
+		if topics, err := cli.GetEventProperties(probeCtx, eventsURI); err == nil {
+			dev.EventTopics = topics
+			dev.SupportsEvents = len(topics) > 0
+		}
+	}
+
+	// Merge inferred + directly probed booleans
+	mergedCaps.HasAudio = mergedCaps.HasAudio || dev.SupportsAudio
+	mergedCaps.PTZ = mergedCaps.PTZ || dev.SupportsPTZ
+	// Events support can be inferred if eventsURI is present, or if topics > 0
+	mergedCapsHasEvents := dev.SupportsEvents || (eventsURI != "")
+
+	dev.SupportsAudio = mergedCaps.HasAudio
+	dev.SupportsPTZ = mergedCaps.PTZ
+	dev.SupportsEvents = mergedCapsHasEvents
+
+	dev.Capabilities, _ = json.Marshal(map[string]any{
+		"HasAudio": dev.SupportsAudio,
+		"PTZ":      dev.SupportsPTZ,
+		"Events":   dev.SupportsEvents,
+	})
 
 	dev.LastProbeAt = timePtr(time.Now())
 	dev.LastErrorCode = ""
@@ -293,10 +353,76 @@ func (s *Service) ProbeDevice(ctx context.Context, deviceID, credID uuid.UUID, t
 		Result:     "success",
 	})
 
-	return s.Repo.UpdateDeviceProbe(ctx, dev)
+	err = s.Repo.UpdateDeviceProbe(ctx, dev)
+	if err == nil {
+		// Sync to NVR channels if matching NVR exists
+		go s.syncToNvr(context.Background(), dev)
+	}
+	return err
+}
+
+func (s *Service) syncToNvr(ctx context.Context, dev *data.DiscoveredDevice) {
+	if s.NvrRepo == nil {
+		return
+	}
+
+	// 1. Find NVRs with same IP
+	// Repo.List handles RLS but we pass tenantID explicitly in filter if needed?
+	// data.NVRFilter doesn't have TenantID, but List takes it.
+	nvrs, _, err := s.NvrRepo.List(ctx, dev.TenantID, data.NVRFilter{Query: dev.IPAddress}, 10, 0)
+	if err != nil {
+		return
+	}
+
+	for _, nvr := range nvrs {
+		// Strict IP match (repo might return partial match)
+		if nvr.IPAddress != dev.IPAddress {
+			continue
+		}
+
+		// 2. Map Profiles
+		var profiles []onvif.MediaProfile
+		if err := json.Unmarshal(dev.MediaProfiles, &profiles); err != nil {
+			continue
+		}
+
+		var rawUris []string
+		_ = json.Unmarshal(dev.RTSP_URIs, &rawUris)
+		uriMap := make(map[string]string)
+		for _, u := range rawUris {
+			parts := strings.SplitN(u, "|", 2)
+			if len(parts) == 2 {
+				uriMap[parts[0]] = parts[1]
+			}
+		}
+
+		// 3. Upsert Channels
+		for _, p := range profiles {
+			mainURI := uriMap[p.Token]
+			sub := false
+
+			ch := &data.NVRChannel{
+				TenantID:          dev.TenantID,
+				SiteID:            nvr.SiteID,
+				NVRID:             nvr.ID,
+				ChannelRef:        p.Token,
+				Name:              p.Name,
+				IsEnabled:         true,
+				SupportsSubstream: &sub,
+				RTSPMain:          mainURI,
+				DiscoveredAt:      time.Now(),
+				LastSyncedAt:      time.Now(),
+				ValidationStatus:  "ok",
+			}
+			s.NvrRepo.UpsertChannel(ctx, ch)
+		}
+	}
 }
 
 func (s *Service) resolveCredential(ctx context.Context, credID, tenantID uuid.UUID) (string, string, error) {
+	if credID == uuid.Nil {
+		return "", "", nil // Anonymous
+	}
 	c, err := s.Repo.GetBootstrapCred(ctx, credID)
 	if err != nil {
 		return "", "", err
@@ -343,28 +469,11 @@ func (s *Service) failProbe(ctx context.Context, dev *data.DiscoveredDevice, cod
 	return fmt.Errorf("probe failed: %s", code)
 }
 
-// Helpers
-func DetermineCapabilities(profiles []MediaProfile) data.CameraCapabilities {
-	caps := data.CameraCapabilities{
-		HasAudio: false,
-		PTZ:      false,
-	}
-
-	for _, profile := range profiles {
-		// If the ONVIF profile contains an AudioSource or AudioEncoder configuration,
-		// it means the camera physically has a microphone enabled.
-		if profile.AudioSourceConfiguration != nil || profile.AudioEncoderConfiguration != nil {
-			caps.HasAudio = true
-		}
-
-		// Check for PTZ while we are looping
-		if profile.PTZConfiguration != nil {
-			caps.PTZ = true
-		}
-	}
-
-	return caps
-}
+// stripCredentials removed, used from onvif package if needed? 
+// Actually OnvifClient has stripCredentials? No it doesn't.
+// Wait, I didn't move stripCredentials to onvif. 
+// Let's keep it here or move it.
+// I'll keep it here for now as it's a small helper.
 
 func stripCredentials(uri string) string {
 	// Parse as URL? RTSP isn't always standard URL parseable if quirky, but typically yes.

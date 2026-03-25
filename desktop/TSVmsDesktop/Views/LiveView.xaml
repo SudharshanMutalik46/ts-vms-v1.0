@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:TSVmsDesktop.Controls"
              xmlns:converters="clr-namespace:TSVmsDesktop.Converters"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
              xmlns:System="clr-namespace:System;assembly=mscorlib"
              Unloaded="UserControl_Unloaded"
              Loaded="UserControl_Loaded"
@@ -282,14 +283,23 @@
                                         </Grid>
                                     </Grid>
 
-                                    <!-- Video Surface -->
-                                    <controls:VideoCanvas x:Name="VideoSurface" 
+                                    <!-- WebRTC Surface (Tier 1 — shown when ActiveTier==WebRtc) -->
+                                    <wv2:WebView2 x:Name="WebRtcSurface"
+                                                  MinWidth="64"
+                                                  MinHeight="64"
+                                                  HorizontalAlignment="Stretch"
+                                                  VerticalAlignment="Stretch"
+                                                  Visibility="{Binding IsWebRtcActive, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                  IsVisibleChanged="WebRtcSurface_IsVisibleChanged"/>
+
+                                    <!-- GStreamer Video Surface (Tier 2/3 — HLS or RTSP) -->
+                                    <controls:VideoCanvas x:Name="VideoSurface"
                                                           MinWidth="64"
                                                           MinHeight="64"
                                                           DataContext="{Binding}"
                                                           HorizontalAlignment="Stretch"
                                                           VerticalAlignment="Stretch"
-                                                          Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                          Visibility="{Binding IsGStreamerActive, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                           IsVisibleChanged="VideoSurface_IsVisibleChanged"/>
 
 

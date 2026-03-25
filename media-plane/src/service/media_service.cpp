@@ -125,7 +125,7 @@ grpc::Status MediaServiceImpl::StartSfuRtpEgress(grpc::ServerContext* /*context*
     }
 
     auto result = manager_->StartSfuRtpEgress(
-        request->camera_id(), request->dst_ip(), request->dst_port(), request->ssrc(), request->pt());
+        request->camera_id(), request->dst_ip(), request->dst_port(), request->ssrc(), request->pt(), request->codec());
     
     if (result == IngestManager::Result::SUCCESS) {
         return grpc::Status::OK;

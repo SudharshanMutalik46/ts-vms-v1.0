@@ -768,6 +768,7 @@ type StartSfuRtpEgressRequest struct {
 	Pt            uint32                 `protobuf:"varint,4,opt,name=pt,proto3" json:"pt,omitempty"` // Payload Type
 	DstIp         string                 `protobuf:"bytes,5,opt,name=dst_ip,json=dstIp,proto3" json:"dst_ip,omitempty"`
 	DstPort       int32                  `protobuf:"varint,6,opt,name=dst_port,json=dstPort,proto3" json:"dst_port,omitempty"`
+	Codec         string                 `protobuf:"bytes,7,opt,name=codec,proto3" json:"codec,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -842,6 +843,13 @@ func (x *StartSfuRtpEgressRequest) GetDstPort() int32 {
 		return x.DstPort
 	}
 	return 0
+}
+
+func (x *StartSfuRtpEgressRequest) GetCodec() string {
+	if x != nil {
+		return x.Codec
+	}
+	return ""
 }
 
 type StartSfuRtpEgressResponse struct {
@@ -1045,14 +1053,15 @@ const file_ts_vms_media_v1_media_proto_rawDesc = "" +
 	"\n" +
 	"image_data\x18\x01 \x01(\fR\timageData\x12\x1b\n" +
 	"\tmime_type\x18\x02 \x01(\tR\bmimeType\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"\xa6\x01\n" +
+	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"\xbc\x01\n" +
 	"\x18StartSfuRtpEgressRequest\x12\x1b\n" +
 	"\tcamera_id\x18\x01 \x01(\tR\bcameraId\x12\x17\n" +
 	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x12\n" +
 	"\x04ssrc\x18\x03 \x01(\rR\x04ssrc\x12\x0e\n" +
 	"\x02pt\x18\x04 \x01(\rR\x02pt\x12\x15\n" +
 	"\x06dst_ip\x18\x05 \x01(\tR\x05dstIp\x12\x19\n" +
-	"\bdst_port\x18\x06 \x01(\x05R\adstPort\"s\n" +
+	"\bdst_port\x18\x06 \x01(\x05R\adstPort\x12\x14\n" +
+	"\x05codec\x18\a \x01(\tR\x05codec\"s\n" +
 	"\x19StartSfuRtpEgressResponse\x12'\n" +
 	"\x0falready_running\x18\x01 \x01(\bR\x0ealreadyRunning\x12-\n" +
 	"\x05error\x18\x02 \x01(\v2\x17.ts.vms.common.v1.ErrorR\x05error\"6\n" +
