@@ -31,7 +31,8 @@ type SfuService struct {
 }
 
 const hlsReadyProbeTimeout = 8 * time.Second
-const ingestReadyProbeTimeout = 5 * time.Second
+const ingestReadyProbeTimeout = 20 * time.Second
+const ingestReadyProbeTimeoutH265 = 90 * time.Second
 
 func NewSfuService(sfuClient *sfu.Client, mediaClient *media.Client, repo Repository, mediaRepo *data.MediaModel, credService *CredentialService, mediaSelector *MediaService, pool *WebRtcPool) *SfuService {
 	return &SfuService{
@@ -180,18 +181,24 @@ func (s *SfuService) ensureIngestForWebRtc(ctx context.Context, tenantID, camera
 			continue
 		}
 
-		deadline := time.Now().Add(ingestReadyProbeTimeout)
+		probeTimeout := ingestReadyProbeTimeout
+		if targetCodec == "H265" {
+			probeTimeout = ingestReadyProbeTimeoutH265
+		}
+		deadline := time.Now().Add(probeTimeout)
+		fmt.Printf("[DEBUG] ingest_ensure: waiting for RUNNING camera=%s codec=%s timeout=%s\n", cameraID, targetCodec, probeTimeout)
 		for time.Now().Before(deadline) {
 			resp, err := s.mediaClient.GetIngestStatus(ctx, cameraID.String())
 			if err == nil {
 				state := strings.ToUpper(strings.TrimSpace(resp.GetState()))
 				if resp.Running || state == "STARTING" || state == "RECONNECTING" {
+					fmt.Printf("[DEBUG] ingest_ensure: camera=%s reached state=%s running=%v\n", cameraID, state, resp.Running)
 					return nil
 				}
 			}
 			time.Sleep(250 * time.Millisecond)
 		}
-		lastErr = fmt.Errorf("ingest did not reach RUNNING state")
+		lastErr = fmt.Errorf("ingest did not reach RUNNING state within %s", probeTimeout)
 	}
 
 	return NewSfuError("ingest_ensure", "ERR_INGEST_NOT_READY", "Ingest did not start for WebRTC", lastErr)

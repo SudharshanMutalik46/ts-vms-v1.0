@@ -252,7 +252,13 @@ namespace TSVmsDesktop.Views
                                                  slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext));
 
                     if (slot.PipelineHandle != IntPtr.Zero)
+                    {
                         slot.PipelineStartedAt = DateTime.UtcNow;
+                        if (slot.IsReconnectInProgress && DataContext is LiveViewModel vm)
+                        {
+                            _ = vm.CompleteReconnectAsync(slot, $"restarted on {slot.ActiveTier}");
+                        }
+                    }
                 }
                 finally
                 {
@@ -408,6 +414,10 @@ namespace TSVmsDesktop.Views
                         VideoService.Log($"[TS-VMS] WebRTC: CONNECTED cam={slot.CameraName}");
                         slot.IsStreamFailed    = false;
                         slot.StreamErrorMessage = "";
+                        if (vm != null)
+                        {
+                            _ = vm.CompleteReconnectAsync(slot, "WebRTC connected");
+                        }
                     }
                     else if (type == "webrtc-failed")
                     {

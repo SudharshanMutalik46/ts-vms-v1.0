@@ -2,3 +2,4 @@
 # Add up to 64 SUB-STREAM URLs below.
 urls:
     - rtsp://admin:123456@192.168.1.73:554/ch01_sub.264
+    - rtsp://admin1:ts12345@192.168.1.127:554/channel=1_stream=1&onvif=0.sdp?real_st

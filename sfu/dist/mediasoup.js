@@ -1,6 +1,7 @@
 import * as mediasoup from 'mediasoup';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
+const H264_PROFILE_LEVEL_ID = (process.env['SFU_H264_PROFILE_LEVEL_ID'] || '42c01e').toLowerCase();
 export class MediasoupManager {
     workers = [];
     webRtcServers = new Map(); // workerPid -> WebRtcServer
@@ -117,7 +118,7 @@ export class MediasoupManager {
                 clockRate: 90000,
                 parameters: {
                     'packetization-mode': 1,
-                    'profile-level-id': '42001f',
+                    'profile-level-id': H264_PROFILE_LEVEL_ID,
                     'level-asymmetry-allowed': 1,
                     'x-google-start-bitrate': 1000
                 }
@@ -282,7 +283,7 @@ export class MediasoupManager {
             clockRate: 90000,
             parameters: {
                 'packetization-mode': 1,
-                'profile-level-id': '42001f',
+                'profile-level-id': H264_PROFILE_LEVEL_ID,
                 'level-asymmetry-allowed': 1,
                 'x-google-start-bitrate': 1000
             }

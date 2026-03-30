@@ -86,3 +86,8 @@ src/recording/CMakeFiles/
 src/recording/ZERO_CHECK.*
 src/recording/ALL_BUILD.*
 src/recording/*.stamp*
+
+# Gemini and temp files
+GEMINI.md
+WEBRTC_FIX_HANDOFF.txt
+.gomodcache/

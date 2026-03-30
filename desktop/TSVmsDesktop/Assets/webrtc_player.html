@@ -279,7 +279,7 @@ function parseOfferVideoCaps(sdp) {
 
 function chooseH264Pm1Codec(offerCaps) {
   const { rtpmap, fmtpMap } = offerCaps;
-  const targetProfiles = ['42001f', '42e01f', '420032', '4d001f', '640c1f', '64001f'];
+  const targetProfiles = ['42c01e', '42001f', '42e01f', '420032', '4d001f', '640c1f', '64001f'];
 
   const entries = Object.values(rtpmap)
     .filter(c => normalizeCodecName(c.codecName) === 'H264')
@@ -343,6 +343,10 @@ function buildConsumeCaps(routerCaps, offerCaps, preferredCodec) {
     if (!chosenParams['level-asymmetry-allowed']) {
       chosenParams['level-asymmetry-allowed'] = 1;
     }
+    // Keep the negotiated H264 profile aligned with the browser's actual
+    // offer and the SFU producer. The media plane emits constrained-baseline
+    // 42c01e, so we preserve that profile when Chromium advertises it.
+    chosenParams['profile-level-id'] = chosen.profileLevelId || '42c01e';
 
     return {
       codecs: [{

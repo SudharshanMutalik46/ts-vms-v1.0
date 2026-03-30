@@ -58,6 +58,12 @@ namespace TSVmsDesktop.ViewModels
 
         [ObservableProperty] private bool _isStreamFailed = false;
         [ObservableProperty] private string _streamErrorMessage = "";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsTransientStatusVisible))]
+        private string _transientStatusText = "";
+        [ObservableProperty] private bool _isReconnectInProgress = false;
+
+        public bool IsTransientStatusVisible => !string.IsNullOrWhiteSpace(TransientStatusText);
 
         public string Id { get; set; } = "";
         public IntPtr PipelineHandle { get; set; } = IntPtr.Zero;
@@ -137,6 +143,15 @@ namespace TSVmsDesktop.ViewModels
             if (value.Contains("H264") || value == "AVC") return "H264";
             if (value.Contains("H265") || value == "HEVC") return "H265";
             return "";
+        }
+
+        private static string ResolveWebRtcCodec(string? preferredCodec)
+        {
+            var normalized = NormalizeCodec(preferredCodec);
+            if (string.IsNullOrWhiteSpace(normalized)) return "H264";
+            return string.Equals(normalized, "H265", StringComparison.OrdinalIgnoreCase)
+                ? "H264"
+                : normalized;
         }
 
         public ObservableCollection<CameraSlot> CameraGrid { get; } = new();
@@ -221,6 +236,8 @@ namespace TSVmsDesktop.ViewModels
             {
                 slot.IsConnected = false;
                 slot.IsAudioPlaying = false;
+                slot.IsReconnectInProgress = false;
+                slot.TransientStatusText = "";
             }
 
             OnPropertyChanged(nameof(ActiveStreamCount));
@@ -343,6 +360,50 @@ namespace TSVmsDesktop.ViewModels
             OnPropertyChanged(nameof(ActiveStreamCount));
         }
 
+        [RelayCommand]
+        public async Task ReconnectStream(CameraSlot? slot)
+        {
+            if (slot == null || slot.IsReconnectInProgress) return;
+
+            var retryTier = slot.ActiveTier;
+            VideoService.Log($"[TS-VMS] Reconnect requested cam={slot.CameraName} tier={retryTier}");
+
+            slot.IsReconnectInProgress = true;
+            slot.IsStreamFailed = false;
+            slot.StreamErrorMessage = "";
+            slot.TransientStatusText = $"Reconnecting {retryTier}...";
+
+            try
+            {
+                if (retryTier == StreamTier.WebRtc)
+                {
+                    slot.IsWebRtcStarted = false;
+                }
+
+                if (slot.PipelineHandle != IntPtr.Zero)
+                {
+                    var oldHandle = slot.PipelineHandle;
+                    slot.PipelineHandle = IntPtr.Zero;
+                    slot.WindowHandle = IntPtr.Zero;
+                    _ = _videoService.StopStreamAsync(oldHandle);
+                }
+
+                slot.IsConnected = false;
+                await Task.Delay(350);
+                slot.IsConnected = true;
+
+                VideoService.Log($"[TS-VMS] Reconnect restart queued cam={slot.CameraName} tier={retryTier}");
+            }
+            catch (Exception ex)
+            {
+                VideoService.Log($"[TS-VMS] Reconnect failed to start cam={slot.CameraName} tier={retryTier}: {ex.Message}");
+                slot.TransientStatusText = "Reconnect failed";
+                slot.IsStreamFailed = true;
+                slot.StreamErrorMessage = ex.Message;
+                _ = ClearReconnectStatusAsync(slot);
+            }
+        }
+
         private async Task<CameraMediaInfo?> GetMediaInfoCachedAsync(string cameraId, bool forceRefresh = false)
         {
             if (string.IsNullOrWhiteSpace(cameraId)) return null;
@@ -450,7 +511,7 @@ namespace TSVmsDesktop.ViewModels
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
             slot.RtspUrl = resolvedSub;
             slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
-            slot.WebRtcCodecPreference = slot.PreferredCodec;
+            slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
             slot.AllowHlsFallback = !string.Equals(slot.PreferredCodec, "H265", StringComparison.OrdinalIgnoreCase);
 
             // Autonomous Interrogation fallback
@@ -463,7 +524,7 @@ namespace TSVmsDesktop.ViewModels
                     await mediaService.SelectProfilesAsync(cam.Id, null!, null!);
                     InvalidateStreamCaches(cam.Id);
                     slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
-                    slot.WebRtcCodecPreference = slot.PreferredCodec;
+                    slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
                     slot.AllowHlsFallback = !string.Equals(slot.PreferredCodec, "H265", StringComparison.OrdinalIgnoreCase);
                 }
             }
@@ -479,7 +540,7 @@ namespace TSVmsDesktop.ViewModels
                     if (string.IsNullOrWhiteSpace(slot.PreferredCodec))
                         slot.PreferredCodec = NormalizeCodec(session.SelectedCodec);
                     if (string.IsNullOrWhiteSpace(slot.WebRtcCodecPreference))
-                        slot.WebRtcCodecPreference = slot.PreferredCodec;
+                        slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
                     if (string.Equals(slot.PreferredCodec, "H265", StringComparison.OrdinalIgnoreCase))
                         slot.AllowHlsFallback = false;
                     sessionPrimaryTier = ParseTier(session.Primary);
@@ -542,7 +603,7 @@ namespace TSVmsDesktop.ViewModels
                 if (sessionPrimaryTier == StreamTier.WebRtc && !string.IsNullOrEmpty(slot.WebRtcSfuUrl))
                 {
                     slot.ActiveTier = StreamTier.WebRtc;
-                    VideoService.Log($"[TS-VMS] Tier=WebRtc cam={slot.CameraName} codec={slot.PreferredCodec} primary=session sfuUrl={slot.WebRtcSfuUrl}");
+                    VideoService.Log($"[TS-VMS] Tier=WebRtc cam={slot.CameraName} codec={slot.WebRtcCodecPreference} primary=session sfuUrl={slot.WebRtcSfuUrl}");
                     if (!string.IsNullOrWhiteSpace(resolvedSub))
                         _subStreamCache[cam.Id] = resolvedSub;
                     return;
@@ -563,12 +624,13 @@ namespace TSVmsDesktop.ViewModels
 
             // --- Set initial tier based on what is available ---
             bool preferHls = slot.AllowHlsFallback && string.IsNullOrEmpty(slot.RtspUrl);
-            bool preferWebRtc = string.Equals(slot.PreferredCodec, "H265", StringComparison.OrdinalIgnoreCase);
+            bool preferWebRtc = !string.IsNullOrEmpty(slot.WebRtcSfuUrl) &&
+                string.Equals(slot.WebRtcCodecPreference, "H264", StringComparison.OrdinalIgnoreCase);
 
             if (preferWebRtc && !string.IsNullOrEmpty(slot.WebRtcSfuUrl))
             {
                 slot.ActiveTier = StreamTier.WebRtc;
-                VideoService.Log($"[TS-VMS] Tier=WebRtc cam={slot.CameraName} codec={slot.PreferredCodec} sfuUrl={slot.WebRtcSfuUrl}");
+                VideoService.Log($"[TS-VMS] Tier=WebRtc cam={slot.CameraName} codec={slot.WebRtcCodecPreference} sfuUrl={slot.WebRtcSfuUrl}");
             }
             else if (!string.IsNullOrEmpty(slot.RtspUrl))
             {
@@ -801,6 +863,31 @@ namespace TSVmsDesktop.ViewModels
 
         // ── WebRTC ─────────────────────────────────────────────────────────────────
 
+        public async Task CompleteReconnectAsync(CameraSlot slot, string result)
+        {
+            if (slot == null || !slot.IsReconnectInProgress) return;
+
+            VideoService.Log($"[TS-VMS] Reconnect result cam={slot.CameraName}: {result}");
+            slot.TransientStatusText = "Reconnected";
+            await ClearReconnectStatusAsync(slot);
+        }
+
+        public async Task FailReconnectAsync(CameraSlot slot, string reason)
+        {
+            if (slot == null || !slot.IsReconnectInProgress) return;
+
+            VideoService.Log($"[TS-VMS] Reconnect failed cam={slot.CameraName}: {reason}");
+            slot.TransientStatusText = "Reconnect failed";
+            await ClearReconnectStatusAsync(slot);
+        }
+
+        private async Task ClearReconnectStatusAsync(CameraSlot slot)
+        {
+            await Task.Delay(1400);
+            slot.TransientStatusText = "";
+            slot.IsReconnectInProgress = false;
+        }
+
         /// <summary>Called by LiveView code-behind when the WebRTC page posts a failure message.</summary>
         public void OnWebRtcFailed(CameraSlot slot, string reason)
         {
@@ -825,6 +912,10 @@ namespace TSVmsDesktop.ViewModels
                 VideoService.Log($"[TS-VMS] WebRTC H.265 failed for {slot.CameraName}, retrying with H.264 preference.");
                 slot.WebRtcRetriedWithH264 = true;
                 slot.WebRtcCodecPreference = "H264";
+                if (slot.IsReconnectInProgress)
+                {
+                    slot.TransientStatusText = "Reconnecting via H264...";
+                }
 
                 System.Windows.Application.Current?.Dispatcher.InvokeAsync(async () =>
                 {
@@ -860,6 +951,10 @@ namespace TSVmsDesktop.ViewModels
             {
                 slot.IsStreamFailed    = true;
                 slot.StreamErrorMessage = "No stream URL available for any tier";
+                if (slot.IsReconnectInProgress)
+                {
+                    _ = FailReconnectAsync(slot, "No stream URL available for any tier");
+                }
                 OnPropertyChanged(nameof(ActiveStreamCount));
                 return;
             }
@@ -867,6 +962,10 @@ namespace TSVmsDesktop.ViewModels
             slot.ActiveTier = next;
             slot.IsStreamFailed    = false;
             slot.StreamErrorMessage = "";
+            if (slot.IsReconnectInProgress)
+            {
+                slot.TransientStatusText = $"Reconnecting via {next}...";
+            }
             if (next != StreamTier.WebRtc)
             {
                 slot.IsWebRtcStarted = false;
