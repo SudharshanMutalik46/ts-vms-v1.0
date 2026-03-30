@@ -181,6 +181,14 @@ type VideoEncoderConfiguration struct {
 	RateControl RateControl `xml:"RateControl"`
 }
 
+type AudioEncoderConfiguration struct {
+	Token      string `xml:"token,attr"`
+	Name       string `xml:"Name"`
+	Encoding   string `xml:"Encoding"`
+	Bitrate    int    `xml:"Bitrate"`
+	SampleRate int    `xml:"SampleRate"`
+}
+
 // MediaProfile
 type MediaProfile struct {
 	Token string `xml:"token,attr"`
@@ -189,14 +197,14 @@ type MediaProfile struct {
 	// Media1 Compatibility
 	VideoEncoderConfiguration *VideoEncoderConfiguration `xml:"VideoEncoderConfiguration"`
 	AudioSourceConfiguration  *struct{}                  `xml:"AudioSourceConfiguration"`
-	AudioEncoderConfiguration *struct{}                  `xml:"AudioEncoderConfiguration"`
+	AudioEncoderConfiguration *AudioEncoderConfiguration `xml:"AudioEncoderConfiguration"`
 	PTZConfiguration          *struct{}                  `xml:"PTZConfiguration"`
 
 	// Media2 Compatibility
 	Configurations *struct {
 		VideoEncoder *VideoEncoderConfiguration `xml:"VideoEncoder"`
 		AudioSource  *struct{}                  `xml:"AudioSource"`
-		AudioEncoder *struct{}                  `xml:"AudioEncoder"`
+		AudioEncoder *AudioEncoderConfiguration `xml:"AudioEncoder"`
 		PTZ          *struct{}                  `xml:"PTZ"`
 	} `xml:"Configurations"`
 }
@@ -312,6 +320,7 @@ func (c *OnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string, 
 	if err != nil {
 		return "", err
 	}
+	fmt.Printf("[ONVIF] GetStreamUri Raw Response: %s\n", string(resp))
 
 	var parsed struct {
 		Body struct {
@@ -337,20 +346,8 @@ func (c *OnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string, 
 		return c.detectWorkingRtspUri(token), nil
 	}
 
-	// RTSP Verification
-	parsedUri, err := url.Parse(uri)
-	if err == nil {
-		baseU, _ := url.Parse(c.BaseURL)
-		code, _ := c.checkRtspPathCode(baseU.Hostname(), "554", parsedUri.Path)
+	fmt.Printf("[ONVIF] GetStreamUri Token %s -> Raw URI: %s\n", token, uri)
 
-		// FIX: Modern cameras return 401 for DESCRIBE. This is FINE and means the path exists.
-		// Only fallback if the connection failed (0) or it's a known bad Hikvision 101 path.
-		isBadHikvision := (strings.Contains(uri, "Channels/101") || strings.Contains(uri, "101"))
-		if code == 0 || (code == 200 && isBadHikvision) {
-			fmt.Printf("[ONVIF] Camera returned URI %s (Code %d). Treating as suspicious/failed. Fallback to Fuzzer.\n", uri, code)
-			return c.detectWorkingRtspUri(token), nil
-		}
-	}
 	return uri, nil
 }
 
@@ -610,60 +607,8 @@ func computeSoapDigest(nonce []byte, created, password string) string {
 }
 
 func (c *OnvifClient) detectWorkingRtspUri(token string) string {
-	u, err := url.Parse(c.BaseURL)
-	if err != nil {
-		return ""
-	}
-	host := u.Hostname()
-	port := "554" 
-
-	fmt.Printf("[RTSP-Fuzz] Starting active discovery for %s...\n", host)
-
-	candidates := []string{
-		"/stream", "/live", "/video",
-		"/live/main", "/live/sub", "/live/0",
-		"/onvif1", "/onvif2", "/profile1", "/profile2",
-		"/stream1", "/stream2", "/unicast", "/multicast",
-		"/ch0_0.h264", "/live/1", "/live/2",
-		"/cam1/h264", "/cam1/mjpeg",
-		"/defaultPrimary?streamType=u",
-		"/h265", "/mjpeg",
-		"/cam/realmonitor?channel=1&subtype=0",
-		"/cam/realmonitor?channel=1&subtype=1",
-		"/live/0/MAIN", "/live/0/SUB", "/live/0/0", "/live/0/1",
-		"/udp/av0_0", "/udp/av0_1", "/rtsp_live0", "/rtsp_live1",
-		"/axis-media/media.amp", "/media/video1", "/media/video2",
-		"/video1", "/1", "/2", "/11", "/12", "/0",
-		"/ch1/main/av_stream", "/ch1/sub/av_stream",
-		"/main", "/sub",
-		"/mps/video/1", "/av0_0", "/av0_1", "/live/ch0", "/live/ch1",
-		"/live/primary", "/live/secondary",
-		"/h264/ch1/main/av_stream", "/h264", "/mpeg4", "/mpeg4cif",
-		"/img/video.sav", "/live.sdp", "/play1.sdp",
-		"/Streaming/Channels/101", "/Streaming/Channels/102",
-	}
-
-	var possibleCandidates []string
-	for _, path := range candidates {
-		code, resp := c.checkRtspPathCode(host, port, path)
-		if code == 200 {
-			fmt.Printf("[RTSP-Fuzz] SUCCESS (200 OK): %s\n RESPONSE: %s\n", path, resp)
-			return fmt.Sprintf("rtsp://%s:%s%s", host, port, path)
-		}
-		if code == 401 {
-			possibleCandidates = append(possibleCandidates, path)
-			fmt.Printf("[RTSP-Fuzz] Potential (401 Auth): %s\n", path)
-		}
-	}
-
-	if len(possibleCandidates) > 0 {
-		best := possibleCandidates[0]
-		fmt.Printf("[RTSP-Fuzz] No 200 OK found. Returning first 401 candidate: %s\n", best)
-		return fmt.Sprintf("rtsp://%s:%s%s", host, port, best)
-	}
-
-	fmt.Println("[RTSP-Fuzz] All checks failed. Returning default.")
-	return fmt.Sprintf("rtsp://%s:554/Streaming/Channels/101", host)
+	fmt.Println("[RTSP-Discovery] Skipping fuzzing. Strictly relying on ONVIF GetStreamUri or Manual config.")
+	return ""
 }
 
 func (c *OnvifClient) checkRtspPathCode(host, port, path string) (int, string) {

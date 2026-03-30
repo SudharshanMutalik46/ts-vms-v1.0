@@ -5,6 +5,7 @@ export class MediasoupManager {
     workers = [];
     webRtcServers = new Map(); // workerPid -> WebRtcServer
     nextWorkerIdx = 0;
+    h265Supported = false;
     // Fix 8 & 9: Room State Management
     rooms = new Map();
     transports = new Map();
@@ -15,19 +16,25 @@ export class MediasoupManager {
     REAPER_INTERVAL_MS = 10000;
     // Fix 1: Port management for PlainTransport (Ingest)
     usedIngestPorts = new Set();
-    INGEST_PORT_MIN = 50000;
-    INGEST_PORT_MAX = 51000;
-    getFreeIngestPort() {
-        for (let port = this.INGEST_PORT_MIN; port <= this.INGEST_PORT_MAX; port++) {
-            if (!this.usedIngestPorts.has(port)) {
-                this.usedIngestPorts.add(port);
-                return port;
+    // PlainTransport with rtcpMux=false needs a second UDP port for RTCP.
+    // Reserve RTP/RTCP as an even/odd pair to avoid self-collisions.
+    INGEST_PORT_MIN = 52000;
+    INGEST_PORT_MAX = 58999;
+    reserveIngestPortPair() {
+        const start = this.INGEST_PORT_MIN % 2 === 0 ? this.INGEST_PORT_MIN : this.INGEST_PORT_MIN + 1;
+        for (let rtpPort = start; rtpPort + 1 <= this.INGEST_PORT_MAX; rtpPort += 2) {
+            const rtcpPort = rtpPort + 1;
+            if (!this.usedIngestPorts.has(rtpPort) && !this.usedIngestPorts.has(rtcpPort)) {
+                this.usedIngestPorts.add(rtpPort);
+                this.usedIngestPorts.add(rtcpPort);
+                return { rtpPort, rtcpPort };
             }
         }
         throw new Error('No free ingest ports available');
     }
-    releaseIngestPort(port) {
-        this.usedIngestPorts.delete(port);
+    releaseIngestPortPair(rtpPort, rtcpPort) {
+        this.usedIngestPorts.delete(rtpPort);
+        this.usedIngestPorts.delete(rtcpPort);
     }
     async init() {
         const numWorkers = os.cpus().length;
@@ -36,18 +43,15 @@ export class MediasoupManager {
             // Fix 3: Use WebRtcServer for better UDP/TCP control
             const worker = await mediasoup.createWorker({
                 logLevel: 'warn',
+                rtcMinPort: 40000,
+                rtcMaxPort: 49999,
             });
             // Create WebRtcServer per worker
+            // AFTER — UDP only, avoids DTLS-over-TCP issues with WebView2:
             const webRtcServer = await worker.createWebRtcServer({
                 listenInfos: [
                     {
                         protocol: 'udp',
-                        ip: '0.0.0.0',
-                        announcedAddress: localIp,
-                        portRange: { min: 40000, max: 49999 }
-                    },
-                    {
-                        protocol: 'tcp',
                         ip: '0.0.0.0',
                         announcedAddress: localIp,
                         portRange: { min: 40000, max: 49999 }
@@ -61,9 +65,27 @@ export class MediasoupManager {
             });
             this.workers.push(worker);
         }
-        console.log(`Initialized ${this.workers.length} mediasoup workers with WebRtcServers`);
+        // Detect H265 support
+        const firstWorker = this.workers[0];
+        if (firstWorker) {
+            try {
+                const tempRouter = await firstWorker.createRouter({
+                    mediaCodecs: [{ kind: 'video', mimeType: 'video/H265', clockRate: 90000, parameters: {} }]
+                });
+                this.h265Supported = true;
+                tempRouter.close();
+            }
+            catch (e) {
+                console.log('H265 not supported by this mediasoup build/environment; using H264 fallback');
+                this.h265Supported = false;
+            }
+        }
+        console.log(`Initialized ${this.workers.length} mediasoup workers (H265=${this.h265Supported})`);
         // Fix 9: Start Idle Reaper
         this.startIdleReaper();
+    }
+    supportsH265() {
+        return this.h265Supported;
     }
     startIdleReaper() {
         setInterval(() => {
@@ -96,62 +118,13 @@ export class MediasoupManager {
                 parameters: {
                     'packetization-mode': 1,
                     'profile-level-id': '42001f',
-                    'level-asymmetry-allowed': 1
-                }
-            },
-            {
-                kind: 'video',
-                mimeType: 'video/H264',
-                clockRate: 90000,
-                parameters: {
-                    'packetization-mode': 1,
-                    'profile-level-id': '42e01f',
-                    'level-asymmetry-allowed': 1
-                }
-            },
-            {
-                kind: 'video',
-                mimeType: 'video/H264',
-                clockRate: 90000,
-                parameters: {
-                    'packetization-mode': 1,
-                    'profile-level-id': '4d001f',
-                    'level-asymmetry-allowed': 1
-                }
-            },
-            {
-                kind: 'video',
-                mimeType: 'video/H264',
-                clockRate: 90000,
-                parameters: {
-                    'packetization-mode': 1,
-                    'profile-level-id': '640c1f',
-                    'level-asymmetry-allowed': 1
+                    'level-asymmetry-allowed': 1,
+                    'x-google-start-bitrate': 1000
                 }
             }
         ];
-        let router;
-        try {
-            router = await worker.createRouter({
-                mediaCodecs: [
-                    {
-                        kind: 'video',
-                        mimeType: 'video/H265',
-                        clockRate: 90000,
-                        parameters: {}
-                    },
-                    ...h264Codecs
-                ]
-            });
-            console.log(`Created router for room: ${roomID} (H265+H264)`);
-        }
-        catch (e) {
-            console.warn(`H265 router creation failed for ${roomID}; falling back to H264-only: ${e?.message || e}`);
-            router = await worker.createRouter({
-                mediaCodecs: h264Codecs
-            });
-            console.log(`Created router for room: ${roomID} (H264-only fallback)`);
-        }
+        const router = await worker.createRouter({ mediaCodecs: h264Codecs });
+        console.log(`Created router for room: ${roomID} (H264 constrained-baseline)`);
         // Attach worker PID to router for WebRtcServer lookup
         router.appData = { workerPid: worker.pid };
         room = {
@@ -183,12 +156,19 @@ export class MediasoupManager {
         const transport = await router.createWebRtcTransport({
             webRtcServer,
             enableUdp: true,
-            enableTcp: true,
+            enableTcp: false, // disable TCP entirely
             preferUdp: true,
             initialAvailableOutgoingBitrate: 1000000,
             appData: { roomID }
         });
         this.transports.set(transport.id, transport);
+        // Diagnostic: log DTLS and ICE state transitions
+        transport.on('dtlsstatechange', (dtlsState) => {
+            console.log(`[Transport ${transport.id}] DTLS: ${dtlsState}`);
+        });
+        transport.on('icestatechange', (iceState) => {
+            console.log(`[Transport ${transport.id}] ICE: ${iceState}`);
+        });
         return {
             id: transport.id,
             iceParameters: transport.iceParameters,
@@ -204,9 +184,14 @@ export class MediasoupManager {
     }
     async prepareIngest(roomID, codec = 'H264') {
         const router = await this.getRouter(roomID);
+        if (codec === 'H265') {
+            console.log(`prepareIngest requested H265 for ${roomID}; forcing H264 constrained-baseline ingest`);
+            codec = 'H264';
+        }
         // Reuse existing producer/transport if already ingesting (and not closed)
         const existingProducer = this.producers.get(roomID + ':video');
-        if (existingProducer && !existingProducer.closed) {
+        const existingCodec = normalizeCodecName(existingProducer?.rtpParameters?.codecs?.[0]?.mimeType);
+        if (existingProducer && !existingProducer.closed && existingCodec === codec) {
             for (const transport of this.transports.values()) {
                 if (transport.appData && transport.appData.ingestPort && transport.appData.roomID === roomID && !transport.closed) {
                     console.log(`Reusing existing Ingest Transport for room ${roomID} on port ${transport.appData.ingestPort}`);
@@ -219,69 +204,89 @@ export class MediasoupManager {
                 }
             }
         }
+        // If we have a stale ingest (producer exists but transport not reusable), close it to free ports.
+        if (existingProducer && !existingProducer.closed && existingCodec === codec) {
+            try {
+                existingProducer.close();
+            }
+            catch { }
+            this.producers.delete(roomID + ':video');
+            for (const [tid, transport] of this.transports) {
+                if (transport.appData?.roomID === roomID && transport.appData?.ingestPort !== undefined) {
+                    try {
+                        transport.close();
+                    }
+                    catch { }
+                    this.transports.delete(tid);
+                }
+            }
+        }
         // Clean up stale closed producer entry if present
         if (existingProducer && existingProducer.closed) {
             this.producers.delete(roomID + ':video');
         }
         const localIp = process.env['ANNOUNCED_IP'] || '127.0.0.1';
-        // Retry port allocation: skip ports already in use by other processes (e.g. AnyDesk).
+        // Retry port allocation: skip ports already in use by other processes.
         let transport;
-        let port = 0;
-        const MAX_PORT_RETRIES = 20;
+        let rtpPort = 0;
+        let rtcpPort = 0;
+        const MAX_PORT_RETRIES = Math.max(50, Math.floor((this.INGEST_PORT_MAX - this.INGEST_PORT_MIN) / 2));
         for (let attempt = 0; attempt < MAX_PORT_RETRIES; attempt++) {
-            port = this.getFreeIngestPort();
+            ({ rtpPort, rtcpPort } = this.reserveIngestPortPair());
             try {
                 transport = await router.createPlainTransport({
                     listenInfo: {
                         protocol: 'udp',
                         ip: '0.0.0.0',
                         announcedAddress: localIp,
-                        port: port
+                        port: rtpPort
                     },
-                    rtcpMux: true,
+                    rtcpListenInfo: {
+                        protocol: 'udp',
+                        ip: '0.0.0.0',
+                        announcedAddress: localIp,
+                        port: rtcpPort
+                    },
+                    rtcpMux: false,
                     comedia: true,
                 });
                 break; // success
             }
             catch (e) {
                 if (e.message && e.message.includes('address already in use')) {
-                    console.warn(`Port ${port} already in use (attempt ${attempt + 1}), trying next port`);
-                    // Port stays in usedIngestPorts so we don't retry it; just get the next one
+                    console.log(`Port ${rtpPort}/${rtcpPort} already in use (attempt ${attempt + 1}), trying next`);
+                    // Important: release the reserved pair; bind never succeeded.
+                    this.releaseIngestPortPair(rtpPort, rtcpPort);
                     continue;
                 }
+                this.releaseIngestPortPair(rtpPort, rtcpPort);
                 throw e; // unexpected error
             }
         }
         if (!transport)
             throw new Error('No free ingest ports available after retries');
         // Store port AND roomID in appData for release/lookup
-        transport.appData = { ingestPort: port, roomID: roomID };
+        transport.appData = { ingestPort: rtpPort, ingestRtcpPort: rtcpPort, roomID: roomID };
         transport.on('close', () => {
-            this.releaseIngestPort(port);
-            console.log(`Released ingest port ${port}`);
+            this.releaseIngestPortPair(rtpPort, rtcpPort);
+            console.log(`Released ingest ports ${rtpPort}/${rtcpPort}`);
         });
-        console.log(`Created PlainTransport (Ingest) for room ${roomID} on port ${port}`);
+        console.log(`Created PlainTransport (Ingest) for room ${roomID} on ports ${rtpPort}/${rtcpPort}`);
         this.transports.set(transport.id, transport);
         // For simplicity, we use hardcoded SSRC/PT for now or generate them
         const ssrc = 11111111;
         const pt = 96;
-        const codecDef = codec === 'H265'
-            ? {
-                mimeType: 'video/H265',
-                payloadType: pt,
-                clockRate: 90000,
-                parameters: {}
+        const codecDef = {
+            mimeType: 'video/H264',
+            payloadType: pt,
+            clockRate: 90000,
+            parameters: {
+                'packetization-mode': 1,
+                'profile-level-id': '42001f',
+                'level-asymmetry-allowed': 1,
+                'x-google-start-bitrate': 1000
             }
-            : {
-                mimeType: 'video/H264',
-                payloadType: pt,
-                clockRate: 90000,
-                parameters: {
-                    'packetization-mode': 1,
-                    'profile-level-id': '42001f',
-                    'level-asymmetry-allowed': 1
-                }
-            };
+        };
         const producer = await transport.produce({
             kind: 'video',
             rtpParameters: {
@@ -298,7 +303,7 @@ export class MediasoupManager {
         });
         // Debug: Listen for Producer events
         producer.on('score', (score) => {
-            console.log(`[Producer ${producer.id}] Score:`, score);
+            console.log(`[Producer ${producer.id}] Score:`, JSON.stringify(score));
         });
         producer.on('videoorientationchange', (videoOrientation) => {
             console.log(`[Producer ${producer.id}] Video Orientation:`, videoOrientation);
@@ -338,18 +343,9 @@ export class MediasoupManager {
             rtpCapabilities,
             paused: true, // start paused, then resume
         });
-        console.log(`[Consumer ${consumer.id}] Created (paused=${consumer.paused}) for Producer ${producer.id}`);
-        // Task A: Ensure consumer is resumed immediately
-        await consumer.resume();
-        console.log(`[Consumer ${consumer.id}] Resumed (paused=${consumer.paused})`);
-        // Task C: Request Keyframe Best-Effort
-        try {
-            await consumer.requestKeyFrame();
-            console.log(`[Consumer ${consumer.id}] PLI Requested (Codec: ${consumer.rtpParameters.codecs?.[0]?.mimeType})`);
-        }
-        catch (e) {
-            console.warn(`[Consumer ${consumer.id}] PLI Request failed:`, e);
-        }
+        const cSSRC = consumer.rtpParameters?.encodings?.[0]?.ssrc;
+        const cPT = consumer.rtpParameters?.codecs?.[0]?.payloadType;
+        console.log(`[Consumer ${consumer.id}] Created (paused=${consumer.paused}) PT=${cPT} SSRC=${cSSRC} for Producer ${producer.id}`);
         this.consumers.set(consumer.id, consumer);
         return {
             id: consumer.id,
@@ -364,39 +360,63 @@ export class MediasoupManager {
         if (!consumer)
             throw new Error('Consumer not found');
         await consumer.resume();
+        console.log(`[Consumer ${consumer.id}] Resumed`);
+        // Request keyframe after resume — spread over the full 20s viewer timeout.
+        // The H265→H264 bridge pipeline (nvh265dec/mfh264enc) needs up to 5s to
+        // produce its first IDR; the old 6×400ms window ended before the bridge
+        // was ready, so no keyframe was ever delivered.
+        for (let i = 0; i < 10; i++) {
+            setTimeout(async () => {
+                try {
+                    await consumer.requestKeyFrame();
+                    console.log(`[Consumer ${consumer.id}] PLI Requested (retry=${i + 1}, codec=${consumer.rtpParameters.codecs?.[0]?.mimeType})`);
+                }
+                catch (e) {
+                    console.warn(`[Consumer ${consumer.id}] PLI Request failed on retry ${i + 1}:`, e);
+                }
+            }, i * 2000);
+        }
     }
     async cleanupRoom(roomID) {
         const room = this.rooms.get(roomID);
         if (room) {
-            // Clean up consumers belonging to this room's transports before closing router
+            // Close consumers belonging to this room.
             for (const [cid, consumer] of this.consumers) {
                 const t = this.transports.get(consumer.transportId);
                 if (t && t.appData?.roomID === roomID) {
+                    try {
+                        consumer.close();
+                    }
+                    catch { }
                     this.consumers.delete(cid);
                 }
             }
-            // Clean up transports belonging to this room
+            // Close producer for this room (ingest).
+            const producer = this.producers.get(roomID + ':video');
+            if (producer) {
+                try {
+                    producer.close();
+                }
+                catch { }
+                this.producers.delete(roomID + ':video');
+            }
+            // Close transports belonging to this room (WebRTC + ingest PlainTransport).
             for (const [tid, transport] of this.transports) {
-                if (transport.appData?.roomID === roomID || transport.appData?.ingestPort !== undefined && transport.appData?.roomID === roomID) {
+                const appData = transport.appData;
+                if (appData?.roomID === roomID) {
+                    try {
+                        transport.close();
+                    }
+                    catch { }
                     this.transports.delete(tid);
                 }
             }
-            // Clean up producer for this room
-            this.producers.delete(roomID + ':video');
-            room.router.close();
+            try {
+                room.router.close();
+            }
+            catch { }
             this.rooms.delete(roomID);
             console.log(`Cleaned up room: ${roomID}`);
-            // Note: We should ideally notify Control Plane via webhook that room is closed,
-            // but for now relying on Inactivity Timer is sufficient as per plan.
-            // Also, we should release ingested ports?
-            // Since we don't track which transport belongs to which room easily in 'transports' map,
-            // we rely on 'router.close()' closing them, but we need to release the port back to pool.
-            // Proper way: Iterate transports, check appData.ingestPort
-            // Since 'transports' key is ID, not room. 
-            // Optimally, store transport IDs in RoomState.
-            // For now, let's just rely on global sweep or leak? 
-            // Wait, I fixed the 'close' event listener in prepareIngest (with lint issue).
-            // If that fires on router close, we are good.
         }
     }
     async leaveRoom(roomID) {
@@ -449,5 +469,13 @@ export class MediasoupManager {
         }
         return stats;
     }
+}
+function normalizeCodecName(mimeType) {
+    const value = String(mimeType || '').toUpperCase();
+    if (value.includes('H265') || value.includes('HEVC'))
+        return 'H265';
+    if (value.includes('H264'))
+        return 'H264';
+    return '';
 }
 //# sourceMappingURL=mediasoup.js.map

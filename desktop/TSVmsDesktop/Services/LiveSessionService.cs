@@ -37,6 +37,7 @@ namespace TSVmsDesktop.Services
         [JsonPropertyName("expires_at")]        public long   ExpiresAt       { get; set; }
         [JsonPropertyName("primary")]           public string Primary         { get; set; } = "webrtc";
         [JsonPropertyName("fallback")]          public string Fallback        { get; set; } = "hls";
+        [JsonPropertyName("selected_codec")]    public string SelectedCodec   { get; set; } = "";
         [JsonPropertyName("hls")]               public LiveStreamHls?    Hls    { get; set; }
         [JsonPropertyName("webrtc")]            public LiveStreamWebRtc? WebRtc { get; set; }
         [JsonPropertyName("fallback_policy")]   public LiveFallbackPolicy? FallbackPolicy { get; set; }

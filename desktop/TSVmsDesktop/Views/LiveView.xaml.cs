@@ -17,6 +17,7 @@ namespace TSVmsDesktop.Views
     public partial class LiveView : System.Windows.Controls.UserControl
     {
         private IntPtr _fullScreenPipeline = IntPtr.Zero;
+        private bool _isFullScreenStarting = false;
 
         public LiveView()
         {
@@ -116,6 +117,16 @@ namespace TSVmsDesktop.Views
 
             if (canvas.DataContext is CameraSlot slot && slot.PipelineHandle != IntPtr.Zero)
             {
+                // Guard: never stop a pipeline that was started less than 5 seconds ago.
+                // Rapid hide/show cycles during grid re-layouts would otherwise destroy a
+                // pipeline that hasn't had time to produce any frames.
+                if ((DateTime.UtcNow - slot.PipelineStartedAt).TotalSeconds < 5)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[TS-VMS] Skipped premature stop for {slot.CameraName} (pipeline age < 5s)");
+                    return;
+                }
+
                 var app = (App)System.Windows.Application.Current;
                 if (app?.Services == null) return;
 
@@ -134,7 +145,7 @@ namespace TSVmsDesktop.Views
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[TS-VMS] Hidden stop failed: {ex.Message}");
+                        VideoService.Log($"[TS-VMS] Hidden stop failed: {ex.Message}");
                     }
                 });
             }
@@ -153,44 +164,100 @@ namespace TSVmsDesktop.Views
         // 3. The Actual Logic to Start the GStreamer Stream (HLS or RTSP tile)
         private async void StartVideo(VideoCanvas canvas)
         {
-            // Wait for Win32 handle.
-            int retries = 50;
-            while (canvas.Handle == IntPtr.Zero && retries-- > 0)
-                await Task.Delay(10);
-
-            if (canvas.Handle == IntPtr.Zero) return;
-
-            // Wait for non-zero layout size without blocking the dispatcher.
-            retries = 100;
-            while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
-                await Task.Delay(10);
-
             if (canvas.DataContext is CameraSlot slot)
             {
-                var videoService = App.Current.Services.GetRequiredService<VideoService>();
-
-                // Prevent duplicate streams, but RE-ATTACH if the window changed
-                if (slot.PipelineHandle != IntPtr.Zero)
+                // CRITICAL: Block duplicate starts immediately before any async wait.
+                // This prevents race conditions where multiple events (like grid layout changes)
+                // trigger redundant pipelines.
+                if (slot.IsPipelineStarting || slot.PipelineHandle != IntPtr.Zero)
                 {
-                    videoService.Reattach(slot.PipelineHandle, canvas.Handle);
+                    VideoService.Log($"[TS-VMS] Ignored redundant StartVideo request for {slot.CameraName}");
                     return;
                 }
 
-                // Pick URL based on active tier (VideoCanvas is only shown for Hls/Rtsp)
-                string urlToPlay = slot.ActiveTier == StreamTier.Hls
-                    ? slot.HlsUrl
-                    : slot.RtspUrl;
+                try
+                {
+                    slot.IsPipelineStarting = true;
 
-                if (string.IsNullOrEmpty(urlToPlay)) urlToPlay = slot.RtspUrl; // ultimate fallback
-                if (string.IsNullOrEmpty(urlToPlay)) return;
+                    // Wait for Win32 handle.
+                    int retries = 50;
+                    while (canvas.Handle == IntPtr.Zero && retries-- > 0)
+                        await Task.Delay(10);
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[TS-VMS] StartVideo tier={slot.ActiveTier} cam={slot.CameraName} url={urlToPlay}");
+                    if (canvas.Handle == IntPtr.Zero) return;
 
-                slot.WindowHandle   = canvas.Handle;
-                slot.PipelineHandle = await Task.Run(() =>
-                    videoService.StartStream(canvas.Handle, urlToPlay,
-                                             slot.Username, slot.Password, slot.HasAudioCapability));
+                    // Wait for non-zero layout size without blocking the dispatcher.
+                    retries = 100;
+                    while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
+                        await Task.Delay(10);
+
+                    var videoService = App.Current.Services.GetRequiredService<VideoService>();
+
+                    // RE-ATTACH if the window changed but the pipeline is already alive
+                    if (slot.PipelineHandle != IntPtr.Zero)
+                    {
+                        if (slot.WindowHandle != canvas.Handle)
+                        {
+                            VideoService.Log(
+                                $"[TS-VMS] Reattach requested old={slot.WindowHandle} new={canvas.Handle}");
+
+                            videoService.Reattach(slot.PipelineHandle, canvas.Handle);
+                            slot.WindowHandle = canvas.Handle;
+                        }
+
+                        return;
+                    }
+
+                    // Pick URL based on active tier (VideoCanvas is only shown for Hls/Rtsp)
+                    string urlToPlay = slot.ActiveTier == StreamTier.Hls
+                        ? slot.HlsUrl
+                        : slot.RtspUrl;
+
+                    if (string.IsNullOrEmpty(urlToPlay)) urlToPlay = slot.RtspUrl; // ultimate fallback
+                    if (string.IsNullOrEmpty(urlToPlay)) return;
+
+                    VideoService.Log(
+                        $"[TS-VMS] StartVideo tier={slot.ActiveTier} cam={slot.CameraName} url={urlToPlay}");
+
+                    slot.WindowHandle = canvas.Handle;
+
+                    Func<Task<(string Url, IntPtr Handle)>> getFreshContext = async () =>
+                    {
+                        // getFreshContext is called from RestartStreamAsync on a background thread.
+                        // Dispatcher.InvokeAsync(async lambda) loses the dispatcher SynchronizationContext
+                        // after the first await inside FetchCredentialsForSlot, causing "The calling thread
+                        // cannot access this object" on ObservableCollection access.
+                        // Fix: use BeginInvoke with async-void + TaskCompletionSource so the full
+                        // async chain (including all awaits) runs on the dispatcher thread.
+                        var tcs = new TaskCompletionSource<(string Url, IntPtr Handle)>();
+                        _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(async () =>
+                        {
+                            try
+                            {
+                                if (this.DataContext is LiveViewModel vm)
+                                    await vm.FetchCredentialsForSlot(slot);
+                                string url = slot.ActiveTier == StreamTier.Hls ? slot.HlsUrl : slot.RtspUrl;
+                                tcs.TrySetResult((url, canvas.Handle));
+                            }
+                            catch (Exception ex)
+                            {
+                                tcs.TrySetException(ex);
+                            }
+                        }));
+                        return await tcs.Task;
+                    };
+
+                    slot.PipelineHandle = await Task.Run(() =>
+                        videoService.StartStream(canvas.Handle, urlToPlay,
+                                                 slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext));
+
+                    if (slot.PipelineHandle != IntPtr.Zero)
+                        slot.PipelineStartedAt = DateTime.UtcNow;
+                }
+                finally
+                {
+                    slot.IsPipelineStarting = false;
+                }
             }
         }
 
@@ -229,10 +296,15 @@ namespace TSVmsDesktop.Views
             catch { }
         }
 
-        // Shared WebView2 environment: forces software H264 decoding to avoid the
-        // hardware-accelerated black-frame bug in embedded WPF WebView2 controls.
+        // Shared WebView2 environment: avoid Chromium's accelerated video decode /
+        // overlay path inside WPF-hosted WebView2. On hybrid-GPU laptops this can
+        // produce a permanently black video surface even though signaling succeeds.
         private static Microsoft.Web.WebView2.Core.CoreWebView2Environment? _sharedWv2Env;
         private static readonly System.Threading.SemaphoreSlim _wv2EnvLock = new(1, 1);
+        private const string WebView2LiveVideoArgs =
+            "--autoplay-policy=no-user-gesture-required " +
+            "--disable-accelerated-video-decode " +
+            "--disable-direct-composition-video-overlays";
 
         private static async Task<Microsoft.Web.WebView2.Core.CoreWebView2Environment> GetSharedWv2EnvAsync()
         {
@@ -242,7 +314,7 @@ namespace TSVmsDesktop.Views
             {
                 _sharedWv2Env ??= await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
                     options: new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions(
-                        "--autoplay-policy=no-user-gesture-required"));
+                        WebView2LiveVideoArgs));
             }
             finally { _wv2EnvLock.Release(); }
             return _sharedWv2Env!;
@@ -260,13 +332,15 @@ namespace TSVmsDesktop.Views
             if (slot.IsWebRtcStarted) return;
             slot.IsWebRtcStarted = true; // set before any await to block concurrent calls
 
-            System.Console.WriteLine($"[TS-VMS] WebRTC: starting for cam={slot.CameraName} sfuUrl={slot.WebRtcSfuUrl} roomId={slot.WebRtcRoomId}");
+            VideoService.Log($"[TS-VMS] WebRTC: starting for cam={slot.CameraName} sfuUrl={slot.WebRtcSfuUrl} roomId={slot.WebRtcRoomId}");
 
             try
             {
                 var app            = (App)System.Windows.Application.Current;
                 var sessionService = app.Services.GetRequiredService<ISessionService>();
+                var settings       = app.Services.GetRequiredService<SettingsService>();
                 string token       = sessionService.AccessToken ?? "";
+                string webRtcApiUrl = ResolveWebRtcApiUrl(slot.WebRtcSfuUrl, settings.CurrentSettings.BaseUrl);
 
                 var env = await GetSharedWv2EnvAsync();
                 await webView.EnsureCoreWebView2Async(env);
@@ -290,19 +364,20 @@ namespace TSVmsDesktop.Views
                 webView.CoreWebView2.WebMessageReceived += msgHandler;
 
                 string html = BuildWebRtcHtml(
-                    slot.WebRtcSfuUrl,
+                    webRtcApiUrl,
                     slot.WebRtcRoomId,
                     slot.SessionId,
                     token,
+                    slot.WebRtcCodecPreference,
                     slot.WebRtcTimeoutMs,
                     slot.WebRtcTrackTimeoutMs);
 
                 webView.NavigateToString(html);
-                System.Console.WriteLine($"[TS-VMS] WebRTC: HTML loaded for cam={slot.CameraName}");
+                VideoService.Log($"[TS-VMS] WebRTC: HTML loaded for cam={slot.CameraName}");
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"[TS-VMS] WebRTC: WebView2 init failed for cam={slot.CameraName}: {ex.Message}");
+                VideoService.Log($"[TS-VMS] WebRTC: WebView2 init failed for cam={slot.CameraName}: {ex.Message}");
                 _ = Dispatcher.BeginInvoke(() =>
                 {
                     var vm = DataContext as LiveViewModel;
@@ -315,26 +390,28 @@ namespace TSVmsDesktop.Views
         {
             try
             {
-                var msg = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                if (msg == null) return;
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
 
-                msg.TryGetValue("type",   out var type);
-                msg.TryGetValue("reason", out var reason);
+                string? type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+                string? reason = root.TryGetProperty("reason", out var r) ? r.GetString() : null;
+                string? debugMessage = root.TryGetProperty("message", out var m) ? m.GetString() : null;
+                string extra = root.TryGetProperty("extra", out var e) ? e.ToString() : "";
 
-                System.Console.WriteLine($"[TS-VMS] WebRTC: message type={type} reason={reason} cam={slot.CameraName}");
+                VideoService.Log($"[TS-VMS] WebRTC: message type={type} reason={reason} message={debugMessage} extra={extra} cam={slot.CameraName}");
 
                 Dispatcher.BeginInvoke(() =>
                 {
                     var vm = DataContext as LiveViewModel;
                     if (type == "webrtc-connected")
                     {
-                        System.Console.WriteLine($"[TS-VMS] WebRTC: CONNECTED cam={slot.CameraName}");
+                        VideoService.Log($"[TS-VMS] WebRTC: CONNECTED cam={slot.CameraName}");
                         slot.IsStreamFailed    = false;
                         slot.StreamErrorMessage = "";
                     }
                     else if (type == "webrtc-failed")
                     {
-                        System.Console.WriteLine($"[TS-VMS] WebRTC: FAILED cam={slot.CameraName} reason={reason}");
+                        VideoService.Log($"[TS-VMS] WebRTC: FAILED cam={slot.CameraName} reason={reason}");
                         slot.IsWebRtcStarted = false; // allow AdvanceToNextTier to clean up
                         vm?.OnWebRtcFailed(slot, reason ?? "unknown");
                     }
@@ -352,6 +429,7 @@ namespace TSVmsDesktop.Views
             string cameraId,
             string sessionId,
             string token,
+            string preferredCodec,
             int timeoutMs,
             int trackTimeoutMs)
         {
@@ -369,11 +447,35 @@ namespace TSVmsDesktop.Views
                 cameraId,
                 sessionId,
                 token,
+                preferredCodec,
                 timeoutMs,
                 trackTimeoutMs
             });
 
             return template.Replace("%%PARAMS%%", paramsJson);
+        }
+
+        private static string ResolveWebRtcApiUrl(string advertisedUrl, string? configuredBaseUrl)
+        {
+            static string NormalizeApiBase(string value)
+            {
+                var trimmed = value.Trim().TrimEnd('/');
+                return trimmed.EndsWith("/api/v1/sfu", StringComparison.OrdinalIgnoreCase)
+                    ? trimmed
+                    : trimmed + "/api/v1/sfu";
+            }
+
+            if (!string.IsNullOrWhiteSpace(configuredBaseUrl))
+            {
+                return NormalizeApiBase(configuredBaseUrl);
+            }
+
+            if (!string.IsNullOrWhiteSpace(advertisedUrl))
+            {
+                return NormalizeApiBase(advertisedUrl);
+            }
+
+            return "/api/v1/sfu";
         }
 
         private void FullScreenPlayer_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -403,31 +505,73 @@ namespace TSVmsDesktop.Views
 
         private async void StartFullScreenStream(VideoCanvas canvas)
         {
-            // Wait for handle.
-            int retries = 50;
-            while (canvas.Handle == IntPtr.Zero && retries-- > 0)
+            if (_isFullScreenStarting || _fullScreenPipeline != IntPtr.Zero)
             {
-                await System.Threading.Tasks.Task.Delay(10);
+                VideoService.Log("[TS-VMS] Ignored duplicate StartFullScreenStream request.");
+                return;
             }
 
-            if (canvas.Handle == IntPtr.Zero) return;
-            if (_fullScreenPipeline != IntPtr.Zero) return; // Already playing
-
-            // Wait for non-zero layout size without blocking the dispatcher.
-            retries = 100;
-            while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
+            try
             {
-                await System.Threading.Tasks.Task.Delay(10);
+                _isFullScreenStarting = true;
+
+                // Wait for handle.
+                int retries = 50;
+                while (canvas.Handle == IntPtr.Zero && retries-- > 0)
+                {
+                    await System.Threading.Tasks.Task.Delay(10);
+                }
+
+                if (canvas.Handle == IntPtr.Zero) return;
+
+                // Wait for non-zero layout size without blocking the dispatcher.
+                retries = 100;
+                while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
+                {
+                    await System.Threading.Tasks.Task.Delay(10);
+                }
+
+                var vm = DataContext as LiveViewModel;
+                if (vm == null || string.IsNullOrEmpty(vm.FullScreenUrl)) return;
+
+                var videoService = App.Current.Services.GetRequiredService<VideoService>();
+                
+                VideoService.Log($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
+
+                var activeSlot = vm.CameraGrid.FirstOrDefault(s => s.CameraName == vm.SelectedCameraName);
+                Func<Task<(string Url, IntPtr Handle)>> getFreshContext = async () =>
+                {
+                    var tcs = new TaskCompletionSource<(string Url, IntPtr Handle)>();
+                    _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(async () =>
+                    {
+                        try
+                        {
+                            if (activeSlot != null)
+                            {
+                                await vm.FetchCredentialsForSlot(activeSlot);
+                                string url = activeSlot.ActiveTier == StreamTier.Hls ? activeSlot.HlsUrl : activeSlot.RtspUrl;
+                                tcs.TrySetResult((url, canvas.Handle));
+                            }
+                            else
+                            {
+                                tcs.TrySetResult((vm.FullScreenUrl, canvas.Handle));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            tcs.TrySetException(ex);
+                        }
+                    }));
+                    return await tcs.Task;
+                };
+
+                _fullScreenPipeline = await System.Threading.Tasks.Task.Run(() =>
+                    videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio, getFreshContext));
             }
-
-            var vm = DataContext as LiveViewModel;
-            if (vm == null || string.IsNullOrEmpty(vm.FullScreenUrl)) return;
-
-            var videoService = App.Current.Services.GetRequiredService<VideoService>();
-            
-            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
-            _fullScreenPipeline = await System.Threading.Tasks.Task.Run(() =>
-                videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio));
+            finally
+            {
+                _isFullScreenStarting = false;
+            }
         }
 
         private void StopFullScreenStream()
@@ -441,7 +585,7 @@ namespace TSVmsDesktop.Views
                 videoService.StopStream(_fullScreenPipeline);
                 _fullScreenPipeline = IntPtr.Zero;
                 
-                System.Diagnostics.Debug.WriteLine("[TS-VMS] Full Screen Stream Stopped.");
+                VideoService.Log("[TS-VMS] Full Screen Stream Stopped.");
             }
         }
 
@@ -485,7 +629,7 @@ namespace TSVmsDesktop.Views
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[TS-VMS] Background stop failed: {ex.Message}");
+                            VideoService.Log($"[TS-VMS] Background stop failed: {ex.Message}");
                         }
                     }
                 });

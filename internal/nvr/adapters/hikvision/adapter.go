@@ -110,8 +110,8 @@ func (a *Adapter) ListChannels(ctx context.Context, target adapters.NvrTarget, c
 		for _, ch := range list.Channel {
 			// Hikvision IP channels often strictly numbered structure.
 			// sanitize RTSP
-			mainRtsp := fmt.Sprintf("rtsp://%s:%d/Streaming/Channels/%s01", target.IP, 554, ch.ID) // Port 554 hardcoded? or from service?
-			subRtsp := fmt.Sprintf("rtsp://%s:%d/Streaming/Channels/%s02", target.IP, 554, ch.ID)
+			mainRtsp := ""
+			subRtsp := ""
 
 			out = append(out, adapters.NvrChannel{
 				ChannelRef:        ch.ID,
@@ -140,8 +140,8 @@ func (a *Adapter) GetRtspUrls(ctx context.Context, target adapters.NvrTarget, cr
 	// Basic Template Logic for Hikvision ISAPI is usually static:
 	// /Streaming/Channels/{ID}01 -> Main
 	// /Streaming/Channels/{ID}02 -> Sub
-	main := fmt.Sprintf("rtsp://%s:%d/Streaming/Channels/%s01", target.IP, 554, channelRef)
-	sub := fmt.Sprintf("rtsp://%s:%d/Streaming/Channels/%s02", target.IP, 554, channelRef)
+	main := ""
+	sub := ""
 	return adapters.SanitizeRtspUrl(main), adapters.SanitizeRtspUrl(sub), nil
 }
 

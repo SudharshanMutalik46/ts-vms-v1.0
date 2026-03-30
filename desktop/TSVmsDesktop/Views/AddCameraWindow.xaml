@@ -17,7 +17,7 @@
             <TextBox x:Name="TxtUrl" Height="40" Padding="10,0" FontSize="14" VerticalContentAlignment="Center"
                      BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,5"
                      Text="rtsp://"/>
-            <TextBlock Text="Format: rtsp://user:pass@ip:554/stream" FontSize="12" Foreground="#999" Margin="0,0,0,20"/>
+            <TextBlock Text="Format: rtsp://user:pass@ip:port/path" FontSize="12" Foreground="#999" Margin="0,0,0,20"/>
 
             <TextBlock Text="IP Address (Optional)" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
             <TextBox x:Name="TxtIp" Height="40" Padding="10,0" FontSize="14" VerticalContentAlignment="Center"

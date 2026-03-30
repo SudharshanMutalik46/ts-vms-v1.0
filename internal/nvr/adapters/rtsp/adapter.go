@@ -21,7 +21,7 @@ type Config struct {
 
 func NewAdapter(target adapters.NvrTarget, tmpl string) *Adapter {
 	if tmpl == "" {
-		tmpl = "rtsp://{ip}:{port}/Streaming/Channels/{channel}01" // Default Hikvision-like pattern
+		tmpl = ""
 	}
 	return &Adapter{
 		target: target,

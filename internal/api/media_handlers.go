@@ -123,6 +123,29 @@ func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
 		"validation": val,
 	}
 
+	if profiles, err := h.Service.GetProfiles(r.Context(), tenantID, cameraID); err == nil {
+		codecByToken := make(map[string]string, len(profiles))
+		for _, profile := range profiles {
+			if profile == nil || profile.ProfileToken == "" {
+				continue
+			}
+			codecByToken[profile.ProfileToken] = profile.VideoCodec
+		}
+
+		if selection, ok := resp["selection"].(*data.CameraStreamSelection); ok && selection != nil {
+			resp["selection"] = map[string]interface{}{
+				"main_profile_token":      selection.MainProfileToken,
+				"main_rtsp_url_sanitized": selection.MainRTSP,
+				"main_supported":          selection.MainSupported,
+				"main_codec":              codecByToken[selection.MainProfileToken],
+				"sub_profile_token":       selection.SubProfileToken,
+				"sub_rtsp_url_sanitized":  selection.SubRTSP,
+				"sub_supported":           selection.SubSupported,
+				"sub_codec":               codecByToken[selection.SubProfileToken],
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

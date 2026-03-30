@@ -1,8 +1,10 @@
 #include <iostream>
 #include <string>
 #include <memory>
+#include <thread>
 #include <grpcpp/grpcpp.h>
 #include <gst/gst.h>
+#include <glib.h>
 #include <spdlog/spdlog.h>
 #include "service/media_service.hpp"
 #include "utils/logger.hpp"
@@ -35,6 +37,12 @@ int main(int argc, char** argv) {
 
     // Initialize GStreamer
     gst_init(&argc, &argv);
+
+    // Run the GLib default main loop on a background thread so that
+    // g_timeout_add / g_bus_add_watch callbacks (used by GStreamer pipeline
+    // timers and bus watches) are actually dispatched.
+    GMainLoop* glib_main_loop = g_main_loop_new(NULL, FALSE);
+    std::thread([glib_main_loop]() { g_main_loop_run(glib_main_loop); }).detach();
 
     // Initialize Utilities
     ts::vms::media::utils::Logger::Init(cfg.log_level);

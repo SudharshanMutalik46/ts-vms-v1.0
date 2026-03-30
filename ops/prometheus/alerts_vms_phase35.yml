@@ -44,3 +44,30 @@ groups:
     annotations:
       summary: "Metrics Snapshot is stale"
       description: "Data has not been updated in > 2 minutes."
+
+  - alert: H265TranscodePoolFull
+    expr: vms_webrtc_h265_active >= vms_webrtc_h265_capacity
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "H265 Transcode Pool Full"
+      description: "H265 transcoding pool at capacity. New H265 viewers will fallback to H264."
+
+  - alert: H265TranscodeStall
+    expr: vms_media_ingest_fps{codec="H265"} == 0
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: "H265 Transcode Stall for camera {{ $labels.camera_id }}"
+      description: "No frames emitted from transcode pipeline. Check GPU resources."
+
+  - alert: WebRtcEgressDown
+    expr: vms_sfu_egress_active == 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "WebRTC Egress Down"
+      description: "Zero active SFU egresses. Check connectivity to SFU (port 8085)."

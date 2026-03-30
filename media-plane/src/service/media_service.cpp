@@ -55,7 +55,7 @@ grpc::Status MediaServiceImpl::GetIngestStatus(grpc::ServerContext* /*context*/,
     response->set_recent_error_code(status->hls_state.last_error);
     // response->set_disk_free_bytes() // DiskManager should provide this globally or per session? 
     // Simplified: Provide global free logic or keep 0 if not implemented yet
-    response->set_required_action(status->hls_state.degraded ? "Check Disk / Logs" : "");
+    response->set_required_action(status->hls_state.degraded ? "Check Disk / Logs" : status->codec);
 
     // Phase 3.5 Metrics
     response->set_ingest_latency_ms(status->metrics.ingest_latency_ms);

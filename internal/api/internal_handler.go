@@ -187,10 +187,11 @@ func (h *InternalHandler) GetInternalSnapshot(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "image/jpeg")
 
-	// Construct RTSP URL (Missing in DB, so we construct from IP)
-	// Default pattern: rtsp://<ip>/live/0/SUB (Matches user's verification cam)
-	// TODO: Use CameraCredential or specific profile table in future.
-	rtspURL := fmt.Sprintf("rtsp://%s/live/0/SUB", cam.IPAddress.String())
+	rtspURL := cam.RtspUrl
+	if rtspURL == "" {
+		http.Error(w, "No RTSP URL configured for camera", http.StatusBadRequest)
+		return
+	}
 
 	// FFmpeg capture to pipe
 	// -rtsp_transport tcp: Force TCP for reliability

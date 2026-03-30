@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace TSVmsDesktop.Models
@@ -46,6 +47,7 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("profile_token")] public string Token { get; set; } = "";
         [JsonPropertyName("profile_name")] public string Name { get; set; } = "";
         [JsonPropertyName("video_codec")] public string Encoding { get; set; } = "H264";
+        [JsonPropertyName("audio_codec")] public string AudioCodec { get; set; } = "—";
         [JsonPropertyName("width")] public int Width { get; set; }
         [JsonPropertyName("height")] public int Height { get; set; }
         [JsonPropertyName("fps")] public double Framerate { get; set; }
@@ -54,6 +56,9 @@ namespace TSVmsDesktop.Models
 
         [JsonIgnore]
         public string Resolution => $"{Width}x{Height}";
+
+        [JsonIgnore]
+        public string AudioDisplay => (string.IsNullOrEmpty(AudioCodec) || AudioCodec == "—") ? "NO" : "YES";
 
         [JsonIgnore]
         public string TypeDisplay { get; set; } = "—";
@@ -74,9 +79,13 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("main_profile_token")] public string MainProfileToken { get; set; } = "";
         [JsonPropertyName("main_rtsp_url_sanitized")] public string MainRtsp { get; set; } = "";
         [JsonPropertyName("main_supported")] public bool MainSupported { get; set; }
+        [JsonPropertyName("main_codec")] public string MainCodec { get; set; } = "";
+        
         [JsonPropertyName("sub_profile_token")] public string SubProfileToken { get; set; } = "";
         [JsonPropertyName("sub_rtsp_url_sanitized")] public string SubRtsp { get; set; } = "";
         [JsonPropertyName("sub_supported")] public bool SubSupported { get; set; }
+        [JsonPropertyName("sub_codec")] public string SubCodec { get; set; } = "";
+        [JsonPropertyName("sub_is_same_as_main")] public bool SubIsSameAsMain { get; set; }
     }
 
     public class CameraMediaInfo

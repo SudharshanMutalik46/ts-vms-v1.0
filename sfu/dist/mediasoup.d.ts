@@ -3,6 +3,7 @@ export declare class MediasoupManager {
     private workers;
     private webRtcServers;
     private nextWorkerIdx;
+    private h265Supported;
     private rooms;
     private transports;
     private producers;
@@ -13,9 +14,10 @@ export declare class MediasoupManager {
     private usedIngestPorts;
     private INGEST_PORT_MIN;
     private INGEST_PORT_MAX;
-    private getFreeIngestPort;
-    private releaseIngestPort;
+    private reserveIngestPortPair;
+    private releaseIngestPortPair;
     init(): Promise<void>;
+    supportsH265(): boolean;
     private startIdleReaper;
     private getNextWorker;
     getRouter(roomID: string): Promise<mediasoup.types.Router>;

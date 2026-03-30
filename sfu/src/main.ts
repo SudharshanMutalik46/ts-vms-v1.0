@@ -63,6 +63,11 @@ app.post('/rooms/:roomID/join', async (req, res) => {
 app.post('/rooms/:roomID/ingest', async (req, res) => {
     try {
         const codec = String(req.body?.codec || 'H264').toUpperCase() === 'H265' ? 'H265' : 'H264';
+        
+        if (codec === 'H265' && !msMgr.supportsH265()) {
+             return res.status(501).send('H265_NOT_SUPPORTED');
+        }
+
         const info = await msMgr.prepareIngest(req.params.roomID, codec);
         res.json(info);
     } catch (e: any) {
@@ -96,10 +101,28 @@ app.post('/rooms/:roomID/transports/:transportID/produce', async (req, res) => {
 
 app.post('/rooms/:roomID/transports/:transportID/consume', async (req, res) => {
     try {
-        const consumerInfo = await msMgr.consume(req.params.roomID, req.params.transportID, req.body.rtpCapabilities);
-        res.json(consumerInfo);
+        const { roomID, transportID } = req.params;
+        const MAX_WAIT_MS = 6000;
+        const POLL_MS = 200;
+        let waited = 0;
+        let consumerInfo;
+        while (true) {
+            try {
+                consumerInfo = await msMgr.consume(roomID, transportID, req.body.rtpCapabilities);
+                break;
+            } catch (e: any) {
+                if ((e.message?.includes('Producer not found') || e.message?.includes('not found')) && waited < MAX_WAIT_MS) {
+                    await new Promise(r => setTimeout(r, POLL_MS));
+                    waited += POLL_MS;
+                    console.log(`[SFU] room=${roomID} waiting for producer... ${waited}ms`);
+                } else {
+                    throw e;
+                }
+            }
+        }
+        res.json(consumerInfo!);
     } catch (e: any) {
-        console.error("Consume error:", e);
+        console.error("[SFU] Consume error:", e);
         res.status(500).send(e.message);
     }
 });

@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"encoding/json"
@@ -84,9 +84,9 @@ func (h *SfuHandler) writeStructuredError(w http.ResponseWriter, r *http.Request
 
 func (h *SfuHandler) GetRtpCapabilities(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	cameraID, err := uuid.Parse(idStr)
+	roomID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid room id", err))
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *SfuHandler) GetRtpCapabilities(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	caps, err := h.Service.GetRtpCapabilities(r.Context(), tenantID, cameraID)
+	caps, err := h.Service.GetRtpCapabilities(r.Context(), tenantID, roomID)
 	if err != nil {
 		h.writeStructuredError(w, r, err) // Service returns SfuStepError hopefully, if not generic wraps it handling
 		return
@@ -110,9 +110,9 @@ func (h *SfuHandler) GetRtpCapabilities(w http.ResponseWriter, r *http.Request) 
 
 func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	cameraID, err := uuid.Parse(idStr)
+	roomID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid room id", err))
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 		sessionID = uuid.New().String()
 	}
 
-	res, err := h.Service.JoinRoom(r.Context(), tenantID, cameraID, sessionID, body.CodecPreferences)
+	res, err := h.Service.JoinRoom(r.Context(), tenantID, roomID, sessionID, body.CodecPreferences)
 	if err != nil {
 		h.writeStructuredError(w, r, err)
 		return
@@ -145,9 +145,9 @@ func (h *SfuHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 
 func (h *SfuHandler) CreateTransport(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	cameraID, err := uuid.Parse(idStr)
+	roomID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid room id", err))
 		return
 	}
 
@@ -157,7 +157,7 @@ func (h *SfuHandler) CreateTransport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transport, err := h.Service.CreateTransport(r.Context(), tenantID, cameraID)
+	transport, err := h.Service.CreateTransport(r.Context(), tenantID, roomID)
 	if err != nil {
 		h.writeStructuredError(w, r, err)
 		return
@@ -248,9 +248,9 @@ func (h *SfuHandler) Consume(w http.ResponseWriter, r *http.Request) {
 
 func (h *SfuHandler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	cameraID, err := uuid.Parse(idStr)
+	roomID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid camera id", err))
+		h.writeStructuredError(w, r, cameras.NewSfuError("parse_params", "ERR_BAD_REQUEST", "invalid room id", err))
 		return
 	}
 
@@ -260,7 +260,7 @@ func (h *SfuHandler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Service.LeaveRoom(r.Context(), tenantID, cameraID); err != nil {
+	if err := h.Service.LeaveRoom(r.Context(), tenantID, roomID); err != nil {
 		h.writeStructuredError(w, r, err)
 		return
 	}

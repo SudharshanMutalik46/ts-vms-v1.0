@@ -29,9 +29,15 @@ else {
 
 # 2. Media Plane
 $MediaPath = "$Root/media-plane/build/Release/vms-media.exe"
+$MediaConfig = "$Root/config/default.yaml"
 if (Test-Path $MediaPath) {
     Write-Host "Starting Media Plane..." -ForegroundColor Green
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root/media-plane'; & '$MediaPath'"
+    if (Test-Path $MediaConfig) {
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$Root/media-plane'; & '$MediaPath' --config '$MediaConfig'"
+    }
+    else {
+        Write-Warning "Media Plane config not found at $MediaConfig"
+    }
 }
 else {
     Write-Warning "Media Plane not found at $MediaPath"

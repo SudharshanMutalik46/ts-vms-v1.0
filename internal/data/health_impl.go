@@ -200,7 +200,7 @@ func (m *HealthModel) ListTargets(ctx context.Context) ([]CameraHealthTarget, er
 	// We ignore camera_stream_selections for now to support Phase 2.1 cameras.
 	query := `
 		SELECT c.tenant_id, c.id, 
-		       COALESCE(c.rtsp_url, format('rtsp://%s:%s/live/stream1', c.ip_address, c.port)) as rtsp_url,
+		       COALESCE(c.rtsp_url, '') as rtsp_url,
 		       COALESCE(h.status, 'OFFLINE'), COALESCE(h.last_checked_at, '1970-01-01'), COALESCE(h.consecutive_failures, 0)
 		FROM cameras c
 		LEFT JOIN camera_health_current h ON c.id = h.camera_id
@@ -229,7 +229,7 @@ func (m *HealthModel) ListTargets(ctx context.Context) ([]CameraHealthTarget, er
 func (m *HealthModel) GetTarget(ctx context.Context, cameraID uuid.UUID) (*CameraHealthTarget, error) {
 	query := `
 		SELECT c.tenant_id, c.id, 
-		       COALESCE(c.rtsp_url, format('rtsp://%s:%s/live/stream1', c.ip_address, c.port)) as rtsp_url,
+		       COALESCE(c.rtsp_url, '') as rtsp_url,
 		       COALESCE(h.status, 'OFFLINE'), COALESCE(h.last_checked_at, '1970-01-01'), COALESCE(h.consecutive_failures, 0)
 		FROM cameras c
 		LEFT JOIN camera_health_current h ON c.id = h.camera_id

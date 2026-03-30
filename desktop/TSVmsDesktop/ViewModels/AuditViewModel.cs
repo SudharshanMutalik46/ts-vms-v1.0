@@ -41,8 +41,8 @@ namespace TSVmsDesktop.ViewModels
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Audit] Load Failed: {ex.Message}");
-                if(ex.InnerException != null) Console.WriteLine($"[Audit] Inner: {ex.InnerException.Message}");
+                VideoService.Log($"[Audit] Load Failed: {ex.Message}");
+                if(ex.InnerException != null) VideoService.Log($"[Audit] Inner: {ex.InnerException.Message}");
             }
             finally { IsLoading = false; }
         }

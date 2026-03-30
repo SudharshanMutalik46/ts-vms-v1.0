@@ -18,6 +18,7 @@ type Profile struct {
 	Token       string
 	Name        string
 	VideoCodec  Codec
+	AudioCodec  string // NEW
 	Width       int
 	Height      int
 	FPS         float64

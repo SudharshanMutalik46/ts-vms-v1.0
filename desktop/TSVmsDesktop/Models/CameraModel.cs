@@ -62,12 +62,6 @@ namespace TSVmsDesktop.Models
             {
                 string url = !string.IsNullOrWhiteSpace(RtspUrl) ? RtspUrl : "";
                 
-                if (string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(IpAddress) && IpAddress != "127.0.0.1")
-                {
-                    int rtspPort = Port > 0 ? Port : 554;
-                    url = $"rtsp://{IpAddress}:{rtspPort}/live/0/SUB";
-                }
-
                 if (string.IsNullOrWhiteSpace(url)) return "";
 
                 // Inject credentials if we have them and they aren't already in the URL
@@ -87,88 +81,11 @@ namespace TSVmsDesktop.Models
             }
         }
         
-        /// <summary>
-        /// Returns a lower-resolution sub-stream URL if possible, for use in the multi-camera grid.
-        /// </summary>
-        [JsonIgnore]
-        public string SubStreamUrl
-        {
-            get
-            {
-                string url = EffectiveRtspUrl;
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    // 1. Hikvision (e.g. /Streaming/Channels/101 -> 102)
-                    if (url.Contains("/Channels/101", StringComparison.OrdinalIgnoreCase))
-                    {
-                        url = url.Replace("/Channels/101", "/Channels/102", StringComparison.OrdinalIgnoreCase);
-                    }
-                    // 2. Dahua (e.g. channel=1&subtype=0 -> subtype=1)
-                    else if (url.Contains("subtype=0", StringComparison.OrdinalIgnoreCase))
-                    {
-                        url = url.Replace("subtype=0", "subtype=1", StringComparison.OrdinalIgnoreCase);
-                    }
-                    else if (url.Contains("/cam/realmonitor?", StringComparison.OrdinalIgnoreCase) && !url.Contains("subtype=1", StringComparison.OrdinalIgnoreCase))
-                    {
-                        url += "&subtype=1";
-                    }
-                    // 3. Generic ONVIF Main -> Sub
-                    else if (url.Contains("/MAIN", StringComparison.OrdinalIgnoreCase))
-                    {
-                        url = url.Replace("/MAIN", "/SUB", StringComparison.OrdinalIgnoreCase);
-                    }
-                    else if (url.Contains("stream=0", StringComparison.OrdinalIgnoreCase))
-                    {
-                        url = url.Replace("stream=0", "stream=1", StringComparison.OrdinalIgnoreCase);
-                    }
-                    else if (url.Contains("Profile_1", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Some ONVIF schemas use Profile_1 vs Profile_2 or _3
-                        url = url.Replace("Profile_1", "Profile_2", StringComparison.OrdinalIgnoreCase);
-                    }
-                }
-                return url;
-            }
-        }
-
         [JsonIgnore]
         public string Thumbnail { get; set; } = "/Images/cam_placeholder.png"; 
 
         [ObservableProperty]
         [JsonIgnore]
         private bool _isSelected;
-
-        /// <summary>
-        /// Returns a higher-resolution main-stream URL if possible.
-        /// </summary>
-        [JsonIgnore]
-        public string MainStreamUrl
-        {
-            get
-            {
-                string url = EffectiveRtspUrl;
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    // 1. Hikvision (e.g. /Streaming/Channels/102 -> 101)
-                    if (url.Contains("/Channels/102", StringComparison.OrdinalIgnoreCase))
-                        url = url.Replace("/Channels/102", "/Channels/101", StringComparison.OrdinalIgnoreCase);
-                    
-                    // 2. Dahua (e.g. channel=1&subtype=1 -> subtype=0)
-                    else if (url.Contains("subtype=1", StringComparison.OrdinalIgnoreCase))
-                        url = url.Replace("subtype=1", "subtype=0", StringComparison.OrdinalIgnoreCase);
-                    
-                    // 3. Generic ONVIF Sub -> Main
-                    else if (url.Contains("/SUB", StringComparison.OrdinalIgnoreCase))
-                        url = url.Replace("/SUB", "/MAIN", StringComparison.OrdinalIgnoreCase);
-                        
-                    else if (url.Contains("stream=1", StringComparison.OrdinalIgnoreCase))
-                        url = url.Replace("stream=1", "stream=0", StringComparison.OrdinalIgnoreCase);
-                        
-                    else if (url.Contains("Profile_2", StringComparison.OrdinalIgnoreCase))
-                        url = url.Replace("Profile_2", "Profile_1", StringComparison.OrdinalIgnoreCase);
-                }
-                return url;
-            }
-        }
     }
 }

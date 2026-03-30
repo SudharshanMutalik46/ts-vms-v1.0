@@ -2,6 +2,7 @@ package media
 
 import (
 	"fmt"
+	"html"
 	"net"
 	"net/url"
 	"strings"
@@ -202,10 +203,22 @@ func (v *Validator) validate(job ValidationJob) ValidationResult {
 
 // Helper: Sanitize URL
 func SanitizeRTSPURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw // fallback
+	// 1. First unescape XML entities like &amp;
+	unescaped := html.UnescapeString(raw)
+
+	// 2. Remove credentials manually to avoid url.Parse/String() double-encoding side effects
+	// rtsp://user:pass@host:port/path
+	if idx := strings.Index(unescaped, "://"); idx != -1 {
+		proto := unescaped[:idx+3]
+		rest := unescaped[idx+3:]
+		if at := strings.Index(rest, "@"); at != -1 {
+			// Find first slash to ensure @ is in authority section
+			slash := strings.Index(rest, "/")
+			if slash == -1 || at < slash {
+				return proto + rest[at+1:]
+			}
+		}
 	}
-	u.User = nil
-	return u.String()
+
+	return unescaped
 }

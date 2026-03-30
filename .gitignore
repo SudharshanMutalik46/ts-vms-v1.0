@@ -74,6 +74,11 @@ temp_extract/
 archive/cleanup_latest/
 **/build_out.txt
 *.mp4
+.gocache/
+desktop/TSVmsDesktop/*.txt
+desktop/TSVmsDesktop/*.m3u8
+tmp/
+tmp_line_check.txt
 
 # Build state (recording)
 src/recording/*.vcxproj

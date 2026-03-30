@@ -74,7 +74,7 @@ namespace TSVmsDesktop.Services
                  // Handle null response (e.g. backend returns null for empty list)
                  if (healthData == null)
                  {
-                     // Console.WriteLine("[CameraService] Health data was null (treating as empty).");
+                     // VideoService.Log("[CameraService] Health data was null (treating as empty).");
                      healthData = new List<HealthStatusDto>();
                  }
 
@@ -90,7 +90,7 @@ namespace TSVmsDesktop.Services
                                  string oldStatus = cam.Status;
                                  string newVal = h.Status?.ToUpper() ?? "OFFLINE";
                                  
-                                 // Console.WriteLine($"[CameraService] Cam {cam.Name} ({cam.Id}) Status: {h.Status} -> {newVal}");
+                                 // VideoService.Log($"[CameraService] Cam {cam.Name} ({cam.Id}) Status: {h.Status} -> {newVal}");
 
                                  switch (newVal)
                                  {
@@ -104,7 +104,7 @@ namespace TSVmsDesktop.Services
                                  
                                  if (oldStatus != cam.Status)
                                  {
-                                     Console.WriteLine($"[CameraService] Updated {cam.Name} status to {cam.Status}");
+                                     VideoService.Log($"[CameraService] Updated {cam.Name} status to {cam.Status}");
                                  }
                              }
                              else
@@ -130,12 +130,12 @@ namespace TSVmsDesktop.Services
                  }
                  else
                  {
-                     Console.WriteLine("[CameraService] Health data was null.");
+                     VideoService.Log("[CameraService] Health data was null.");
                  }
              }
              catch (Exception ex)
              {
-                 Console.WriteLine($"[CameraService] LoadHealthAsync Error: {ex.Message}");
+                 VideoService.Log($"[CameraService] LoadHealthAsync Error: {ex.Message}");
              }
         }
 

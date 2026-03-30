@@ -32,6 +32,7 @@ type LiveSessionResponse struct {
 	Primary         string           `json:"primary"`          // "webrtc"
 	Fallback        string           `json:"fallback"`         // "hls"
 	SelectedQuality string           `json:"selected_quality"` // "sub" or "main"
+	SelectedCodec   string           `json:"selected_codec,omitempty"`
 	WebRTC          *WebRTCBlock     `json:"webrtc"`
 	HLS             *HLSBlock        `json:"hls"`
 	FallbackPolicy  *FallbackPolicy  `json:"fallback_policy"`

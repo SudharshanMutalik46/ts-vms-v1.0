@@ -22,8 +22,9 @@ const sfuUrl         = p.sfuUrl;
 const cameraId       = p.cameraId;
 const sessionId      = p.sessionId;
 const token          = p.token;
+const preferredCodec = normalizeCodecName(p.preferredCodec || '');
 const signalingTimeoutMs = p.timeoutMs || 10000;
-const firstFrameTimeoutMs = p.trackTimeoutMs || 10000;
+const firstFrameTimeoutMs = Math.max(p.trackTimeoutMs || 20000, 20000);
 
 const STATUS = document.getElementById('status');
 const VIDEO  = document.getElementById('video');
@@ -32,7 +33,9 @@ const H = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/jso
 let _pc = null;
 let _signalingTimer = null;
 let _frameTimer = null;
+let _statsTimer = null;
 let _done = false;
+let _firstFrameArmed = false;
 
 function postMsg(obj) {
   try { window.chrome.webview.postMessage(JSON.stringify(obj)); } catch (_) {}
@@ -49,8 +52,10 @@ function setStatus(msg) {
 function clearTimers() {
   if (_signalingTimer) clearTimeout(_signalingTimer);
   if (_frameTimer) clearTimeout(_frameTimer);
+  if (_statsTimer) clearInterval(_statsTimer);
   _signalingTimer = null;
   _frameTimer = null;
+  _statsTimer = null;
 }
 
 function cleanupPc() {
@@ -86,6 +91,74 @@ function success(codec) {
   debug('success', codec);
 }
 
+function hasRenderableFrame() {
+  return (
+    VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    VIDEO.videoWidth >= 16 &&
+    VIDEO.videoHeight >= 16 &&
+    !VIDEO.paused &&
+    !VIDEO.ended
+  );
+}
+
+let _lastStatsDump = 0;
+async function detectInboundVideo(codec) {
+  if (!_pc || _done) return false;
+
+  try {
+    const stats = await _pc.getStats();
+    let foundInbound = false;
+    const now = Date.now();
+    for (const report of stats.values()) {
+      if (report.type === 'inbound-rtp' && report.kind === 'video') {
+        foundInbound = true;
+        const bytes = Number(report.bytesReceived || 0);
+        const framesDecoded = Number(report.framesDecoded || 0);
+        const framesReceived = Number(report.framesReceived || 0);
+        const rendered = hasRenderableFrame();
+        if (framesDecoded > 0 || (framesReceived > 0 && rendered)) {
+          debug('inbound-video', {
+            bytes,
+            framesDecoded,
+            framesReceived,
+            rendered,
+            width: VIDEO.videoWidth,
+            height: VIDEO.videoHeight,
+            readyState: VIDEO.readyState
+          });
+          success(codec);
+          return true;
+        }
+        // Log zero-bytes every 2s for diagnosis
+        if (now - _lastStatsDump > 2000) {
+          _lastStatsDump = now;
+          debug('stats-zero', {
+            ssrc: report.ssrc,
+            bytes,
+            framesDecoded,
+            framesReceived,
+            packetsReceived: report.packetsReceived,
+            rendered,
+            width: VIDEO.videoWidth,
+            height: VIDEO.videoHeight,
+            readyState: VIDEO.readyState
+          });
+        }
+      }
+    }
+    // Log if no inbound-rtp report at all
+    if (!foundInbound && now - _lastStatsDump > 2000) {
+      _lastStatsDump = now;
+      const types = [...stats.values()].map(r => r.type).join(',');
+      debug('stats-no-inbound', types);
+    }
+  } catch (err) {
+    debug('getStats-error', err?.message || String(err));
+  }
+
+  return false;
+}
+
 async function api(method, path, body) {
   const opts = { method, headers: H };
   if (body !== undefined) opts.body = JSON.stringify(body);
@@ -106,7 +179,9 @@ function extractDtls(sdp) {
   if (!fp) return null;
 
   const s = setup ? setup[1] : 'actpass';
-  const role = s === 'active' ? 'client' : s === 'passive' ? 'server' : 'auto';
+  // SFU answer is always a=setup:passive, so browser must be active (client).
+  // actpass in the offer maps to 'client' (not 'auto') to avoid DTLS role conflict.
+  const role = s === 'active' ? 'client' : s === 'passive' ? 'server' : 'client';
   return { role, fingerprints: [{ algorithm: fp[1], value: fp[2] }] };
 }
 
@@ -263,17 +338,19 @@ function buildConsumeCaps(routerCaps, offerCaps, preferredCodec) {
       throw new Error('Browser offer has no H264 packetization-mode=1 codec');
     }
 
+    const chosenParams = Object.assign({}, chosen.parameters || {});
+    chosenParams['packetization-mode'] = 1;
+    if (!chosenParams['level-asymmetry-allowed']) {
+      chosenParams['level-asymmetry-allowed'] = 1;
+    }
+
     return {
       codecs: [{
         mimeType: 'video/H264',
         clockRate: chosen.clockRate,
         preferredPayloadType: chosen.preferredPayloadType,
         channels: chosen.channels,
-        parameters: {
-          'packetization-mode': 1,
-          'profile-level-id': '42001f',
-          'level-asymmetry-allowed': 1
-        },
+        parameters: chosenParams,
         rtcpFeedback: [
           { type: 'nack' },
           { type: 'nack', parameter: 'pli' }
@@ -302,45 +379,61 @@ function buildConsumeCaps(routerCaps, offerCaps, preferredCodec) {
   };
 }
 
-function buildRemoteSdp(transport, consumer, offerExtmaps) {
-  const iceP   = transport.iceParameters;
-  const cands  = transport.iceCandidates || [];
-  const fp     = transport.dtlsParameters.fingerprints[0];
-  const rtpP   = consumer.rtpParameters;
-  const codec  = rtpP.codecs[0];
-  const enc    = (rtpP.encodings || [{}])[0] || {};
-  const pt     = codec.payloadType;
-  const mime   = codec.mimeType.split('/')[1];
+function buildRemoteSdp(transport, consumer, offerExtmaps, consumeCaps) {
+  const iceP = transport.iceParameters;
+  const cands = transport.iceCandidates || [];
+  const fp = transport.dtlsParameters.fingerprints[0];
+
+  const rtpP = consumer.rtpParameters || {};
+  const enc = (rtpP.encodings || [])[0] || {};
+  const rtcp = rtpP.rtcp || {};
+
+  const consumerCodec = (rtpP.codecs || [])[0];
+  const offeredCodec = (consumeCaps?.codecs || [])[0];
+  const chosen = consumerCodec || offeredCodec;
+  if (!chosen) throw new Error('No negotiated video codec available for remote SDP');
+
+  const pt =
+    consumerCodec?.payloadType ??
+    consumerCodec?.preferredPayloadType ??
+    offeredCodec?.preferredPayloadType ??
+    offeredCodec?.payloadType;
+  if (pt === undefined || pt === null) {
+    throw new Error('No negotiated payload type available for remote SDP');
+  }
+
+  const mime = String(chosen.mimeType || 'video/H264').split('/')[1];
+  const clockRate = chosen.clockRate || 90000;
+  const channels = chosen.channels;
+  const params = consumerCodec?.parameters || offeredCodec?.parameters || {};
+  const rtcpFeedback = consumerCodec?.rtcpFeedback || offeredCodec?.rtcpFeedback || [];
+
   const firstCand = cands[0] || {};
-  const ip   = firstCand.ip || '0.0.0.0';
+  const ip = firstCand.ip || '0.0.0.0';
   const port = firstCand.port || 7;
 
   const candLines = cands.map(c => {
-    let line = `a=candidate:${c.foundation} ${c.component || 1} ${(c.protocol || 'udp').toUpperCase()} ${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
+    let line =
+      `a=candidate:${c.foundation} ${c.component || 1} ${(c.protocol || 'udp').toUpperCase()} ` +
+      `${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
     if (c.tcpType) line += ` tcptype ${c.tcpType}`;
     return line;
   }).join('\r\n');
 
-  let rtpmap = `a=rtpmap:${pt} ${mime}/${codec.clockRate}`;
-  if (codec.channels && codec.channels > 1) rtpmap += `/${codec.channels}`;
+  let rtpmap = `a=rtpmap:${pt} ${mime}/${clockRate}`;
+  if (channels && channels > 1) rtpmap += `/${channels}`;
 
   let fmtp = '';
-  if (codec.parameters && Object.keys(codec.parameters).length) {
-    const ps = Object.entries(codec.parameters).map(([k, v]) => `${k}=${v}`).join(';');
-    fmtp = `\r\na=fmtp:${pt} ${ps}`;
+  const paramEntries = Object.entries(params);
+  if (paramEntries.length) {
+    fmtp = `\r\na=fmtp:${pt} ` + paramEntries.map(([k, v]) => `${k}=${v}`).join(';');
   }
 
-  let rtxLines = '';
-  if (rtpP.codecs.length > 1) {
-    const rtx = rtpP.codecs[1];
-    if (rtx && String(rtx.mimeType || '').toLowerCase().includes('rtx')) {
-      rtxLines =
-        `\r\na=rtpmap:${rtx.payloadType} rtx/${rtx.clockRate}` +
-        `\r\na=fmtp:${rtx.payloadType} apt=${pt}`;
-    }
-  }
-
-  const allPt = rtxLines ? `${pt} ${rtpP.codecs[1].payloadType}` : String(pt);
+  const fbLines = (rtcpFeedback.map(fb => {
+    return fb.parameter
+      ? `a=rtcp-fb:${pt} ${fb.type} ${fb.parameter}`
+      : `a=rtcp-fb:${pt} ${fb.type}`;
+  })).join('\r\n');
 
   const extLines = (rtpP.headerExtensions || [])
     .filter(x => offerExtmaps && offerExtmaps[x.uri] !== undefined)
@@ -348,9 +441,14 @@ function buildRemoteSdp(transport, consumer, offerExtmaps) {
     .join('\r\n');
 
   const ssrc = enc.ssrc;
-  const cname = enc.cname || ('video-' + ssrc);
+  const cname = rtcp.cname || enc.cname || (ssrc ? `video-${ssrc}` : 'video-cname');
+  const msid = 'mediasoup video0';
+
   const ssrcLines = ssrc
-    ? `a=ssrc:${ssrc} cname:${cname}\r\na=ssrc:${ssrc} msid:mediasoup video0`
+    ? [
+        `a=ssrc:${ssrc} cname:${cname}`,
+        `a=ssrc:${ssrc} msid:${msid}`
+      ].join('\r\n')
     : '';
 
   return [
@@ -360,18 +458,22 @@ function buildRemoteSdp(transport, consumer, offerExtmaps) {
     't=0 0',
     'a=group:BUNDLE 0',
     'a=msid-semantic: WMS *',
-    `m=video ${port} UDP/TLS/RTP/SAVPF ${allPt}`,
+    `m=video ${port} UDP/TLS/RTP/SAVPF ${pt}`,
     `c=IN IP4 ${ip}`,
     'a=mid:0',
+    'a=extmap-allow-mixed',
     `a=ice-ufrag:${iceP.usernameFragment}`,
     `a=ice-pwd:${iceP.password}`,
     'a=ice-options:renomination',
     `a=fingerprint:${fp.algorithm} ${fp.value}`,
     'a=setup:passive',
-    rtpmap + fmtp + rtxLines,
-    extLines || '',
     'a=sendonly',
     'a=rtcp-mux',
+    'a=rtcp-rsize',
+    `a=msid:${msid}`,
+    rtpmap + fmtp,
+    fbLines || '',
+    extLines || '',
     candLines || '',
     'a=end-of-candidates',
     ssrcLines || ''
@@ -379,33 +481,47 @@ function buildRemoteSdp(transport, consumer, offerExtmaps) {
 }
 
 function armFirstFrameHandlers(codec) {
-  const maybeConnected = () => {
-    const hasFrame =
-      VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-      VIDEO.videoWidth > 0 &&
-      VIDEO.videoHeight > 0 &&
-      !VIDEO.paused &&
-      !VIDEO.ended;
+  if (_firstFrameArmed) return;
+  _firstFrameArmed = true;
 
-    if (hasFrame) success(codec);
+  const maybeConnected = () => {
+    if (_done) return;
+    if (hasRenderableFrame()) {
+      debug('video-frame-ready', {
+        width: VIDEO.videoWidth,
+        height: VIDEO.videoHeight,
+        readyState: VIDEO.readyState
+      });
+      success(codec);
+    }
   };
 
+  VIDEO.addEventListener('loadedmetadata', () => {
+    debug('loadedmetadata', {
+      width: VIDEO.videoWidth,
+      height: VIDEO.videoHeight,
+      readyState: VIDEO.readyState
+    });
+    maybeConnected();
+  }, { once: true });
   VIDEO.addEventListener('loadeddata', maybeConnected, { once: true });
   VIDEO.addEventListener('playing', maybeConnected, { once: true });
+  VIDEO.addEventListener('canplay', maybeConnected, { once: true });
 
   if (typeof VIDEO.requestVideoFrameCallback === 'function') {
     VIDEO.requestVideoFrameCallback(() => maybeConnected());
   }
 
-  _frameTimer = setTimeout(() => {
-    const hasFrame =
-      VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-      VIDEO.videoWidth > 0 &&
-      VIDEO.videoHeight > 0 &&
-      !VIDEO.paused &&
-      !VIDEO.ended;
+  _statsTimer = setInterval(() => {
+    detectInboundVideo(codec).catch(() => {});
+  }, 500);
 
-    if (!hasFrame) fail('First frame timeout');
+  _frameTimer = setTimeout(() => {
+    if (!hasRenderableFrame()) {
+      detectInboundVideo(codec).then(ok => {
+        if (!ok) fail('First frame timeout');
+      }).catch(() => fail('First frame timeout'));
+    }
   }, firstFrameTimeoutMs);
 }
 
@@ -415,11 +531,24 @@ async function connectOnce(preferredCodec) {
 
   _signalingTimer = setTimeout(() => fail('Signaling timeout'), signalingTimeoutMs);
 
-  const routerCaps = await api('GET', `/rooms/${cameraId}/rtp-capabilities`);
-  await api('POST', `/rooms/${cameraId}/join`, {
+  const joinResult = await api('POST', `/rooms/${cameraId}/join`, {
     sessionId,
     codecPreferences: [preferredCodec]
   });
+  const routerCaps =
+    joinResult && Array.isArray(joinResult.codecs)
+      ? joinResult
+      : await api('GET', `/rooms/${cameraId}/rtp-capabilities`);
+
+  let negotiatedCodec = preferredCodec;
+  if (!routerHasCodec(routerCaps, negotiatedCodec)) {
+    const fallbackCodec = ['H264', 'H265'].find(c => routerHasCodec(routerCaps, c));
+    if (!fallbackCodec) {
+      throw new Error(`SFU router has no supported codec for requested ${preferredCodec}`);
+    }
+    debug('codec-fallback', { requested: preferredCodec, selected: fallbackCodec });
+    negotiatedCodec = fallbackCodec;
+  }
 
   const transport = await api('POST', `/rooms/${cameraId}/transports`, {});
   const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
@@ -435,18 +564,24 @@ async function connectOnce(preferredCodec) {
     debug('ontrack', { kind: e.track?.kind, muted: e.track?.muted });
     const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
     VIDEO.srcObject = stream;
+    VIDEO.style.display = 'block';
+    STATUS.style.display = 'block';
 
     if (e.track) {
-      e.track.onunmute = () => debug('track-unmute', e.track.kind);
+      e.track.onunmute = () => {
+        debug('track-unmute', e.track.kind);
+      };
       e.track.onmute = () => debug('track-mute', e.track.kind);
       e.track.onended = () => debug('track-ended', e.track.kind);
     }
 
-    armFirstFrameHandlers(preferredCodec);
+    armFirstFrameHandlers(negotiatedCodec);
 
     VIDEO.play().then(() => {
+      if (_done) return;
       debug('video-play-ok');
     }).catch(err => {
+      if (_done) return;
       fail('VIDEO.play() failed: ' + (err?.message || String(err)));
     });
   };
@@ -460,7 +595,7 @@ async function connectOnce(preferredCodec) {
   await api('POST', `/rooms/${cameraId}/transports/${transport.id}/connect`, { dtlsParameters: dtlsParams });
 
   const offerCaps = parseOfferVideoCaps(offer.sdp || '');
-  const consumeRtpCaps = buildConsumeCaps(routerCaps, offerCaps, preferredCodec);
+  const consumeRtpCaps = buildConsumeCaps(routerCaps, offerCaps, negotiatedCodec);
 
   const consumer = await api(
     'POST',
@@ -468,8 +603,17 @@ async function connectOnce(preferredCodec) {
     { rtpCapabilities: consumeRtpCaps }
   );
 
-  const remoteSdp = buildRemoteSdp(transport, consumer, offerCaps.extmaps);
+  const remoteSdp = buildRemoteSdp(transport, consumer, offerCaps.extmaps, consumeRtpCaps);
   await pc.setRemoteDescription({ type: 'answer', sdp: remoteSdp });
+  debug('remote-desc-set', {
+    transceivers: pc.getTransceivers().map(t => ({
+      mid: t.mid,
+      direction: t.direction,
+      currentDirection: t.currentDirection,
+      receiverKind: t.receiver?.track?.kind || null,
+      receiverState: t.receiver?.track?.readyState || null
+    }))
+  });
 
   await api(
     'POST',
@@ -479,18 +623,26 @@ async function connectOnce(preferredCodec) {
 
   clearTimeout(_signalingTimer);
   _signalingTimer = null;
-  debug('signaling-complete', preferredCodec);
+  debug('signaling-complete', negotiatedCodec);
 }
 
 async function connect() {
-  const attempts = browserVideoCodecOrder().filter(c => c === 'H265' || c === 'H264');
+  let attempts;
+  if (preferredCodec === 'H265' || preferredCodec === 'H264') {
+    attempts = [preferredCodec];
+  } else {
+    attempts = browserVideoCodecOrder().filter(c => c === 'H265' || c === 'H264');
+  }
   let lastErr = null;
 
   for (const codec of attempts) {
     try {
       cleanupPc();
       clearTimers();
+      _firstFrameArmed = false;
       VIDEO.srcObject = null;
+      VIDEO.style.display = 'none';
+      STATUS.style.display = 'block';
       await connectOnce(codec);
       return;
     } catch (e) {

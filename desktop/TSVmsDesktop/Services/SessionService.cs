@@ -70,12 +70,12 @@ namespace TSVmsDesktop.Services
             {
                 try 
                 {
-                    Console.WriteLine("[Session] LogoutAsync: notifying backend...");
+                    VideoService.Log("[Session] LogoutAsync: notifying backend...");
                     await apiClient.PostAsync<object>("/api/v1/auth/logout", new { });
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Session] LogoutAsync warning: {ex.Message}");
+                    VideoService.Log($"[Session] LogoutAsync warning: {ex.Message}");
                 }
             }
             Clear();
@@ -83,7 +83,7 @@ namespace TSVmsDesktop.Services
 
         public void Clear()
         {
-            Console.WriteLine("[Session] Clearing session.");
+            VideoService.Log("[Session] Clearing session.");
             _accessToken = null;
             _refreshToken = null;
             CurrentUser = null;

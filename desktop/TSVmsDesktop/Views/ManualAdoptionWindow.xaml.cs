@@ -12,7 +12,7 @@ namespace TSVmsDesktop.Views
         {
             InitializeComponent();
             TxtTitle.Text = $"Manual Configuration ({ipAddress})";
-            TxtUrl.Text = $"rtsp://{ipAddress}:554/stream";
+            TxtUrl.Text = $"rtsp://{ipAddress}:554/";
             TxtUrl.Focus();
             TxtUrl.SelectAll();
         }

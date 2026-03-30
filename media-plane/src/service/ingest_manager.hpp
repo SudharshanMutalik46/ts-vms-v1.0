@@ -19,6 +19,7 @@ struct CameraStatus {
     int reconnect_attempts;
     pipeline::IngestPipeline::HlsState hls_state;
     pipeline::IngestPipeline::Metrics metrics;
+    std::string codec;   // ADD THIS: "H264", "H265", or "UNKNOWN"
 };
 
 class IngestManager {
@@ -43,6 +44,7 @@ public:
     enum class Result { SUCCESS, ALREADY_RUNNING, FAILED, CAMERA_NOT_FOUND };
     Result StartSfuRtpEgress(const std::string& camera_id, const std::string& dst_ip, int dst_port, uint32_t ssrc, uint32_t pt, const std::string& codec);
     void StopSfuRtpEgress(const std::string& camera_id);
+    void OnPipelineRunning(const std::string& camera_id);
 
 private:
     void MonitorLoop();
@@ -67,6 +69,9 @@ private:
     // Rate limiting
     std::mutex rate_mutex_;
     std::vector<std::chrono::steady_clock::time_point> start_times_;
+
+    // SFU Egress Queuing (Phase 3.4+)
+    std::unordered_map<std::string, pipeline::IngestPipeline::SfuConfig> pending_sfu_egress_;
 };
 
 } // namespace ts::vms::media::service

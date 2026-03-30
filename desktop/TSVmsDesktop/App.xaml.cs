@@ -15,7 +15,7 @@ namespace TSVmsDesktop
 
         public App()
         {
-            System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] App Constructor Started");
+            VideoService.Log("[BOOTSTRAP] App Constructor Started");
             InitializeComponent(); // REQUIRED for App.xaml resources
             
             var services = new ServiceCollection();
@@ -69,16 +69,16 @@ namespace TSVmsDesktop
             services.AddTransient<PlaybackViewModel>();
 
             Services = services.BuildServiceProvider();
-            System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Services Built");
+            VideoService.Log("[BOOTSTRAP] Services Built");
         }
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            Console.WriteLine("DEBUG: OnStartup Started");
+            VideoService.Log("DEBUG: OnStartup Started");
             // Force GStreamer to ignore experimental D3D12 decoders and fallback to stable D3D11
             Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE,d3d12convert:NONE,d3d12videosink:NONE");
-            // Keep runtime logs minimal; d3d11debuglayer warning floods can stall the app.
-            Environment.SetEnvironmentVariable("GST_DEBUG", "*:1,d3d11debuglayer:0,video-info:0");
+            // Ultra-verbose for soup and adaptivedemux to find the root cause of the "no fragments" stall.
+            Environment.SetEnvironmentVariable("GST_DEBUG", "*:1,d3d11debuglayer:0,video-info:0,hlsdemux:5,adaptivedemux:5,souphttpsrc:5");
 
             // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
@@ -96,25 +96,25 @@ namespace TSVmsDesktop
 
             try
             {
-                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Resolving MainViewModel...");
+                VideoService.Log("[BOOTSTRAP] Resolving MainViewModel...");
                 var mainVm = Services.GetRequiredService<MainViewModel>();
                 // mainVm.CheckForSavedSession(); // logic moved to MainViewModel constructor / StartupViewModel
                 
-                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Resolving MainWindow...");
+                VideoService.Log("[BOOTSTRAP] Resolving MainWindow...");
                 var mainWindow = Services.GetRequiredService<MainWindow>();
                 
-                System.Diagnostics.Debug.WriteLine("[BOOTSTRAP] Showing MainWindow...");
+                VideoService.Log("[BOOTSTRAP] Showing MainWindow...");
                 mainWindow.Show();
-                Console.WriteLine("[BOOTSTRAP] Application Ready (MainWindow Shown)");
+                VideoService.Log("[BOOTSTRAP] Application Ready (MainWindow Shown)");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"FATAL ERROR: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                VideoService.Log($"FATAL ERROR: {ex.Message}");
+                VideoService.Log(ex.StackTrace ?? "No stack trace available.");
                 if(ex.InnerException != null) 
                 {
-                    Console.WriteLine($"INNER ERROR: {ex.InnerException.Message}");
-                    Console.WriteLine(ex.InnerException.StackTrace);
+                    VideoService.Log($"INNER ERROR: {ex.InnerException.Message}");
+                    VideoService.Log(ex.InnerException.StackTrace ?? "No inner stack trace available.");
                 }
             }
         }

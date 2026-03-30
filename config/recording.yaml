@@ -2,6 +2,7 @@ global:
   segment_duration_sec: 60
   health_port: 8082
   api_base_url: "http://localhost:8082"
+  sfu_base_url: "http://localhost:8085"
   dev_rbac_bypass: true
   storage_root: "C:\\ts_vms_storage"
   export_root: "C:\\ts_vms_exports"

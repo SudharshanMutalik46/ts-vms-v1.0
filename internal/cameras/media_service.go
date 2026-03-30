@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/google/uuid"
@@ -96,10 +97,17 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	}
 
 	// Construct XAddr
-	// Phase 2.1 Camera struct has IPAddress (net.IP).
-	// We need to construct URL from IP.
+	// Phase 2.1 Camera struct has IPAddress (net.IP) and Port.
+	// We use the port if it's defined, otherwise default to 80 for ONVIF.
 	host := cam.IPAddress.String()
-	xaddr := fmt.Sprintf("http://%s/onvif/device_service", host)
+	port := cam.Port
+	if port <= 0 || port == 554 {
+		port = 80 // Default ONVIF
+	}
+	xaddr := fmt.Sprintf("http://%s:%d/onvif/device_service", host, port)
+	if port == 80 {
+		xaddr = fmt.Sprintf("http://%s/onvif/device_service", host)
+	}
 
 	client, err := s.ClientFactory(xaddr, user, pass)
 	if err != nil {
@@ -152,10 +160,17 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 			}
 		}
 
+		// Audio Codec Mapping
+		audioCodec := "—"
+		if op.AudioEncoderConfiguration != nil {
+			audioCodec = strings.ToUpper(op.AudioEncoderConfiguration.Encoding)
+		}
+
 		p := media.Profile{
 			Token:      op.Token,
 			Name:       op.Name,
 			VideoCodec: codec,
+			AudioCodec: audioCodec,
 			RTSPURL:    sanitizedURI,
 		}
 
@@ -172,16 +187,19 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 		dbP := &data.CameraMediaProfile{
 			TenantID:         tenantID,
 			CameraID:         cameraID,
-			ProfileToken:     p.Token,
+			ProfileToken:     op.Token,
 			ProfileName:      p.Name,
 			VideoCodec:       string(p.VideoCodec),
+			AudioCodec:       p.AudioCodec,
 			Width:            p.Width,
 			Height:           p.Height,
 			FPS:              p.FPS,
 			BitrateKbps:      p.BitrateKbps,
 			RTSPURLSanitized: sanitizedURI,
 		}
-		s.MediaRepo.UpsertProfile(ctx, dbP)
+		if err := s.MediaRepo.UpsertProfile(ctx, dbP); err != nil {
+			log.Printf("[ERROR] Failed to upsert profile %s: %v", op.Token, err)
+		}
 	}
 
 	// 4. Run Selection

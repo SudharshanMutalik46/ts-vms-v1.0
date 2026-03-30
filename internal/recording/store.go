@@ -69,10 +69,7 @@ func recordingRTSPURL(raw, ip string, port int) string {
 	if ip == "" {
 		return ""
 	}
-	if port <= 0 {
-		port = 554
-	}
-	return fmt.Sprintf("rtsp://%s:%d/live/0/MAIN", ip, port)
+	return ""
 }
 
 func (s *PostgresStore) LoadEnabledCameras(ctx context.Context) ([]CameraConfig, error) {

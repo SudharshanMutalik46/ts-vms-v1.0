@@ -94,7 +94,8 @@ std::optional<CameraStatus> IngestManager::GetStatus(const std::string& camera_i
         it->second->GetLastFrameTimeMs(),
         reconnect_attempts_[camera_id],
         it->second->GetHlsState(),
-        it->second->GetMetrics()
+        it->second->GetMetrics(),
+        it->second->GetCodecString()
     };
 }
 
@@ -109,7 +110,8 @@ std::vector<CameraStatus> IngestManager::ListIngests() {
             pipeline->GetLastFrameTimeMs(),
             reconnect_attempts_[id],
             pipeline->GetHlsState(),
-            pipeline->GetMetrics()
+            pipeline->GetMetrics(),
+            pipeline->GetCodecString()
         });
     }
     return list;
@@ -134,8 +136,20 @@ IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera
     std::lock_guard<std::mutex> lock(map_mutex_);
     auto it = pipelines_.find(camera_id);
     if (it == pipelines_.end()) {
-        spdlog::warn("[IngestManager] StartSfuRtpEgress: Camera {} NOT FOUND in pipelines map. Active pipelines: {}", camera_id, pipelines_.size());
-        return Result::CAMERA_NOT_FOUND;
+        spdlog::warn("[IngestManager] Camera {} not ready yet — queuing SFU egress", camera_id);
+        // Store for retry when pipeline is RUNNING
+        pending_sfu_egress_[camera_id] = {dst_ip, dst_port, ssrc, pt, codec};
+        return Result::SUCCESS; // caller treats as success, delivery is async
+    }
+
+    const auto state = it->second->GetState();
+    if (state != pipeline::State::RUNNING) {
+        spdlog::info(
+            "[{}] Deferring SFU egress until pipeline is RUNNING (state={})",
+            camera_id,
+            static_cast<int>(state));
+        pending_sfu_egress_[camera_id] = {dst_ip, dst_port, ssrc, pt, codec};
+        return Result::SUCCESS;
     }
 
     if (it->second->IsSfuEgressRunning()) return Result::ALREADY_RUNNING;
@@ -145,7 +159,12 @@ IngestManager::Result IngestManager::StartSfuRtpEgress(const std::string& camera
         return Result::SUCCESS;
     }
 
-    return Result::FAILED;
+    // Pipeline returned false — codec not yet detected (tight race between
+    // state=RUNNING and OnPadAdded). Store pending; MonitorLoop will drain
+    // it on next 1s tick once codec is known and pipeline is stable.
+    spdlog::warn("[IngestManager] Camera {} SFU egress deferred (codec UNKNOWN at RUNNING)", camera_id);
+    pending_sfu_egress_[camera_id] = {dst_ip, dst_port, ssrc, pt, codec};
+    return Result::SUCCESS;
 }
 
 void IngestManager::StopSfuRtpEgress(const std::string& camera_id) {
@@ -156,11 +175,24 @@ void IngestManager::StopSfuRtpEgress(const std::string& camera_id) {
     }
 }
 
+void IngestManager::OnPipelineRunning(const std::string& camera_id) {
+    auto it = pending_sfu_egress_.find(camera_id);
+    if (it != pending_sfu_egress_.end()) {
+        auto& cfg = it->second;
+        spdlog::info("[IngestManager] Applying queued SFU egress for {}", camera_id);
+        if (auto pit = pipelines_.find(camera_id); pit != pipelines_.end()) {
+            pit->second->StartSfuRtpEgress(cfg);
+        }
+        pending_sfu_egress_.erase(it);
+    }
+}
+
 void IngestManager::MonitorLoop() {
     while (running_) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
         std::vector<std::string> to_reconnect;
+        std::vector<std::string> just_started;
         {
             std::lock_guard<std::mutex> lock(map_mutex_);
             auto now = std::chrono::steady_clock::now();
@@ -168,23 +200,33 @@ void IngestManager::MonitorLoop() {
             for (auto const& [id, pipeline] : pipelines_) {
                 auto state = pipeline->GetState();
                 
-                // Reset backoff after 30s of stable RUNNING
-                if (state == pipeline::State::RUNNING && pipeline->GetLastFrameTimeMs() < 5000) {
-                    if (reconnect_attempts_[id] > 0) {
-                        auto last_reconnect = last_reconnect_ts_[id];
-                        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_reconnect).count() >= 30) {
-                            reconnect_attempts_[id] = 0;
-                            spdlog::debug("[{}] Resetting backoff after stable RUNNING", id);
+                if (state == pipeline::State::RUNNING) {
+                    // Check if HLS needs to be lazily initialized
+                    if (pipeline->GetHlsBranchPending()) {
+                        spdlog::info("[{}] MonitorLoop: Lazily setting up HLS branch", id);
+                        pipeline->SetupHlsBranch();
+                        pipeline->ClearHlsBranchPending();
+                    }
+
+                    // Check if it was just started or just hit RUNNING
+                    if (pending_sfu_egress_.count(id)) {
+                        just_started.push_back(id);
+                    }
+
+                    // Reset backoff after 30s of stable RUNNING
+                    if (pipeline->GetLastFrameTimeMs() < 5000) {
+                        if (reconnect_attempts_[id] > 0) {
+                            auto last_reconnect = last_reconnect_ts_[id];
+                            if (std::chrono::duration_cast<std::chrono::seconds>(now - last_reconnect).count() >= 30) {
+                                reconnect_attempts_[id] = 0;
+                                spdlog::debug("[{}] Resetting backoff after stable RUNNING", id);
+                            }
                         }
                     }
-                }
 
-                // Stall detection:
-                // - STARTING state: Allow 30 seconds for initial connection (slow H.265 cameras)
-                // - RUNNING state: 5 seconds no frames triggers reconnect
-                if (state == pipeline::State::RUNNING) {
-                    if (pipeline->GetLastFrameTimeMs() > 5000) {
-                        spdlog::warn("[{}] Stall detected (5s no frames while RUNNING)", id);
+                    const auto stallTimeoutMs = pipeline->IsSfuEgressRunning() ? 20000 : 5000;
+                    if (pipeline->GetLastFrameTimeMs() > stallTimeoutMs) {
+                        spdlog::warn("[{}] Stall detected ({}s no frames while RUNNING)", id, stallTimeoutMs / 1000);
                         utils::Metrics::Instance().stalls_total().Increment();
                         to_reconnect.push_back(id);
                     }
@@ -198,6 +240,14 @@ void IngestManager::MonitorLoop() {
                 } else if (state == pipeline::State::RECONNECTING) {
                     to_reconnect.push_back(id);
                 }
+            }
+        }
+
+        // Drain pending SFU egress for cameras that just reached RUNNING
+        {
+            std::lock_guard<std::mutex> lock(map_mutex_);
+            for (const auto& id : just_started) {
+                OnPipelineRunning(id);
             }
         }
 

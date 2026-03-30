@@ -15,6 +15,7 @@ type CameraMediaProfile struct {
 	ProfileToken     string    `json:"profile_token"`
 	ProfileName      string    `json:"profile_name"`
 	VideoCodec       string    `json:"video_codec"`
+	AudioCodec       string    `json:"audio_codec"`
 	Width            int       `json:"width"`
 	Height           int       `json:"height"`
 	FPS              float64   `json:"fps"`
@@ -61,11 +62,12 @@ func (m *MediaModel) UpsertProfile(ctx context.Context, p *CameraMediaProfile) e
 	query := `
 		INSERT INTO camera_media_profiles (
 			tenant_id, camera_id, profile_token, profile_name,
-			video_codec, width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+			video_codec, audio_codec, width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 		ON CONFLICT (tenant_id, camera_id, profile_token) DO UPDATE SET
 			profile_name=EXCLUDED.profile_name,
 			video_codec=EXCLUDED.video_codec,
+			audio_codec=EXCLUDED.audio_codec,
 			width=EXCLUDED.width,
 			height=EXCLUDED.height,
 			fps=EXCLUDED.fps,
@@ -76,13 +78,13 @@ func (m *MediaModel) UpsertProfile(ctx context.Context, p *CameraMediaProfile) e
 	`
 	return m.DB.QueryRowContext(ctx, query,
 		p.TenantID, p.CameraID, p.ProfileToken, p.ProfileName,
-		p.VideoCodec, p.Width, p.Height, p.FPS, p.BitrateKbps, p.RTSPURLSanitized,
+		p.VideoCodec, p.AudioCodec, p.Width, p.Height, p.FPS, p.BitrateKbps, p.RTSPURLSanitized,
 	).Scan(&p.ID)
 }
 
 func (m *MediaModel) ListProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*CameraMediaProfile, error) {
 	query := `
-		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, 
+		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, audio_codec, 
 		       width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
 		FROM camera_media_profiles 
 		WHERE tenant_id = $1 AND camera_id = $2
@@ -97,7 +99,7 @@ func (m *MediaModel) ListProfiles(ctx context.Context, tenantID, cameraID uuid.U
 	for rows.Next() {
 		p := &CameraMediaProfile{}
 		if err := rows.Scan(
-			&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec,
+			&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec, &p.AudioCodec,
 			&p.Width, &p.Height, &p.FPS, &p.BitrateKbps, &p.RTSPURLSanitized, &p.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -109,14 +111,14 @@ func (m *MediaModel) ListProfiles(ctx context.Context, tenantID, cameraID uuid.U
 
 func (m *MediaModel) GetProfile(ctx context.Context, tenantID, cameraID uuid.UUID, token string) (*CameraMediaProfile, error) {
 	query := `
-		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, 
+		SELECT id, tenant_id, camera_id, profile_token, profile_name, video_codec, audio_codec, 
 		       width, height, fps, bitrate_kbps, rtsp_url_sanitized, updated_at
 		FROM camera_media_profiles 
 		WHERE tenant_id = $1 AND camera_id = $2 AND profile_token = $3
 	`
 	p := &CameraMediaProfile{}
 	err := m.DB.QueryRowContext(ctx, query, tenantID, cameraID, token).Scan(
-		&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec,
+		&p.ID, &p.TenantID, &p.CameraID, &p.ProfileToken, &p.ProfileName, &p.VideoCodec, &p.AudioCodec,
 		&p.Width, &p.Height, &p.FPS, &p.BitrateKbps, &p.RTSPURLSanitized, &p.UpdatedAt,
 	)
 	if err != nil {

@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,9 +17,20 @@ import (
 	"github.com/technosupport/ts-vms/internal/data"
 )
 
+type MediaInfoProvider interface {
+	GetSelection(ctx context.Context, tenantID, cameraID uuid.UUID) (*data.CameraStreamSelection, error)
+	GetProfile(ctx context.Context, tenantID, cameraID uuid.UUID, token string) (*data.CameraMediaProfile, error)
+}
+
+type HlsSessionEnsurer interface {
+	EnsureHlsSession(ctx context.Context, tenantID, cameraID uuid.UUID) (string, string, error)
+}
+
 type Service struct {
 	Redis         *redis.Client
 	CameraService *cameras.Service
+	MediaInfo     MediaInfoProvider
+	HlsEnsurer    HlsSessionEnsurer
 	BaseURL       string
 	HLSParams     HLSParams
 }
@@ -43,10 +56,12 @@ const (
 	IdempotencyWindow = 10 * time.Second
 )
 
-func NewService(r *redis.Client, c *cameras.Service, baseUrl string, hlsParams HLSParams) *Service {
+func NewService(r *redis.Client, c *cameras.Service, mediaInfo MediaInfoProvider, hlsEnsurer HlsSessionEnsurer, baseUrl string, hlsParams HLSParams) *Service {
 	return &Service{
 		Redis:         r,
 		CameraService: c,
+		MediaInfo:     mediaInfo,
+		HlsEnsurer:    hlsEnsurer,
 		BaseURL:       baseUrl,
 		HLSParams:     hlsParams,
 	}
@@ -93,7 +108,7 @@ func (s *Service) StartLiveSession(ctx context.Context, u *data.User, cameraID, 
 		if err == nil {
 			var sess ViewerSession
 			if err := json.Unmarshal([]byte(sessData), &sess); err == nil {
-				return s.buildResponse(&sess, quality), nil
+				return s.buildResponse(ctx, &sess, quality), nil
 			}
 		}
 	}
@@ -135,7 +150,7 @@ func (s *Service) StartLiveSession(ctx context.Context, u *data.User, cameraID, 
 		return nil, fmt.Errorf("failed to store session: %w", err)
 	}
 
-	return s.buildResponse(sess, quality), nil
+	return s.buildResponse(ctx, sess, quality), nil
 }
 
 // --- Phase 3.8: Overlay & Detection ---
@@ -301,36 +316,109 @@ func (s *Service) GetCamerasWithOverlayEnabled(ctx context.Context) ([]string, e
 	return s.Redis.ZRange(ctx, "live:overlay_demand", 0, -1).Result()
 }
 
-func (s *Service) buildResponse(sess *ViewerSession, requestedQuality string) *LiveSessionResponse {
+func normalizeCodec(codec string) string {
+	v := strings.ToUpper(strings.TrimSpace(codec))
+	if v == "HEVC" {
+		return "H265"
+	}
+	if v == "H264" || v == "H265" {
+		return v
+	}
+	return ""
+}
+
+func (s *Service) resolveSelectedCodec(ctx context.Context, tenantID uuid.UUID, cameraID string, selectedQuality string) string {
+	if s.MediaInfo == nil {
+		return ""
+	}
+
+	cameraUUID, err := uuid.Parse(cameraID)
+	if err != nil {
+		return ""
+	}
+
+	selection, err := s.MediaInfo.GetSelection(ctx, tenantID, cameraUUID)
+	if err != nil || selection == nil {
+		return ""
+	}
+
+	token := selection.MainProfileToken
+	if selectedQuality == "sub" && strings.TrimSpace(selection.SubProfileToken) != "" {
+		token = selection.SubProfileToken
+	}
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+
+	profile, err := s.MediaInfo.GetProfile(ctx, tenantID, cameraUUID, token)
+	if err != nil || profile == nil {
+		return ""
+	}
+
+	return normalizeCodec(profile.VideoCodec)
+}
+
+func (s *Service) buildResponse(ctx context.Context, sess *ViewerSession, requestedQuality string) *LiveSessionResponse {
 	selectedQuality := "main"
 	if requestedQuality == "sub" {
 		selectedQuality = "sub"
 	}
 
+	selectedCodec := s.resolveSelectedCodec(ctx, sess.TenantID, sess.CameraID, selectedQuality)
+	primary := "webrtc"
+	fallback := "hls"
+
+	if selectedCodec == "H264" {
+		primary = "hls"
+		fallback = "rtsp"
+	}
+
+	hlsSessionID := sess.ID
+	if primary == "hls" && s.HlsEnsurer != nil {
+		if cameraUUID, err := uuid.Parse(sess.CameraID); err == nil {
+			if ensuredSessionID, _, err := s.HlsEnsurer.EnsureHlsSession(ctx, sess.TenantID, cameraUUID); err == nil && strings.TrimSpace(ensuredSessionID) != "" {
+				hlsSessionID = ensuredSessionID
+			} else {
+				var sfuErr *cameras.SfuStepError
+				if errors.As(err, &sfuErr) && sfuErr.ErrorCode == "ERR_HLS_UNSUPPORTED_CODEC" {
+					primary = "webrtc"
+					fallback = "rtsp"
+				} else {
+					primary = "rtsp"
+					fallback = "hls"
+				}
+			}
+		}
+	}
+
 	// Real HMAC token — canonical: hls|{camId}|{sessId}|{exp}
 	exp := time.Now().Add(SessionTTL).Unix()
-	canonical := fmt.Sprintf("hls|%s|%s|%d", sess.CameraID, sess.ID, exp)
+	canonical := fmt.Sprintf("hls|%s|%s|%d", sess.CameraID, hlsSessionID, exp)
 	kid := s.HLSParams.HMACKid
 	if kid == "" {
 		kid = "v1"
 	}
 	sig := signHLS(canonical, s.HLSParams.HMACKey)
 	hlsToken := fmt.Sprintf("sub=%s&sid=%s&scope=hls&exp=%d&kid=%s&sig=%s",
-		sess.CameraID, sess.ID, exp, kid, sig)
+		sess.CameraID, hlsSessionID, exp, kid, sig)
+
 
 	// Route: /hls/live/{tenant_id}/{camera_id}/{session_id}/{file}
 	hlsURL := fmt.Sprintf("%s/hls/live/%s/%s/%s/index.m3u8?%s",
-		s.HLSParams.BaseURL, sess.TenantID.String(), sess.CameraID, sess.ID, hlsToken)
+		s.HLSParams.BaseURL, sess.TenantID.String(), sess.CameraID, hlsSessionID, hlsToken)
 
-	// WebRTC Config
-	sfuURL := fmt.Sprintf("%s/api/v1/sfu", s.BaseURL)
+	// WebRTC control-plane logic: WebRTC control-plane requests must go through the authenticated app API,
+	// but the desktop app communicates with the SFU directly at the root.
+	sfuURL := strings.TrimRight(s.BaseURL, "/")
+
 
 	return &LiveSessionResponse{
 		ViewerSessionID: sess.ID,
 		ExpiresAt:       sess.ExpiresAt.UnixMilli(),
-		Primary:         "webrtc",
-		Fallback:        "hls",
+		Primary:         primary,
+		Fallback:        fallback,
 		SelectedQuality: selectedQuality,
+		SelectedCodec:   selectedCodec,
 		WebRTC: &WebRTCBlock{
 			SFUURL:           sfuURL,
 			RoomID:           sess.CameraID, // In Phase 3.7+ this might be mapped to "room_id_sub"

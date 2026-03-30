@@ -111,14 +111,30 @@ func (h *Handler) ServeHLS(w http.ResponseWriter, r *http.Request) {
 	resolvedSessionID := h.resolveSessionDir(cameraID, sessionID)
 
 	if strings.HasSuffix(file, ".m3u8") {
-		pl, err := h.generatePlaylist(cameraID, resolvedSessionID, r.URL.RawQuery)
+		// FIX: generatePlaylist now returns (playlist, isReady, error).
+		// When isReady is false (no segments yet), we return a valid empty live
+		// playlist with HTTP 200 so GStreamer keeps polling cleanly.
+		// The old code returned HTTP 500 on "no segments found", which caused
+		// libsoup to log a transport error every 2 s and GStreamer's hlsdemux
+		// to stall — it never received a parseable playlist, so it never buffered,
+		// never decoded, and ASYNC_DONE never fired.
+		pl, isReady, err := h.generatePlaylist(cameraID, resolvedSessionID, r.URL.RawQuery)
 		if err != nil {
-			log.Printf("[ERROR] Playlist generation failed: %v", err)
+			log.Printf("[hlsd] Playlist generation error cam=%s sess=%s: %v", cameraID, resolvedSessionID, err)
 			http.Error(w, "Playlist generation error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		segCount := strings.Count(pl, "#EXTINF")
+		if !isReady {
+			// Empty live playlist — GStreamer will re-poll after EXT-X-TARGETDURATION (2 s).
+			// This is valid HLS spec behaviour: live streams may have empty playlists while
+			// the encoder is starting up. Returning 500 here broke the pipeline completely.
+			log.Printf("[hlsd] playlist cam=%s viewSess=%s resolved=%s ready=false segs=0", cameraID, sessionID, resolvedSessionID)
+		} else {
+			log.Printf("[hlsd] playlist cam=%s viewSess=%s resolved=%s ready=true segs=%d", cameraID, sessionID, resolvedSessionID, segCount)
+		}
 		w.Write([]byte(pl))
 		return
 	}
@@ -173,12 +189,31 @@ func (h *Handler) resolveSessionDir(cameraID, sessionID string) string {
 	return sessionID
 }
 
-func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (string, error) {
+// emptyLivePlaylist is returned when the session directory exists but has no
+// segments yet. It is valid HLS — a live stream with zero segments — and
+// tells the player to wait and re-poll after EXT-X-TARGETDURATION seconds.
+const emptyLivePlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n"
+
+// generatePlaylist builds an HLS playlist from the segment files on disk.
+//
+// Returns:
+//   - playlist  string — the M3U8 text to send (always valid HLS, never empty)
+//   - isReady   bool   — true if at least one segment is available
+//   - err       error  — non-nil only for I/O failures (not for "no segments yet")
+//
+// The caller should write the playlist with HTTP 200 regardless of isReady;
+// returning 500 when there are no segments yet causes GStreamer's hlsdemux to
+// abort instead of retrying, which prevents the video feed from ever appearing.
+func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (playlist string, isReady bool, err error) {
 	dir := filepath.Join(h.cfg.HlsRoot, "live", cameraID, sessionID)
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", err
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		// Directory doesn't exist yet — media-plane hasn't created it.
+		// Return a valid empty live playlist, not an error.
+		// The client will re-poll after EXT-X-TARGETDURATION.
+		log.Printf("[hlsd] Session dir not ready cam=%s sess=%s: %v", cameraID, sessionID, readErr)
+		return emptyLivePlaylist, false, nil
 	}
 
 	var segments []string
@@ -189,7 +224,9 @@ func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (string
 	}
 
 	if len(segments) == 0 {
-		return "", fmt.Errorf("no segments found")
+		// Directory exists but encoder hasn't written the first segment yet.
+		// Return a valid empty live playlist so GStreamer keeps polling.
+		return emptyLivePlaylist, false, nil
 	}
 
 	// Sort segments by name (segment_00001 < segment_00002)
@@ -199,7 +236,7 @@ func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (string
 		segments = segments[len(segments)-6:]
 	}
 
-	// Parse sequence
+	// Parse sequence number from the first segment filename
 	first := segments[0]
 	parts := strings.Split(strings.TrimSuffix(first, ".mp4"), "_")
 	seq := 0
@@ -225,7 +262,7 @@ func (h *Handler) generatePlaylist(cameraID, sessionID, rawQuery string) (string
 		}
 	}
 
-	return sb.String(), nil
+	return sb.String(), true, nil
 }
 
 func (h *Handler) applyCORS(w http.ResponseWriter, r *http.Request) {
@@ -245,10 +282,13 @@ func (h *Handler) applyCORS(w http.ResponseWriter, r *http.Request) {
 	if allowed {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Range, Cookie")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
+	}
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -51,13 +51,7 @@ func effectiveRecordingRTSPURL(raw string, ip net.IP, port int) string {
 	if strings.TrimSpace(raw) != "" {
 		return strings.TrimSpace(raw)
 	}
-	if ip == nil {
-		return ""
-	}
-	if port <= 0 {
-		port = 554
-	}
-	return fmt.Sprintf("rtsp://%s:%d/live/0/MAIN", ip.String(), port)
+	return ""
 }
 
 func (h *CameraHandler) syncRecorder(ctx context.Context, cam *data.Camera) error {

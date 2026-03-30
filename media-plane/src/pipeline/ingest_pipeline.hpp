@@ -5,7 +5,10 @@
 #include <mutex>
 #include <chrono>
 #include <atomic>
+#include <vector>
+#include <optional>
 #include "pipeline_fsm.hpp"
+#include <functional>
 
 namespace ts::vms::media::pipeline {
 
@@ -26,8 +29,10 @@ public:
     State GetState() const;
     double GetFps() const;
     int64_t GetLastFrameTimeMs() const;
-
-    // HLS (Phase 3.2+)
+    std::string GetCodecString() const;
+    bool GetHlsBranchPending() const;
+    void ClearHlsBranchPending();
+    void SetupHlsBranch();
     struct HlsConfig {
         bool enabled = true;
         std::string root_dir = "C:\\ProgramData\\TechnoSupport\\VMS\\hls";
@@ -77,7 +82,9 @@ private:
     static void OnPadAdded(GstElement* src, GstPad* pad, gpointer data);
     static GstFlowReturn OnNewSample(GstElement* sink, gpointer data);
     static gboolean OnBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
+    static gboolean OnSfuBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
     static GstPadProbeReturn OnMainPathPadProbe(GstPad *pad, GstPadProbeInfo *info, gpointer user_data);
+    static GstPadProbeReturn OnSfuRtcpProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
 
     void HandleStall();
     void SetupPipeline();
@@ -105,23 +112,41 @@ private:
     // HLS Elements
     GstElement* hls_sink_ = nullptr;
     GstElement* hls_queue_ = nullptr;
+    GstPad* hls_tee_pad_ = nullptr;
     HlsConfig hls_config_;
     HlsState hls_state_;
 
     // SFU Elements (Phase 3.4)
     GstElement* sfu_queue_ = nullptr;
+    GstElement* sfu_decoder_ = nullptr;
+    GstElement* sfu_download_ = nullptr;   // cudadownload/d3d11download for GPU decoders
+    GstElement* sfu_converter_ = nullptr;
+    GstElement* sfu_encoder_ = nullptr;
+    GstElement* sfu_capsfilter_ = nullptr;
+    GstElement* sfu_parse_ = nullptr;
+    GstElement* sfu_parse_capsfilter_ = nullptr;
     GstElement* sfu_pay_ = nullptr;
     GstElement* sfu_sink_ = nullptr;
     SfuConfig sfu_config_;
     bool sfu_egress_running_ = false;
+    
+    // SFU appsrc bridge (H265 only — avoids stall-inducing tee modification)
+    GstElement* sfu_appsrc_ = nullptr;
+    GstElement* sfu_pipeline_ = nullptr;
+    GstElement* sfu_rtcp_src_ = nullptr;
+    guint sfu_bus_watch_id_ = 0;
+    bool sfu_appsrc_caps_set_ = false;
+    uint64_t sfu_appsrc_push_count_ = 0;
 
     // HLS Helpers
-    void SetupHlsBranch();
     void CreateHlsSession();
     void UpdateMetaJson();
+    void DisableHlsBranch(const std::string& reason);
+    bool StartSfuRtpEgressH265Bridge(const SfuConfig& config);
 
     enum class CodecType { UNKNOWN, H264, H265 };
     CodecType codec_type_ = CodecType::UNKNOWN;
+    std::atomic<bool> hls_branch_pending_{false};
 
     // Metrics Counters (Atomic)
     std::atomic<int64_t> metrics_frames_processed_{0};

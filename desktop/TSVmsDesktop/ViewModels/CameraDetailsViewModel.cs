@@ -70,6 +70,14 @@ namespace TSVmsDesktop.ViewModels
             HealthIsEnabled = cam.IsEnabled ? "Yes" : "No";
 
             await FetchProfiles();
+            
+            // Auto-sync if no profiles found OR if they seem to be "old" data (no audio codec info)
+            bool needsSync = Profiles.Count == 0 || System.Linq.Enumerable.All(Profiles, p => string.IsNullOrEmpty(p.AudioCodec) || p.AudioCodec == "—");
+            
+            if (needsSync)
+            {
+                await SyncProfiles();
+            }
             await CheckHealth();
         }
 

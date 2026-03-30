@@ -61,8 +61,8 @@ func (a *Adapter) ListChannels(ctx context.Context, target adapters.NvrTarget, c
 func (a *Adapter) GetRtspUrls(ctx context.Context, target adapters.NvrTarget, cred adapters.NvrCredential, channelRef string) (string, string, error) {
 	// Dahua Template:
 	// rtsp://ip:port/cam/realmonitor?channel=1&subtype=0
-	main := fmt.Sprintf("rtsp://%s:%d/cam/realmonitor?channel=%s&subtype=0", target.IP, 554, channelRef)
-	sub := fmt.Sprintf("rtsp://%s:%d/cam/realmonitor?channel=%s&subtype=1", target.IP, 554, channelRef)
+	main := ""
+	sub := ""
 	return adapters.SanitizeRtspUrl(main), adapters.SanitizeRtspUrl(sub), nil
 }
 

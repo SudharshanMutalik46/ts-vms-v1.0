@@ -99,6 +99,21 @@
                             <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
                             <DataGridTextColumn Header="Token" Binding="{Binding Token}" Width="80"/>
                             <DataGridTextColumn Header="Encoding" Binding="{Binding Encoding}" Width="80"/>
+                            <DataGridTextColumn Header="Audio" Binding="{Binding AudioDisplay}" Width="80">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="Text" Value="YES">
+                                                <Setter Property="Foreground" Value="#2E7D32"/>
+                                            </Trigger>
+                                            <Trigger Property="Text" Value="NO">
+                                                <Setter Property="Foreground" Value="#999"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="100"/>
                             <DataGridTextColumn Header="Bitrate" Binding="{Binding Bitrate}" Width="80"/>
                              <DataGridTextColumn Header="Framerate" Binding="{Binding Framerate}" Width="80"/>

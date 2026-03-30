@@ -10,7 +10,7 @@
             <TextBlock Text="ONVIF handshake failed. Enter details manually." FontSize="12" Foreground="#888" Margin="0,0,0,20"/>
 
             <TextBlock Text="RTSP URL" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
-            <TextBox x:Name="TxtUrl" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="rtsp://192.168.1.127:554/stream"/>
+            <TextBox x:Name="TxtUrl" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="rtsp://"/>
 
             <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
             <TextBox x:Name="TxtUsername" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="admin"/>

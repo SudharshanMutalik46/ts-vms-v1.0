@@ -7,6 +7,7 @@ Start-Sleep -Seconds 2
 
 $Root = "c:\Users\sudha\Desktop\ts_vms_1.0"
 $LogDir = "$Root\logs"
+$MediaConfig = "$Root\config\default.yaml"
 if (!(Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 
 # DB Config
@@ -57,10 +58,12 @@ Start-Sleep -Seconds 2
 Write-Host "Starting Media Plane..." -ForegroundColor Cyan
 $MediaExe = "$Root\media-plane\build\Release\vms-media.exe"
 if (Test-Path $MediaExe) {
-    # Run from Release dir to find DLLs if needed, or Root? 
-    # Usually config is in Root. Media Plane needs config.
-    # It takes --config arg.
-    Start-Process $MediaExe -ArgumentList "--config `"$Root\config.yaml`"" -WorkingDirectory "$Root\media-plane\build\Release" -WindowStyle Hidden -RedirectStandardOutput "$LogDir\media.log" -RedirectStandardError "$LogDir\media_err.log"
+    if (Test-Path $MediaConfig) {
+        Start-Process $MediaExe -ArgumentList @("--config", $MediaConfig) -WorkingDirectory "$Root\media-plane\build\Release" -WindowStyle Hidden -RedirectStandardOutput "$LogDir\media.log" -RedirectStandardError "$LogDir\media_err.log"
+    }
+    else {
+        Write-Error "Media Plane config not found at $MediaConfig"
+    }
 }
 else {
     Write-Error "vms-media.exe not found at $MediaExe"
@@ -76,7 +79,12 @@ else {
 }
 
 Write-Host "Starting SFU..." -ForegroundColor Cyan
+Write-Host "Rebuilding SFU..." -ForegroundColor DarkGray
+pushd "$Root\sfu"
+npm run build
+popd
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:SFU_SECRET='sfu-internal-secret'; `$env:PORT='8085'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0\sfu'; node dist/main.js > '..\logs\sfu.log' 2>&1"
+
 
 Write-Host "Starting AI Service (Go Mock)..." -ForegroundColor Cyan
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0'; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"

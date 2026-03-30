@@ -183,6 +183,9 @@ func main() {
 	credRepo := data.CredentialModel{DB: db}
 	credService := cameras.NewCredentialService(credRepo, keyring, auditService)
 
+	// Start Mosaic Config Auto-Updater (Depends on CredentialService)
+	cameras.StartMosaicUpdater(context.Background(), db, credService, "config/mosaic_8x8.yaml", 15*time.Second)
+
 	// NVR Components (Phase 2.6)
 	nvrRepo := data.NVRModel{DB: db}
 	nvrService := nvr.NewService(&nvrRepo, keyring, auditService, camService)
@@ -203,7 +206,7 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to connect to Media Plane: %v", err)
 	}
-	sfuService := cameras.NewSfuService(sfuClient, mediaClient, &camRepo, mediaRepo, credService, mediaService)
+	sfuService := cameras.NewSfuService(sfuClient, mediaClient, &camRepo, mediaRepo, credService, mediaService, cameras.NewWebRtcPool(16))
 	sfuHandler := api.NewSfuHandler(sfuService)
 
 	// Health Components (Phase 2.5)
@@ -240,7 +243,7 @@ func main() {
 	if len(hlsHMACKey) == 0 {
 		hlsHMACKey = []byte("dev-hls-secret")
 	}
-	liveService := live.NewService(rdb, camService, "http://localhost:8080", live.HLSParams{
+	liveService := live.NewService(rdb, camService, mediaRepo, sfuService, sfuURL, live.HLSParams{
 		BaseURL: "http://localhost:8081",
 		HMACKey: hlsHMACKey,
 		HMACKid: "v1",
