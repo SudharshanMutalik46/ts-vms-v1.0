@@ -4,19 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"github.com/technosupport/ts-vms/internal/data"
 	"github.com/technosupport/ts-vms/internal/media"
-	"github.com/technosupport/ts-vms/internal/platform/paths"
 	"github.com/technosupport/ts-vms/internal/sfu"
 )
 
@@ -30,9 +25,25 @@ type SfuService struct {
 	transcodePool *WebRtcPool
 }
 
-const hlsReadyProbeTimeout = 8 * time.Second
 const ingestReadyProbeTimeout = 20 * time.Second
 const ingestReadyProbeTimeoutH265 = 90 * time.Second
+const sfuHealthProbeTimeout = 15 * time.Second
+const sfuHealthProbeInterval = 500 * time.Millisecond
+const ingestWarmupWindow = 15 * time.Second
+
+func isHealthyIngestState(state string, lastFrameAgeMs int64, reconnectAttempts int32) bool {
+	state = strings.ToUpper(strings.TrimSpace(state))
+	if reconnectAttempts > 0 {
+		return false
+	}
+	if state == "RUNNING" {
+		return true
+	}
+	if state == "STARTING" || state == "RECONNECTING" {
+		return lastFrameAgeMs < int64(ingestWarmupWindow/time.Millisecond)
+	}
+	return false
+}
 
 func NewSfuService(sfuClient *sfu.Client, mediaClient *media.Client, repo Repository, mediaRepo *data.MediaModel, credService *CredentialService, mediaSelector *MediaService, pool *WebRtcPool) *SfuService {
 	return &SfuService{
@@ -54,6 +65,35 @@ func (s *SfuService) GetRtpCapabilities(ctx context.Context, tenantID, cameraID 
 		return nil, NewSfuError("sfu_caps", "ERR_SFU_CAPS", "Failed to get router caps", err)
 	}
 	return caps, nil
+}
+
+func (s *SfuService) ensureSfuHealthy(ctx context.Context, cameraID uuid.UUID) error {
+	deadline := time.Now().Add(sfuHealthProbeTimeout)
+	var lastErr error
+
+	for {
+		ok, err := s.sfuClient.Health(ctx)
+		if err == nil && ok {
+			fmt.Printf("[DEBUG] sfu_health: SFU reachable for camera=%s\n", cameraID)
+			return nil
+		}
+
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("SFU is not healthy")
+		}
+
+		if time.Now().After(deadline) {
+			return NewSfuError("sfu_health", "ERR_SFU_DOWN", "SFU health check failed", lastErr)
+		}
+
+		select {
+		case <-ctx.Done():
+			return NewSfuError("sfu_health", "ERR_SFU_DOWN", "SFU health check failed", ctx.Err())
+		case <-time.After(sfuHealthProbeInterval):
+		}
+	}
 }
 
 func (s *SfuService) ensureIngestForWebRtc(ctx context.Context, tenantID, cameraID uuid.UUID, targetCodec string) error {
@@ -161,231 +201,46 @@ func (s *SfuService) ensureIngestForWebRtc(ctx context.Context, tenantID, camera
 		return rtspURL
 	}
 
-
 	status, err := s.mediaClient.GetIngestStatus(ctx, cameraID.String())
 	if err == nil {
 		state := strings.ToUpper(strings.TrimSpace(status.GetState()))
-		running := status.Running || state == "STARTING" || state == "RECONNECTING"
+		running := status.Running || isHealthyIngestState(state, status.GetLastFrameAgeMs(), status.GetReconnectAttempts())
+		fmt.Printf("[DEBUG] ingest_ensure: initial check camera=%s running=%v state=%s lastFrameAgeMs=%d reconnectAttempts=%d\n",
+			cameraID,
+			running,
+			state,
+			status.GetLastFrameAgeMs(),
+			status.GetReconnectAttempts())
 		if running {
 			return nil
 		}
+		if state == "RECONNECTING" || state == "STARTING" {
+			fmt.Printf("[DEBUG] ingest_ensure: existing ingest is %s, will try fallback candidates for camera=%s\n", state, cameraID)
+		}
+	} else {
+		fmt.Printf("[DEBUG] ingest_ensure: initial check camera=%s error=%v\n", cameraID, err)
 	}
 
 	var lastErr error
 	for idx, candidate := range candidates {
 		rtspURL := credentialize(candidate.url)
 		fmt.Printf("[DEBUG] ingest_ensure: trying candidate %d/%d rtspURL=%s codec=%s target=%s for camera=%s\n", idx+1, len(candidates), rtspURL, candidate.codec, targetCodec, cameraID)
+
+		fmt.Printf("[DEBUG] ingest_ensure: stopping existing ingest for camera=%s\n", cameraID)
 		_ = s.mediaClient.StopIngest(context.Background(), cameraID.String())
 		if err := s.mediaClient.StartIngest(ctx, cameraID.String(), rtspURL, true); err != nil {
+			fmt.Printf("[DEBUG] ingest_ensure: StartIngest failed for camera=%s err=%v\n", cameraID, err)
 			lastErr = err
 			continue
 		}
 
-		probeTimeout := ingestReadyProbeTimeout
-		if targetCodec == "H265" {
-			probeTimeout = ingestReadyProbeTimeoutH265
-		}
-		deadline := time.Now().Add(probeTimeout)
-		fmt.Printf("[DEBUG] ingest_ensure: waiting for RUNNING camera=%s codec=%s timeout=%s\n", cameraID, targetCodec, probeTimeout)
-		for time.Now().Before(deadline) {
-			resp, err := s.mediaClient.GetIngestStatus(ctx, cameraID.String())
-			if err == nil {
-				state := strings.ToUpper(strings.TrimSpace(resp.GetState()))
-				if resp.Running || state == "STARTING" || state == "RECONNECTING" {
-					fmt.Printf("[DEBUG] ingest_ensure: camera=%s reached state=%s running=%v\n", cameraID, state, resp.Running)
-					return nil
-				}
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-		lastErr = fmt.Errorf("ingest did not reach RUNNING state within %s", probeTimeout)
+		fmt.Printf("[DEBUG] ingest_ensure: ingest started or refreshed for camera=%s codec=%s; SFU egress will queue until RUNNING\n",
+			cameraID,
+			targetCodec)
+		return nil
 	}
 
 	return NewSfuError("ingest_ensure", "ERR_INGEST_NOT_READY", "Ingest did not start for WebRTC", lastErr)
-}
-
-// EnsureHlsSession ensures that the media plane ingest is running and returns the active HLS session ID and playlist URL.
-func (s *SfuService) EnsureHlsSession(ctx context.Context, tenantID, cameraID uuid.UUID) (string, string, error) {
-	// Task B.3: Ensure tenant context for RLS
-	tx, err := s.mediaRepo.DB.BeginTx(ctx, nil)
-	if err != nil {
-		fmt.Printf("[REQ:unknown] hls_ensure failed code=ERR_DB_TX camera=%s tenant=%s err=%v\n", cameraID, tenantID, err)
-		return "", "", NewSfuError("hls_ensure", "ERR_DB_TX", "Failed to start DB transaction", err)
-	}
-	defer tx.Rollback()
-
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL app.tenant_id = '%s'", tenantID))
-	if err != nil {
-		fmt.Printf("[REQ:unknown] hls_ensure failed code=ERR_TENANT_CONTEXT_MISSING camera=%s tenant=%s err=%v\n", cameraID, tenantID, err)
-		return "", "", &SfuStepError{
-			Step:           "hls_ensure",
-			ErrorCode:      "ERR_TENANT_CONTEXT_MISSING",
-			SafeMessage:    "Failed to set tenant context",
-			RequiredAction: "Ensure tenant context is set for DB session / RLS",
-			Err:            err,
-		}
-	}
-
-	// 1. Get Camera and RTSP URL
-	cam, err := s.cameraRepo.GetByID(ctx, cameraID)
-	if err != nil {
-		fmt.Printf("[REQ:unknown] hls_ensure failed code=ERR_CAMERA_NOT_FOUND camera=%s tenant=%s err=%v\n", cameraID, tenantID, err)
-		return "", "", NewSfuError("hls_ensure", "ERR_CAMERA_NOT_FOUND", "Camera not found", err)
-	}
-
-	// Refactored Selection Fetch with RLS — read both main and sub with codecs
-	var mainRTSP, subRTSP, mainCodec, subCodec string
-	err = tx.QueryRowContext(ctx, `
-		SELECT
-			COALESCE(s.main_rtsp_url_sanitized, ''),
-			COALESCE(s.sub_rtsp_url_sanitized, ''),
-			COALESCE(mp.video_codec, ''),
-			COALESCE(sp.video_codec, '')
-		FROM camera_stream_selections s
-		LEFT JOIN camera_media_profiles mp ON s.camera_id = mp.camera_id AND s.main_profile_token = mp.profile_token
-		LEFT JOIN camera_media_profiles sp ON s.camera_id = sp.camera_id AND s.sub_profile_token = sp.profile_token
-		WHERE s.camera_id = $1`, cameraID).Scan(&mainRTSP, &subRTSP, &mainCodec, &subCodec)
-
-	sqlState := "unknown"
-	if pqErr, ok := err.(*pq.Error); ok {
-		sqlState = string(pqErr.Code)
-	}
-
-	if err != nil && err != sql.ErrNoRows {
-		fmt.Printf("[REQ:unknown] hls_ensure failed code=ERR_DB_QUERY sqlstate=%s camera=%s tenant=%s err=%v\n", sqlState, cameraID, tenantID, err)
-		return "", "", &SfuStepError{
-			Step:           "hls_ensure",
-			ErrorCode:      "ERR_DB_QUERY",
-			SafeMessage:    "Failed to fetch media selection",
-			RequiredAction: "Check DB connectivity and RLS policies",
-			Err:            err,
-		}
-	}
-
-	var candidateURLs []string
-	addCandidate := func(raw string) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return
-		}
-		for _, existing := range candidateURLs {
-			if existing == raw {
-				return
-			}
-		}
-		candidateURLs = append(candidateURLs, raw)
-	}
-
-	if cam.IPAddress.String() == "127.0.0.1" || cam.IPAddress.String() == "localhost" {
-		addCandidate("mock://" + cameraID.String())
-	} else if err == nil && (mainRTSP != "" || subRTSP != "") {
-		// Prefer the profile that claims H264, but keep the alternate profile as a
-		// fallback because some cameras advertise stale codec metadata.
-		if subCodec == "H264" {
-			addCandidate(subRTSP)
-		}
-		if mainCodec == "H264" {
-			addCandidate(mainRTSP)
-		}
-		addCandidate(subRTSP)
-		addCandidate(mainRTSP)
-		if len(candidateURLs) > 0 {
-			fmt.Printf("[DEBUG] hls_ensure: candidate streams for camera=%s main=%s sub=%s count=%d\n", cameraID, mainCodec, subCodec, len(candidateURLs))
-		}
-	} else if cam.RtspUrl != "" {
-		addCandidate(cam.RtspUrl)
-	} else {
-		// NO hard-coded path fallbacks as requested
-		return "", "", NewSfuError("hls_ensure", "ERR_NO_RTSP_URL", "No RTSP URL found in database (ONVIF or Manual required)", nil)
-	}
-	tx.Commit() // Done with DB
-
-	credentialize := func(rtspURL string) string {
-		if strings.HasPrefix(rtspURL, "mock://") {
-			return rtspURL
-		}
-		rtspURL = html.UnescapeString(rtspURL)
-		if s.credService == nil {
-			return rtspURL
-		}
-		if creds, found, err := s.credService.GetCredentials(ctx, tenantID, cameraID, true); err == nil && found && creds.Data != nil {
-			u := creds.Data.Username
-			p := creds.Data.Password
-			if u != "" && !strings.Contains(rtspURL, "@") {
-				return fmt.Sprintf("rtsp://%s:%s@%s",
-					strings.ReplaceAll(u, "@", "%40"),
-					strings.ReplaceAll(p, "@", "%40"),
-					strings.TrimPrefix(rtspURL, "rtsp://"))
-			}
-		}
-		return rtspURL
-	}
-
-	var lastErr error
-	for idx, candidate := range candidateURLs {
-		rtspURL := credentialize(candidate)
-		fmt.Printf("[DEBUG] hls_ensure: trying candidate %d/%d rtspURL=%s for camera=%s\n", idx+1, len(candidateURLs), rtspURL, cameraID)
-
-		// Stop any stale ingest first so media plane picks up the selected URL.
-		_ = s.mediaClient.StopIngest(context.Background(), cameraID.String())
-
-		err = s.mediaClient.StartIngest(ctx, cameraID.String(), rtspURL, true)
-		if err != nil {
-			lastErr = NewSfuError("hls_ensure", "ERR_INGEST_FAILED", "Failed to start ingest", err)
-			continue
-		}
-
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			resp, err := s.mediaClient.GetIngestStatus(ctx, cameraID.String())
-			if err == nil && resp.GetHlsState() == "DEGRADED" {
-				lastErr = NewSfuError("hls_ensure", "ERR_HLS_UNSUPPORTED_CODEC", resp.GetRecentErrorCode(), nil)
-				fmt.Printf("[DEBUG] hls_ensure: candidate %d/%d degraded for camera=%s reason=%s\n", idx+1, len(candidateURLs), cameraID, resp.GetRecentErrorCode())
-				break
-			}
-			if err == nil && resp.Running && resp.SessionId != "" {
-				if s.waitForHlsSegments(ctx, cameraID, resp.SessionId) {
-					playlistURL := fmt.Sprintf("/hls/live/%s/%s/%s/playlist.m3u8", tenantID, cameraID, resp.SessionId)
-					return resp.SessionId, playlistURL, nil
-				}
-				lastErr = NewSfuError("hls_ensure", "ERR_HLS_NOT_READY", "HLS session started but first segment is not ready", nil)
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-
-	if lastErr != nil {
-		return "", "", lastErr
-	}
-	fmt.Printf("[REQ:unknown] hls_ensure failed code=ERR_HLS_NOT_READY camera=%s tenant=%s err=timeout\n", cameraID, tenantID)
-	return "", "", NewSfuError("hls_ensure", "ERR_HLS_NOT_READY", "HLS session not ready after timeout", nil)
-}
-
-func (s *SfuService) waitForHlsSegments(ctx context.Context, cameraID uuid.UUID, sessionID string) bool {
-	deadline := time.Now().Add(hlsReadyProbeTimeout)
-	segmentDir := filepath.Join(paths.ResolveDataRoot(), "hls", "live", cameraID.String(), sessionID)
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
-
-		entries, err := os.ReadDir(segmentDir)
-		if err == nil {
-			for _, entry := range entries {
-				name := entry.Name()
-				if !entry.IsDir() && strings.HasPrefix(name, "segment_") && strings.HasSuffix(name, ".mp4") {
-					return true
-				}
-			}
-		}
-
-		time.Sleep(250 * time.Millisecond)
-	}
-
-	return false
 }
 
 func (s *SfuService) JoinRoom(ctx context.Context, tenantID, cameraID uuid.UUID, sessionID string, codecPreferences []string) (json.RawMessage, error) {
@@ -399,18 +254,8 @@ func (s *SfuService) JoinRoom(ctx context.Context, tenantID, cameraID uuid.UUID,
 		}
 	}
 
-	getHlsFallback := func() (string, bool) {
-		_, playlistURL, hlsErr := s.EnsureHlsSession(ctx, tenantID, cameraID)
-		if hlsErr == nil && strings.TrimSpace(playlistURL) != "" {
-			return playlistURL, true
-		}
-		var sfuErr *SfuStepError
-		if errors.As(hlsErr, &sfuErr) {
-			fmt.Printf("[DEBUG] JoinRoom: HLS fallback unavailable for camera=%s code=%s err=%v\n", cameraID, sfuErr.ErrorCode, hlsErr)
-		} else if hlsErr != nil {
-			fmt.Printf("[DEBUG] JoinRoom: HLS fallback unavailable for camera=%s err=%v\n", cameraID, hlsErr)
-		}
-		return "", false
+	if err := s.ensureSfuHealthy(ctx, cameraID); err != nil {
+		return nil, err
 	}
 
 	err := s.sfuClient.JoinRoom(ctx, roomID, sessionID)
@@ -418,11 +263,16 @@ func (s *SfuService) JoinRoom(ctx context.Context, tenantID, cameraID uuid.UUID,
 		if err.Error() == "room at capacity" {
 			return nil, NewSfuError("sfu_join", "ERR_ROOM_FULL", "Room at capacity", err)
 		}
-		if playlistURL, ok := getHlsFallback(); ok {
-			sfErr := NewSfuErrorWithFallback("sfu_join", "ERR_SFU_FAILURE", "SFU Join failed, use HLS", playlistURL, err)
-			sfErr.RequiredAction = "Switch to HLS player"
-			return nil, sfErr
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "connection refused") ||
+			strings.Contains(errText, "no connection could be made") ||
+			strings.Contains(errText, "dial tcp") ||
+			strings.Contains(errText, "timeout") {
+			return nil, NewSfuError("sfu_join", "ERR_SFU_DOWN", "SFU join endpoint is not reachable", err)
 		}
+
+		fmt.Printf("[ERROR] sfu.JoinRoom failed for camera=%s tenant=%s err=%v\n", cameraID, tenantID, err)
+
 		return nil, &SfuStepError{
 			Step:           "sfu_join",
 			ErrorCode:      "ERR_SFU_FAILURE",
@@ -430,6 +280,13 @@ func (s *SfuService) JoinRoom(ctx context.Context, tenantID, cameraID uuid.UUID,
 			RequiredAction: "Check SFU and Media Plane status",
 			Err:            err,
 		}
+	}
+
+	if err := s.ensureIngestForWebRtc(ctx, tenantID, cameraID, targetCodec); err != nil {
+		// Ingest warm-up should not hard-fail the WebRTC join path. The media plane
+		// already queues SFU egress until the pipeline is RUNNING, so we log the
+		// condition and let the session continue.
+		fmt.Printf("[WARN] media_prepare_ingest deferred for camera=%s target=%s err=%v\n", cameraID, targetCodec, err)
 	}
 
 	// SFU Ingest Allocation with H.265 Transcode Fallback
@@ -460,32 +317,31 @@ func (s *SfuService) JoinRoom(ctx context.Context, tenantID, cameraID uuid.UUID,
 		}
 
 		if err != nil {
-			if playlistURL, ok := getHlsFallback(); ok {
-				return nil, NewSfuErrorWithFallback("sfu_ingest_alloc", "ERR_SFU_ALLOC", "SFU ingest alloc failed", playlistURL, err)
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "connection refused") ||
+				strings.Contains(errText, "no connection could be made") ||
+				strings.Contains(errText, "dial tcp") ||
+				strings.Contains(errText, "timeout") {
+				return nil, NewSfuError("sfu_ingest_alloc", "ERR_SFU_DOWN", "SFU ingest endpoint is not reachable", err)
 			}
 			return nil, NewSfuError("sfu_ingest_alloc", "ERR_SFU_ALLOC", "SFU ingest alloc failed", err)
 		}
 	}
 
-	if err := s.ensureIngestForWebRtc(ctx, tenantID, cameraID, targetCodec); err != nil {
-		if h265Acquired {
-			s.transcodePool.Release(cameraID.String())
+	var egressErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, egressErr = s.mediaClient.StartSfuRtpEgress(ctx, cameraID.String(), roomID, ingest.SSRC, ingest.PT, ingest.IP, ingest.Port, sfuIngestCodec)
+		if egressErr == nil {
+			break
 		}
-		if playlistURL, ok := getHlsFallback(); ok {
-			return nil, NewSfuErrorWithFallback("media_prepare_ingest", "ERR_MEDIA_INGEST", "Media ingest not ready for WebRTC", playlistURL, err)
-		}
-		return nil, NewSfuError("media_prepare_ingest", "ERR_MEDIA_INGEST", "Media ingest not ready for WebRTC", err)
+		fmt.Printf("[WARN] media_start_egress attempt %d failed for camera=%s room=%s err=%v\n", attempt, cameraID, roomID, egressErr)
+		time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
 	}
-
-	_, err = s.mediaClient.StartSfuRtpEgress(ctx, cameraID.String(), roomID, ingest.SSRC, ingest.PT, ingest.IP, ingest.Port, sfuIngestCodec)
-	if err != nil {
+	if egressErr != nil {
 		if h265Acquired {
 			s.transcodePool.Release(cameraID.String())
 		}
-		if playlistURL, ok := getHlsFallback(); ok {
-			return nil, NewSfuErrorWithFallback("media_start_egress", "ERR_MEDIA_EGRESS", "Media egress failed", playlistURL, err)
-		}
-		return nil, NewSfuError("media_start_egress", "ERR_MEDIA_EGRESS", "Media egress failed", err)
+		fmt.Printf("[WARN] media_start_egress continuing without hard failure for camera=%s room=%s err=%v\n", cameraID, roomID, egressErr)
 	}
 
 	caps, err := s.sfuClient.GetRouterRtpCapabilities(ctx, roomID)

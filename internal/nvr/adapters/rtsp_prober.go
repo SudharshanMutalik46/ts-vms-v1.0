@@ -10,9 +10,18 @@ import (
 	"time"
 )
 
-// ProbeRTSP performs a lightweight OPTIONS handshake.
+// ProbeRTSP performs a lightweight DESCRIBE handshake.
 // Does NOT use complex libraries to keep dependency footprint low (boundedness).
 func ProbeRTSP(ctx context.Context, rtspURL string) error {
+	return ProbeRTSPWithTimeout(ctx, rtspURL, 5*time.Second)
+}
+
+// ProbeRTSPWithTimeout allows callers to tighten or loosen the probe deadline.
+func ProbeRTSPWithTimeout(ctx context.Context, rtspURL string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
 	u, err := url.Parse(rtspURL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %v", err)
@@ -30,12 +39,13 @@ func ProbeRTSP(ctx context.Context, rtspURL string) error {
 	}
 	defer conn.Close()
 
-	// RTSP OPTIONS
+	// RTSP DESCRIBE is a better signal than OPTIONS for whether the media
+	// path itself exists and can produce SDP.
 	// CSeq: 1
 	// User-Agent: TS-VMS-Health
-	msg := fmt.Sprintf("OPTIONS %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: TS-VMS-Health\r\n\r\n", rtspURL)
+	msg := fmt.Sprintf("DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: TS-VMS-Health\r\nAccept: application/sdp\r\n\r\n", rtspURL)
 
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
 
@@ -51,7 +61,7 @@ func ProbeRTSP(ctx context.Context, rtspURL string) error {
 	}
 
 	// Expect "RTSP/1.0 200 OK"
-	parts := strings.Split(statusLine, " ")
+	parts := strings.Fields(statusLine)
 	if len(parts) < 2 {
 		return fmt.Errorf("malformed response: %s", statusLine)
 	}

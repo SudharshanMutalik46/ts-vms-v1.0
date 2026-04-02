@@ -68,6 +68,21 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	return nil
 }
 
+func (c *Client) Health(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/health", nil)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
+}
+
 // Mediasoup Signaling Wrapper Functions
 
 func (c *Client) GetRouterRtpCapabilities(ctx context.Context, roomID string) (json.RawMessage, error) {

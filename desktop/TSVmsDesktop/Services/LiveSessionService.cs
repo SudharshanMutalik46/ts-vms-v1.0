@@ -36,17 +36,10 @@ namespace TSVmsDesktop.Services
         [JsonPropertyName("viewer_session_id")] public string ViewerSessionId { get; set; } = "";
         [JsonPropertyName("expires_at")]        public long   ExpiresAt       { get; set; }
         [JsonPropertyName("primary")]           public string Primary         { get; set; } = "webrtc";
-        [JsonPropertyName("fallback")]          public string Fallback        { get; set; } = "hls";
+        [JsonPropertyName("fallback")]          public string Fallback        { get; set; } = "rtsp";
         [JsonPropertyName("selected_codec")]    public string SelectedCodec   { get; set; } = "";
-        [JsonPropertyName("hls")]               public LiveStreamHls?    Hls    { get; set; }
         [JsonPropertyName("webrtc")]            public LiveStreamWebRtc? WebRtc { get; set; }
         [JsonPropertyName("fallback_policy")]   public LiveFallbackPolicy? FallbackPolicy { get; set; }
-    }
-
-    public class LiveStreamHls
-    {
-        [JsonPropertyName("playlist_url")]    public string PlaylistUrl    { get; set; } = "";
-        [JsonPropertyName("target_latency_ms")] public int  TargetLatencyMs { get; set; }
     }
 
     public class LiveStreamWebRtc

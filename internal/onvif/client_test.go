@@ -58,7 +58,7 @@ func TestDetermineCapabilities(t *testing.T) {
 		},
 		{
 			"Audio Profile",
-			[]MediaProfile{{Token: "p1", Name: "AudioEnc", AudioEncoderConfiguration: &struct{}{}}},
+			[]MediaProfile{{Token: "p1", Name: "AudioEnc", AudioEncoderConfiguration: &AudioEncoderConfiguration{}}},
 			true,
 			false,
 		},

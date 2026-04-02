@@ -2,11 +2,7 @@ package live
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,33 +18,11 @@ type MediaInfoProvider interface {
 	GetProfile(ctx context.Context, tenantID, cameraID uuid.UUID, token string) (*data.CameraMediaProfile, error)
 }
 
-type HlsSessionEnsurer interface {
-	EnsureHlsSession(ctx context.Context, tenantID, cameraID uuid.UUID) (string, string, error)
-}
-
 type Service struct {
 	Redis         *redis.Client
 	CameraService *cameras.Service
 	MediaInfo     MediaInfoProvider
-	HlsEnsurer    HlsSessionEnsurer
 	BaseURL       string
-	HLSParams     HLSParams
-}
-
-type HLSParams struct {
-	BaseURL string
-	HMACKey []byte // Matches HLS_HMAC_KEY_V1 on the HLS daemon
-	HMACKid string // Key ID sent in token (default "v1")
-}
-
-// signHLS generates an HMAC-SHA256 hex signature for the canonical string.
-func signHLS(canonical string, key []byte) string {
-	if len(key) == 0 {
-		key = []byte("dev-hls-secret") // dev fallback matches hlsd default
-	}
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(canonical))
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 const (
@@ -56,14 +30,12 @@ const (
 	IdempotencyWindow = 10 * time.Second
 )
 
-func NewService(r *redis.Client, c *cameras.Service, mediaInfo MediaInfoProvider, hlsEnsurer HlsSessionEnsurer, baseUrl string, hlsParams HLSParams) *Service {
+func NewService(r *redis.Client, c *cameras.Service, mediaInfo MediaInfoProvider, baseUrl string) *Service {
 	return &Service{
 		Redis:         r,
 		CameraService: c,
 		MediaInfo:     mediaInfo,
-		HlsEnsurer:    hlsEnsurer,
 		BaseURL:       baseUrl,
-		HLSParams:     hlsParams,
 	}
 }
 
@@ -365,69 +337,22 @@ func (s *Service) buildResponse(ctx context.Context, sess *ViewerSession, reques
 	}
 
 	selectedCodec := s.resolveSelectedCodec(ctx, sess.TenantID, sess.CameraID, selectedQuality)
-	primary := "webrtc"
-	fallback := "hls"
 
-	if selectedCodec == "H264" {
-		primary = "hls"
-		fallback = "rtsp"
-	}
-
-	hlsSessionID := sess.ID
-	if primary == "hls" && s.HlsEnsurer != nil {
-		if cameraUUID, err := uuid.Parse(sess.CameraID); err == nil {
-			if ensuredSessionID, _, err := s.HlsEnsurer.EnsureHlsSession(ctx, sess.TenantID, cameraUUID); err == nil && strings.TrimSpace(ensuredSessionID) != "" {
-				hlsSessionID = ensuredSessionID
-			} else {
-				var sfuErr *cameras.SfuStepError
-				if errors.As(err, &sfuErr) && sfuErr.ErrorCode == "ERR_HLS_UNSUPPORTED_CODEC" {
-					primary = "webrtc"
-					fallback = "rtsp"
-				} else {
-					primary = "rtsp"
-					fallback = "hls"
-				}
-			}
-		}
-	}
-
-	// Real HMAC token — canonical: hls|{camId}|{sessId}|{exp}
-	exp := time.Now().Add(SessionTTL).Unix()
-	canonical := fmt.Sprintf("hls|%s|%s|%d", sess.CameraID, hlsSessionID, exp)
-	kid := s.HLSParams.HMACKid
-	if kid == "" {
-		kid = "v1"
-	}
-	sig := signHLS(canonical, s.HLSParams.HMACKey)
-	hlsToken := fmt.Sprintf("sub=%s&sid=%s&scope=hls&exp=%d&kid=%s&sig=%s",
-		sess.CameraID, hlsSessionID, exp, kid, sig)
-
-
-	// Route: /hls/live/{tenant_id}/{camera_id}/{session_id}/{file}
-	hlsURL := fmt.Sprintf("%s/hls/live/%s/%s/%s/index.m3u8?%s",
-		s.HLSParams.BaseURL, sess.TenantID.String(), sess.CameraID, hlsSessionID, hlsToken)
-
-	// WebRTC control-plane logic: WebRTC control-plane requests must go through the authenticated app API,
-	// but the desktop app communicates with the SFU directly at the root.
 	sfuURL := strings.TrimRight(s.BaseURL, "/")
-
 
 	return &LiveSessionResponse{
 		ViewerSessionID: sess.ID,
 		ExpiresAt:       sess.ExpiresAt.UnixMilli(),
-		Primary:         primary,
-		Fallback:        fallback,
+		Primary:         "webrtc",
+		Fallback:        "rtsp",
 		SelectedQuality: selectedQuality,
 		SelectedCodec:   selectedCodec,
 		WebRTC: &WebRTCBlock{
 			SFUURL:           sfuURL,
-			RoomID:           sess.CameraID, // In Phase 3.7+ this might be mapped to "room_id_sub"
+			RoomID:           sess.CameraID,
 			ConnectTimeoutMs: 15000,
 		},
-		HLS: &HLSBlock{
-			PlaylistURL:     hlsURL,
-			TargetLatencyMs: 4000,
-		},
+		HLS: nil,
 		FallbackPolicy: &FallbackPolicy{
 			WebRTCConnectTimeoutMs: 5000,
 			WebRTCTrackTimeoutMs:   2000,

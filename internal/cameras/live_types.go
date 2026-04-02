@@ -39,6 +39,7 @@ type WebRTCConfig struct {
 	ConnectTimeoutMs int             `json:"connect_timeout_ms"`
 }
 
+// HLSConfig retained for backward compatibility; always empty server-side.
 type HLSConfig struct {
 	PlaylistURL     string `json:"playlist_url"`
 	TargetLatencyMs int    `json:"target_latency_ms"`
@@ -62,7 +63,7 @@ type ViewerSession struct {
 	TenantID      uuid.UUID `json:"tenant_id"`
 	UserID        uuid.UUID `json:"user_id"`
 	CameraID      uuid.UUID `json:"camera_id"`
-	Mode          string    `json:"mode"` // webrtc | hls
+	Mode          string    `json:"mode"` // webrtc
 	CreatedAt     time.Time `json:"created_at"`
 	LastSeenAt    time.Time `json:"last_seen_at"`
 	FallbackCount int       `json:"fallback_count"`

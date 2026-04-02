@@ -48,14 +48,12 @@ grpc::Status MediaServiceImpl::GetIngestStatus(grpc::ServerContext* /*context*/,
     response->set_last_frame_age_ms(status->last_frame_age_ms);
     response->set_reconnect_attempts(status->reconnect_attempts);
     
-    // HLS Status
-    response->set_session_id(status->hls_state.session_id);
-    response->set_hls_state(status->hls_state.degraded ? "DEGRADED" : (status->hls_state.session_id.empty() ? "STOPPED" : "OK"));
-    // response->set_last_segment_seq() // Need to add sequence tracking if precise seq is needed, currently only have session
-    response->set_recent_error_code(status->hls_state.last_error);
-    // response->set_disk_free_bytes() // DiskManager should provide this globally or per session? 
-    // Simplified: Provide global free logic or keep 0 if not implemented yet
-    response->set_required_action(status->hls_state.degraded ? "Check Disk / Logs" : status->codec);
+    // HLS fields are retained in the proto for compatibility, but the ingest
+    // model no longer tracks HLS session state in CameraStatus.
+    response->set_session_id("");
+    response->set_hls_state("STOPPED");
+    response->set_recent_error_code("");
+    response->set_required_action(status->codec);
 
     // Phase 3.5 Metrics
     response->set_ingest_latency_ms(status->metrics.ingest_latency_ms);
@@ -80,8 +78,8 @@ grpc::Status MediaServiceImpl::ListIngests(grpc::ServerContext* /*context*/,
         item->set_fps(static_cast<int32_t>(s.fps));
         item->set_last_frame_age_ms(s.last_frame_age_ms);
         item->set_reconnect_attempts(s.reconnect_attempts);
-        item->set_session_id(s.hls_state.session_id);
-        item->set_hls_state(s.hls_state.degraded ? "DEGRADED" : (s.hls_state.session_id.empty() ? "STOPPED" : "OK"));
+        item->set_session_id("");
+        item->set_hls_state("STOPPED");
         
         // Phase 3.5 Metrics
         item->set_ingest_latency_ms(s.metrics.ingest_latency_ms);

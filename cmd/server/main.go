@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -96,7 +97,19 @@ func main() {
 		sfuSecret = "sfu-internal-secret"
 	}
 	if mediaAddr == "" {
-		mediaAddr = "localhost:50051"
+		mediaAddr = "127.0.0.1:50051"
+	}
+	if strings.EqualFold(strings.TrimSpace(mediaAddr), "localhost:50051") {
+		mediaAddr = "127.0.0.1:50051"
+	}
+	recordingInternalURL := os.Getenv("TS_VMS_RECORDING_INTERNAL_URL")
+	if recordingInternalURL == "" {
+		recordingInternalURL = "http://127.0.0.1:8087"
+	}
+	recordingInternalURL = strings.TrimRight(recordingInternalURL, "/")
+	recordingServiceKey := os.Getenv("TS_VMS_SERVICE_KEY")
+	if recordingServiceKey == "" {
+		recordingServiceKey = "your_shared_service_key"
 	}
 
 	if jwtKey == "" {
@@ -237,17 +250,9 @@ func main() {
 	// Use Real Camera Resolver (camRepo implements it)
 	permsMiddleware := middleware.NewPermissionMiddleware(permModel, camRepo)
 
-	// --- Phase 3.6 WebRTC-HLS Fallback ---
+	// --- Phase 3.6 WebRTC-RTSP Fallback ---
 	// Live Service & Handler (Needed for NATS AI Sub)
-	hlsHMACKey := []byte(os.Getenv("HLS_HMAC_KEY_V1"))
-	if len(hlsHMACKey) == 0 {
-		hlsHMACKey = []byte("dev-hls-secret")
-	}
-	liveService := live.NewService(rdb, camService, mediaRepo, sfuService, sfuURL, live.HLSParams{
-		BaseURL: "http://localhost:8081",
-		HMACKey: hlsHMACKey,
-		HMACKid: "v1",
-	})
+	liveService := live.NewService(rdb, camService, mediaRepo, sfuURL)
 	telemetryService := live.NewTelemetryService(rdb)
 	liveHandler := api.NewLiveHandler(liveService, telemetryService)
 
@@ -379,6 +384,7 @@ func main() {
 	Protect := func(h http.Handler) http.Handler {
 		return jwtMiddleware.Middleware(auditMiddleware.LogRequest(permsMiddleware.LoadIdentity(h)))
 	}
+	recordingStatusClient := &http.Client{Timeout: 5 * time.Second}
 
 	// --- Phase 2.1 Camera Routes ---
 	mux.Handle("POST /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.create", "tenant")(http.HandlerFunc(camHandler.Create))))
@@ -535,6 +541,29 @@ func main() {
 	mux.Handle("GET /api/v1/internal/cameras/active", internalHandler.ServiceAuthMiddleware(http.HandlerFunc(internalHandler.GetActiveCameras)))
 
 	// Phase 5: Recording & Playback
+	mux.Handle("GET /api/v1/recording/status", Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, recordingInternalURL+"/status", nil)
+		if err != nil {
+			http.Error(w, "failed to contact recording service", http.StatusBadGateway)
+			return
+		}
+		req.Header.Set("X-Service-Key", recordingServiceKey)
+
+		resp, err := recordingStatusClient.Do(req)
+		if err != nil {
+			http.Error(w, "failed to contact recording service", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		for k, vals := range resp.Header {
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	})))
 	mux.Handle("GET /api/v1/recording/cameras/{id}/segments", Protect(http.HandlerFunc(recordingAPI.HandleGetSegments)))
 	mux.Handle("POST /api/v1/recording/events", Protect(http.HandlerFunc(recordingAPI.HandleCreateEvent)))
 	mux.Handle("POST /api/v1/recording/link-segment", Protect(http.HandlerFunc(recordingAPI.HandleLinkSegment)))

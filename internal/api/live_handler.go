@@ -40,7 +40,7 @@ func getCameraID(r *http.Request) string {
 	return id
 }
 
-// StartSession initiates a WebRTC/HLS session
+// StartSession initiates a WebRTC session with RTSP fallback
 // POST /api/v1/cameras/{id}/live/start
 func (h *LiveHandler) StartSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

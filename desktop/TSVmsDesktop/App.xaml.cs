@@ -78,7 +78,7 @@ namespace TSVmsDesktop
             // Force GStreamer to ignore experimental D3D12 decoders and fallback to stable D3D11
             Environment.SetEnvironmentVariable("GST_PLUGIN_FEATURE_RANK", "d3d12h264dec:NONE,d3d12h265dec:NONE,d3d12convert:NONE,d3d12videosink:NONE");
             // Ultra-verbose for soup and adaptivedemux to find the root cause of the "no fragments" stall.
-            Environment.SetEnvironmentVariable("GST_DEBUG", "*:1,d3d11debuglayer:0,video-info:0,hlsdemux:5,adaptivedemux:5,souphttpsrc:5");
+            Environment.SetEnvironmentVariable("GST_DEBUG", "*:1,d3d11debuglayer:0,video-info:0");
 
             // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";

@@ -63,18 +63,13 @@ func (h *DebugHandler) GetLiveDebug(w http.ResponseWriter, r *http.Request) {
 		resp["media_status"] = statusMsg
 	}
 
-	// 3. Check Ingest / HLS State
+	// 3. Check Ingest State
 	ingest, err := h.MediaClient.GetIngestStatus(ctx, cameraID.String())
 	if err != nil {
 		resp["ingest_status_error"] = err.Error()
 	} else {
 		resp["ingest_running"] = ingest.Running
 		resp["ingest_state"] = ingest.State
-		resp["hls_state"] = ingest.HlsState
-		resp["hls_session_id"] = ingest.SessionId
-		if ingest.SessionId != "" {
-			resp["hls_playlist_url"] = "/hls/live/" + tenantID.String() + "/" + cameraID.String() + "/" + ingest.SessionId + "/playlist.m3u8"
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

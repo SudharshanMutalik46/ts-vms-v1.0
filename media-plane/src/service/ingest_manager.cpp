@@ -93,7 +93,6 @@ std::optional<CameraStatus> IngestManager::GetStatus(const std::string& camera_i
         it->second->GetFps(),
         it->second->GetLastFrameTimeMs(),
         reconnect_attempts_[camera_id],
-        it->second->GetHlsState(),
         it->second->GetMetrics(),
         it->second->GetCodecString()
     };
@@ -109,7 +108,6 @@ std::vector<CameraStatus> IngestManager::ListIngests() {
             pipeline->GetFps(),
             pipeline->GetLastFrameTimeMs(),
             reconnect_attempts_[id],
-            pipeline->GetHlsState(),
             pipeline->GetMetrics(),
             pipeline->GetCodecString()
         });
@@ -199,15 +197,12 @@ void IngestManager::MonitorLoop() {
             
             for (auto const& [id, pipeline] : pipelines_) {
                 auto state = pipeline->GetState();
+
+                if (pipeline->ShouldPreferTcpOnReconnect()) {
+                    camera_tcp_[id] = true;
+                }
                 
                 if (state == pipeline::State::RUNNING) {
-                    // Check if HLS needs to be lazily initialized
-                    if (pipeline->GetHlsBranchPending()) {
-                        spdlog::info("[{}] MonitorLoop: Lazily setting up HLS branch", id);
-                        pipeline->SetupHlsBranch();
-                        pipeline->ClearHlsBranchPending();
-                    }
-
                     // Check if it was just started or just hit RUNNING
                     if (pending_sfu_egress_.count(id)) {
                         just_started.push_back(id);
@@ -279,6 +274,13 @@ void IngestManager::Reconnect(const std::string& camera_id) {
 
     auto now = std::chrono::steady_clock::now();
     int attempts = reconnect_attempts_[camera_id];
+
+    if (it->second->ShouldPreferTcpOnReconnect()) {
+        if (!camera_tcp_[camera_id]) {
+            spdlog::info("[{}] Applying immediate TCP fallback for reconnect", camera_id);
+        }
+        camera_tcp_[camera_id] = true;
+    }
     
     // Check if enough time has passed based on backoff
     if (last_reconnect_ts_.find(camera_id) != last_reconnect_ts_.end()) {

@@ -73,7 +73,7 @@ func TestTelemetryService_Validation(t *testing.T) {
 			name: "Invalid Reason Code",
 			event: &live.TelemetryEvent{
 				ViewerSessionID: sessID,
-				EventType:       "fallback_to_hls",
+				EventType:       "webrtc_failed",
 				ReasonCode:      "BAD_CODE",
 			},
 			wantErr:   true,

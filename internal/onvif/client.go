@@ -325,16 +325,19 @@ func (c *OnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string, 
 	var parsed struct {
 		Body struct {
 			GetStreamUriResponse struct {
-				Uri      string `xml:"Uri"`      // Media2
+				Uri      string `xml:"Uri"` // Media2
 				MediaUri struct {
-					Uri string `xml:"Uri"`  // Media1
+					Uri string `xml:"Uri"` // Media1
 				} `xml:"MediaUri"`
 			} `xml:"GetStreamUriResponse"`
 		}
 	}
 
 	if err := xml.Unmarshal(resp, &parsed); err != nil {
-		return c.detectWorkingRtspUri(token), nil
+		if fallback := c.detectWorkingRtspUri("", token); fallback != "" {
+			return fallback, nil
+		}
+		return "", fmt.Errorf("failed to parse GetStreamUri response for token %s", token)
 	}
 
 	uri := parsed.Body.GetStreamUriResponse.Uri
@@ -343,12 +346,22 @@ func (c *OnvifClient) GetStreamUri(ctx context.Context, mediaURI, token string, 
 	}
 
 	if uri == "" {
-		return c.detectWorkingRtspUri(token), nil
+		if fallback := c.detectWorkingRtspUri("", token); fallback != "" {
+			return fallback, nil
+		}
+		return "", fmt.Errorf("no RTSP URI returned for token %s", token)
 	}
 
+	resolved := c.detectWorkingRtspUri(uri, token)
 	fmt.Printf("[ONVIF] GetStreamUri Token %s -> Raw URI: %s\n", token, uri)
+	if resolved != uri {
+		fmt.Printf("[ONVIF] GetStreamUri Token %s -> Fallback URI: %s\n", token, resolved)
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("no playable RTSP URI found for token %s", token)
+	}
 
-	return uri, nil
+	return resolved, nil
 }
 
 func (c *OnvifClient) GetNetworkInterfaces(ctx context.Context) (string, error) {
@@ -584,7 +597,7 @@ func (c *OnvifClient) generateCnonceHeader() string {
 	}
 
 	nonce := base64.StdEncoding.EncodeToString(nonceRaw)
-	created := time.Now().UTC().Format(time.RFC3339Nano) 
+	created := time.Now().UTC().Format(time.RFC3339Nano)
 
 	digest := computeSoapDigest(nonceRaw, created, c.Password)
 
@@ -606,9 +619,116 @@ func computeSoapDigest(nonce []byte, created, password string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func (c *OnvifClient) detectWorkingRtspUri(token string) string {
-	fmt.Println("[RTSP-Discovery] Skipping fuzzing. Strictly relying on ONVIF GetStreamUri or Manual config.")
+func (c *OnvifClient) detectWorkingRtspUri(rawURI, token string) string {
+	rawURI = strings.TrimSpace(rawURI)
+	if rawURI == "" {
+		fmt.Printf("[RTSP-Discovery] No RTSP URI for token=%s; skipping fallback probing.\n", token)
+		return ""
+	}
+
+	candidates := buildRtspFallbackCandidates(rawURI)
+	for idx, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if candidate != rawURI {
+			fmt.Printf("[RTSP-Discovery] token=%s probing fallback %d/%d: %s\n", token, idx+1, len(candidates), candidate)
+		}
+		if code, _ := c.probeRtspCandidate(candidate); code == 200 || code == 401 || code == 403 {
+			return candidate
+		}
+	}
+
+	fmt.Printf("[RTSP-Discovery] token=%s no playable RTSP candidate found.\n", token)
 	return ""
+}
+
+func (c *OnvifClient) probeRtspCandidate(candidate string) (int, string) {
+	u, err := url.Parse(candidate)
+	if err != nil {
+		return 0, ""
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return 0, ""
+	}
+	port := u.Port()
+	if port == "" {
+		port = "554"
+	}
+
+	path := u.RequestURI()
+	if path == "" {
+		path = u.Path
+	}
+	return c.checkRtspPathCode(host, port, path)
+}
+
+func buildRtspFallbackCandidates(rawURI string) []string {
+	u, err := url.Parse(rawURI)
+	if err != nil {
+		return []string{rawURI}
+	}
+
+	base := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+	if u.Scheme == "" || u.Host == "" {
+		return []string{rawURI}
+	}
+
+	add := func(out *[]string, seen map[string]struct{}, candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		*out = append(*out, candidate)
+	}
+
+	var out []string
+	seen := make(map[string]struct{})
+
+	add(&out, seen, rawURI)
+	add(&out, seen, base+u.Path)
+
+	if u.RawQuery != "" {
+		add(&out, seen, base+u.Path+"?"+u.RawQuery)
+	}
+
+	lowerPath := strings.ToLower(u.Path)
+	lowerQuery := strings.ToLower(u.RawQuery)
+
+	if strings.Contains(lowerQuery, "dev=1") {
+		add(&out, seen, base+u.Path+"?dev=0")
+	}
+	if strings.Contains(lowerQuery, "dev=0") {
+		add(&out, seen, base+u.Path+"?dev=1")
+	}
+
+	if strings.Contains(lowerPath, "_sub.264") {
+		add(&out, seen, base+strings.Replace(u.Path, "_sub.264", ".264", 1))
+		add(&out, seen, base+strings.Replace(u.Path, "_sub", "", 1))
+	} else if strings.Contains(lowerPath, ".264") {
+		add(&out, seen, base+strings.Replace(u.Path, ".264", "_sub.264", 1))
+	}
+
+	if strings.Contains(lowerPath, "ch01") || strings.Contains(lowerPath, "channel=1") || strings.Contains(lowerQuery, "subtype=") {
+		add(&out, seen, base+"/Streaming/Channels/101")
+		add(&out, seen, base+"/Streaming/Channels/102")
+		add(&out, seen, base+"/cam/realmonitor?channel=1&subtype=0")
+		add(&out, seen, base+"/cam/realmonitor?channel=1&subtype=1")
+	}
+
+	if strings.Contains(lowerPath, "channel=1_stream=1") {
+		add(&out, seen, base+u.Path)
+		add(&out, seen, base+strings.Replace(u.Path, "stream=1", "stream=0", 1))
+		add(&out, seen, base+strings.TrimSuffix(u.Path, "?real_st"))
+	}
+
+	return out
 }
 
 func (c *OnvifClient) checkRtspPathCode(host, port, path string) (int, string) {

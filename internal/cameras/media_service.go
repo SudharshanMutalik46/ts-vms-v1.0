@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/audit"
 	"github.com/technosupport/ts-vms/internal/data"
 	"github.com/technosupport/ts-vms/internal/media"
+	"github.com/technosupport/ts-vms/internal/nvr/adapters"
 	"github.com/technosupport/ts-vms/internal/onvif"
 )
 
@@ -203,7 +205,14 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	}
 
 	// 4. Run Selection
+	if len(domainProfiles) == 0 {
+		return nil, fmt.Errorf("no playable rtsp profiles discovered")
+	}
+
 	selRes := media.SelectProfilesForCodecs(domainProfiles, []media.Codec{media.CodecH264, media.CodecH265})
+	if selRes.MainRTSP == "" && selRes.SubRTSP == "" {
+		return nil, fmt.Errorf("no playable rtsp urls discovered")
+	}
 
 	// Persist Selection
 	dbSel := &data.CameraStreamSelection{
@@ -267,8 +276,60 @@ func (s *MediaService) GetSelection(ctx context.Context, tenantID, cameraID uuid
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if sel == nil {
+		log.Printf("[WARN] No cached RTSP selection for camera %s; discovering media profiles", cameraID)
+		if refreshed, refreshErr := s.SelectMediaProfiles(ctx, tenantID, cameraID); refreshErr == nil && refreshed != nil {
+			sel = refreshed
+		} else if refreshErr != nil {
+			log.Printf("[WARN] RTSP selection discovery failed for camera %s: %v", cameraID, refreshErr)
+		}
+	}
+
+	if sel != nil && s.selectionNeedsRefresh(ctx, sel) {
+		log.Printf("[WARN] RTSP selection probe failed for camera %s; refreshing media selection", cameraID)
+		if refreshed, refreshErr := s.SelectMediaProfiles(ctx, tenantID, cameraID); refreshErr == nil && refreshed != nil {
+			sel = refreshed
+		} else if refreshErr != nil {
+			log.Printf("[WARN] RTSP selection refresh failed for camera %s: %v", cameraID, refreshErr)
+		}
+	}
+
 	val, err := s.MediaRepo.GetValidationResults(ctx, tenantID, cameraID)
 	return sel, val, err
+}
+
+func (s *MediaService) selectionNeedsRefresh(ctx context.Context, sel *data.CameraStreamSelection) bool {
+	if sel == nil {
+		return false
+	}
+
+	mainOK := s.probeRTSPPath(ctx, sel.MainRTSP)
+	if sel.SubIsSameAsMain {
+		return !mainOK
+	}
+
+	subOK := s.probeRTSPPath(ctx, sel.SubRTSP)
+	return !mainOK && !subOK
+}
+
+func (s *MediaService) probeRTSPPath(ctx context.Context, rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return false
+	}
+
+	probeErr := adapters.ProbeRTSPWithTimeout(ctx, rawURL, 2*time.Second)
+	if probeErr == nil {
+		return true
+	}
+
+	errText := strings.ToLower(probeErr.Error())
+	if strings.Contains(errText, "auth_failed") || strings.Contains(errText, "401") || strings.Contains(errText, "403") {
+		return true
+	}
+
+	return false
 }
 
 func (s *MediaService) ValidateRTSP(ctx context.Context, tenantID, cameraID uuid.UUID) error {

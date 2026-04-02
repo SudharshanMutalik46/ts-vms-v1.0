@@ -25,7 +25,7 @@ var (
 
 	metricFallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "live_view_fallback_total",
-		Help: "Total fallbacks to HLS by reason code",
+		Help: "Total fallbacks by reason code",
 	}, []string{"reason"})
 
 	metricEventsDropped = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -68,8 +68,7 @@ var allowedEvents = map[string]bool{
 	"webrtc_connected":     true,
 	"webrtc_first_frame":   true,
 	"webrtc_failed":        true,
-	"fallback_to_hls":      true,
-	"hls_playing":          true,
+	"rtsp_playing":         true,
 	"retry_webrtc_clicked": true,
 	"session_end":          true,
 	"grid_open":            true,
@@ -176,9 +175,8 @@ func (s *TelemetryService) RecordEvent(ctx context.Context, evt *TelemetryEvent)
 	s.Redis.HSet(ctx, sessKey, "last_seen_at", time.Now().Format(time.RFC3339))
 
 	// Metrics
-	if evt.EventType == "fallback_to_hls" {
+	if evt.EventType == "webrtc_failed" {
 		metricFallbackTotal.WithLabelValues(string(evt.ReasonCode)).Inc()
-		// Also could update session "mode" in Redis if needed
 	}
 	if evt.EventType == "tile_start" && evt.Mode == "grid" {
 		metricGridStartTotal.Inc()

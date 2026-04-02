@@ -32,24 +32,6 @@ public:
     std::string GetCodecString() const;
     bool GetHlsBranchPending() const;
     void ClearHlsBranchPending();
-    void SetupHlsBranch();
-    struct HlsConfig {
-        bool enabled = true;
-        std::string root_dir = "C:\\ProgramData\\TechnoSupport\\VMS\\hls";
-        uint32_t segment_duration_sec = 1;
-        uint32_t playlist_length = 10;
-        double partial_duration_sec = 0.2;
-    };
-
-    struct HlsState {
-        std::string session_id;
-        std::string dir_path;
-        bool degraded = false; 
-        std::string last_error;
-    };
-
-    HlsState GetHlsState() const;
-    void SetHlsDegraded(bool degraded, const std::string& error = "");
 
     // Snapshot (Phase 2.x/3.x)
     std::optional<std::vector<uint8_t>> CaptureSnapshot();
@@ -63,6 +45,7 @@ public:
         std::string codec;
     };
     bool StartSfuRtpEgress(const SfuConfig& config);
+    bool StartSfuRtpEgressH265Bridge(const SfuConfig& config);
     void StopSfuRtpEgress();
     bool IsSfuEgressRunning() const;
     
@@ -77,6 +60,7 @@ public:
         uint64_t last_frame_ts_ms = 0;
     };
     Metrics GetMetrics() const;
+    bool ShouldPreferTcpOnReconnect() const;
 
 private:
     static void OnPadAdded(GstElement* src, GstPad* pad, gpointer data);
@@ -86,6 +70,7 @@ private:
     static GstPadProbeReturn OnMainPathPadProbe(GstPad *pad, GstPadProbeInfo *info, gpointer user_data);
     static GstPadProbeReturn OnSfuRtcpProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
 
+    bool RequestSfuBridgeKeyframe(const char* reason);
     void HandleStall();
     void SetupPipeline();
     void CleanupPipeline();
@@ -109,12 +94,9 @@ private:
 
     guint bus_watch_id_ = 0;
 
-    // HLS Elements
-    GstElement* hls_sink_ = nullptr;
-    GstElement* hls_queue_ = nullptr;
-    GstPad* hls_tee_pad_ = nullptr;
-    HlsConfig hls_config_;
-    HlsState hls_state_;
+    // HLS Elements (removed — HLS no longer supported)
+    // HlsConfig hls_config_;
+    // HlsState hls_state_;
 
     // SFU Elements (Phase 3.4)
     GstElement* sfu_queue_ = nullptr;
@@ -129,6 +111,7 @@ private:
     GstElement* sfu_sink_ = nullptr;
     SfuConfig sfu_config_;
     bool sfu_egress_running_ = false;
+    bool sfu_egress_pending_ = false;
     
     // SFU appsrc bridge (H265 only — avoids stall-inducing tee modification)
     GstElement* sfu_appsrc_ = nullptr;
@@ -137,12 +120,9 @@ private:
     guint sfu_bus_watch_id_ = 0;
     bool sfu_appsrc_caps_set_ = false;
     uint64_t sfu_appsrc_push_count_ = 0;
+    mutable std::recursive_mutex sfu_mutex_;
 
-    // HLS Helpers
-    void CreateHlsSession();
-    void UpdateMetaJson();
-    void DisableHlsBranch(const std::string& reason);
-    bool StartSfuRtpEgressH265Bridge(const SfuConfig& config);
+    // HLS Helpers (removed — HLS no longer supported)
 
     enum class CodecType { UNKNOWN, H264, H265 };
     CodecType codec_type_ = CodecType::UNKNOWN;
@@ -156,6 +136,7 @@ private:
     std::atomic<uint32_t> metrics_restarts_total_{0};
     std::atomic<uint64_t> metrics_last_frame_unix_ms_{0};
     std::atomic<int64_t> metrics_ingest_latency_ms_{0};
+    std::atomic<bool> prefer_tcp_hint_{false};
 };
 
 } // namespace ts::vms::media::pipeline

@@ -56,17 +56,22 @@ else {
 Start-Sleep -Seconds 2
 
 Write-Host "Starting Media Plane..." -ForegroundColor Cyan
-$MediaExe = "$Root\media-plane\build\Release\vms-media.exe"
-if (Test-Path $MediaExe) {
+$MediaCandidates = @(
+    "$Root\media-plane\build\Debug\vms-media.exe"
+    "$Root\media-plane\build\Release\vms-media.exe"
+)
+$MediaExe = $MediaCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($MediaExe) {
+    $MediaDir = Split-Path $MediaExe -Parent
     if (Test-Path $MediaConfig) {
-        Start-Process $MediaExe -ArgumentList @("--config", $MediaConfig) -WorkingDirectory "$Root\media-plane\build\Release" -WindowStyle Hidden -RedirectStandardOutput "$LogDir\media.log" -RedirectStandardError "$LogDir\media_err.log"
+        Start-Process $MediaExe -ArgumentList @("--config", $MediaConfig) -WorkingDirectory $MediaDir -WindowStyle Hidden -RedirectStandardOutput "$LogDir\media.log" -RedirectStandardError "$LogDir\media_err.log"
     }
     else {
         Write-Error "Media Plane config not found at $MediaConfig"
     }
 }
 else {
-    Write-Error "vms-media.exe not found at $MediaExe"
+    Write-Error "vms-media.exe not found in media-plane\build\Debug or media-plane\build\Release"
 }
 
 Write-Host "Starting Mosaic Server..." -ForegroundColor Cyan
@@ -90,17 +95,17 @@ Write-Host "Starting AI Service (Go Mock)..." -ForegroundColor Cyan
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0'; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"
 
 Write-Host "Starting HLSD..." -ForegroundColor Cyan
-Write-Host "Rebuilding HLSD..." -ForegroundColor DarkGray
-if (Test-Path "$Root\bin\vms-hlsd.exe") { Remove-Item "$Root\bin\vms-hlsd.exe" -Force }
-pushd $Root
-go build -o bin/vms-hlsd.exe ./cmd/hlsd
-popd
-
-if (Test-Path "$Root\bin\vms-hlsd.exe") {
-    Start-Process "$Root\bin\vms-hlsd.exe" -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\hlsd.log" -RedirectStandardError "$LogDir\hlsd_err.log"
+$HlsdCandidates = @(
+    "$Root\bin\vms-hlsd.exe"
+    "$Root\vms-hlsd.exe"
+    "$Root\hlsd.exe"
+)
+$HlsdExe = $HlsdCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($HlsdExe) {
+    Start-Process $HlsdExe -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$LogDir\hlsd.log" -RedirectStandardError "$LogDir\hlsd_err.log"
 }
 else {
-    Write-Error "Failed to build vms-hlsd.exe"
+    Write-Warning "HLSD executable not found. Expected one of: $($HlsdCandidates -join ', ')"
 }
 
 Write-Host "Starting Recording Engine (Phase 4)..." -ForegroundColor Cyan

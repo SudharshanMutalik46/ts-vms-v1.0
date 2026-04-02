@@ -114,7 +114,6 @@ find_package(GTest CONFIG REQUIRED)
 enable_testing()
 
 add_executable(vms-media-tests
-    tests/test_hls.cpp
     tests/test_fsm.cpp
     tests/test_utils.cpp
     tests/test_manager.cpp
@@ -128,6 +127,10 @@ add_executable(vms-media-tests
     "${GEN_DIR}/ts/vms/media/v1/media.grpc.pb.cc"
     "${GEN_DIR}/ts/vms/common/v1/common.pb.cc"
 )
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/tests/test_hls.cpp")
+    target_sources(vms-media-tests PRIVATE tests/test_hls.cpp)
+endif()
 
 target_link_libraries(vms-media-tests
     PRIVATE

@@ -30,11 +30,11 @@ type LiveSessionResponse struct {
 	ViewerSessionID string           `json:"viewer_session_id"`
 	ExpiresAt       int64            `json:"expires_at"`       // Unix MS
 	Primary         string           `json:"primary"`          // "webrtc"
-	Fallback        string           `json:"fallback"`         // "hls"
+	Fallback        string           `json:"fallback"`         // "rtsp"
 	SelectedQuality string           `json:"selected_quality"` // "sub" or "main"
 	SelectedCodec   string           `json:"selected_codec,omitempty"`
 	WebRTC          *WebRTCBlock     `json:"webrtc"`
-	HLS             *HLSBlock        `json:"hls"`
+	HLS             *HLSBlock        `json:"hls,omitempty"`
 	FallbackPolicy  *FallbackPolicy  `json:"fallback_policy"`
 	TelemetryPolicy *TelemetryPolicy `json:"telemetry_policy"`
 }
@@ -45,6 +45,7 @@ type WebRTCBlock struct {
 	ConnectTimeoutMs int    `json:"connect_timeout_ms"`
 }
 
+// HLSBlock retained for backward compatibility with older clients; always nil server-side.
 type HLSBlock struct {
 	PlaylistURL     string `json:"playlist_url"`
 	TargetLatencyMs int    `json:"target_latency_ms"`
@@ -65,7 +66,7 @@ type TelemetryPolicy struct {
 type TelemetryEvent struct {
 	ViewerSessionID string     `json:"viewer_session_id"`
 	CameraID        string     `json:"camera_id"`
-	EventType       string     `json:"event_type"` // e.g., "fallback_to_hls"
+	EventType       string     `json:"event_type"` // e.g., "webrtc_failed"
 	ReasonCode      ReasonCode `json:"reason_code"`
 	Mode            string     `json:"mode"`
 	TTFFMs          int        `json:"ttff_ms,omitempty"`

@@ -19,6 +19,19 @@ namespace ts::vms::media::pipeline {
 
 namespace {
 
+bool SafeSetElementState(GstElement* element, GstState state, const char* label) {
+    if (!element) {
+        return false;
+    }
+
+    if (!GST_IS_ELEMENT(element)) {
+        spdlog::warn("[GStreamer] Skipping set_state on invalid element {}", label ? label : "(unknown)");
+        return false;
+    }
+
+    return gst_element_set_state(element, state) != GST_STATE_CHANGE_FAILURE;
+}
+
 void LogPadCaps(const std::string& camera_id, GstElement* element, const char* pad_name, const char* label) {
     if (!element || !pad_name || !label) return;
 
@@ -141,18 +154,23 @@ bool IngestPipeline::Start() {
     spdlog::info("[{}] Starting ingestion from {}", config_.camera_id, config_.rtsp_url);
 
     sfu_egress_running_ = false;
+    sfu_egress_pending_ = false;
     sfu_appsrc_caps_set_ = false;
     sfu_appsrc_push_count_ = 0;
 
     SetupPipeline();
 
-    if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    if (!SafeSetElementState(pipeline_, GST_STATE_PLAYING, "main_pipeline")) {
         spdlog::error("[{}] Failed to set pipeline to PLAYING", config_.camera_id);
         fsm_.TransitionTo(State::STOPPED);
         return false;
     }
 
     return true;
+}
+
+bool IngestPipeline::ShouldPreferTcpOnReconnect() const {
+    return prefer_tcp_hint_.load(std::memory_order_relaxed);
 }
 
 void IngestPipeline::Stop() {
@@ -258,7 +276,20 @@ void IngestPipeline::SetupPipeline() {
 
     GstPad *tee_src_pad_sink = gst_element_request_pad_simple(tee_, "src_%u");
     GstPad *q_sink_pad = gst_element_get_static_pad(q_sink, "sink");
-    gst_pad_link(tee_src_pad_sink, q_sink_pad);
+    if (!tee_src_pad_sink || !q_sink_pad) {
+        spdlog::error("[{}] Failed to acquire tee/q_sink pads for main pipeline", config_.camera_id);
+        if (tee_src_pad_sink) gst_object_unref(tee_src_pad_sink);
+        if (q_sink_pad) gst_object_unref(q_sink_pad);
+        CleanupPipeline();
+        return;
+    }
+    if (gst_pad_link(tee_src_pad_sink, q_sink_pad) != GST_PAD_LINK_OK) {
+        spdlog::error("[{}] Failed to link tee -> q_sink", config_.camera_id);
+        gst_object_unref(tee_src_pad_sink);
+        gst_object_unref(q_sink_pad);
+        CleanupPipeline();
+        return;
+    }
     gst_object_unref(tee_src_pad_sink);
     gst_object_unref(q_sink_pad);
 
@@ -270,12 +301,24 @@ void IngestPipeline::SetupPipeline() {
 
     GstPad *tee_src_pad_fake = gst_element_request_pad_simple(tee_, "src_%u");
     GstPad *q_fake_pad = gst_element_get_static_pad(q_fake, "sink");
-    gst_pad_link(tee_src_pad_fake, q_fake_pad);
+    if (!tee_src_pad_fake || !q_fake_pad) {
+        spdlog::error("[{}] Failed to acquire tee/q_fake pads for main pipeline", config_.camera_id);
+        if (tee_src_pad_fake) gst_object_unref(tee_src_pad_fake);
+        if (q_fake_pad) gst_object_unref(q_fake_pad);
+        CleanupPipeline();
+        return;
+    }
+    if (gst_pad_link(tee_src_pad_fake, q_fake_pad) != GST_PAD_LINK_OK) {
+        spdlog::error("[{}] Failed to link tee -> q_fake", config_.camera_id);
+        gst_object_unref(tee_src_pad_fake);
+        gst_object_unref(q_fake_pad);
+        CleanupPipeline();
+        return;
+    }
     gst_object_unref(tee_src_pad_fake);
     gst_object_unref(q_fake_pad);
 
-    // HLS is now initialized lazily from MonitorLoop after first frame
-    // to avoid GStreamer lock contention during OnPadAdded.
+    // HLS initialization removed — HLS no longer supported
 
     g_object_set(appsink_, "emit-signals", TRUE, "sync", FALSE, NULL);
     g_signal_connect(appsink_, "new-sample", G_CALLBACK(OnNewSample), this);
@@ -288,10 +331,9 @@ void IngestPipeline::SetupPipeline() {
 }
 
 void IngestPipeline::CleanupPipeline() {
-    DisableHlsBranch("");
     StopSfuRtpEgress();
     if (pipeline_) {
-        gst_element_set_state(pipeline_, GST_STATE_NULL);
+        SafeSetElementState(pipeline_, GST_STATE_NULL, "main_pipeline");
         if (bus_watch_id_ > 0) {
             g_source_remove(bus_watch_id_);
             bus_watch_id_ = 0;
@@ -299,13 +341,16 @@ void IngestPipeline::CleanupPipeline() {
         gst_object_unref(pipeline_);
         pipeline_ = nullptr;
     }
-    
-    if (!hls_state_.dir_path.empty()) {
-        if (!hls_state_.degraded) {
-            utils::Metrics::Instance().hls_sessions_active().Decrement();
-        }
-        hls_state_ = HlsState{};
-    }
+
+    // Clear stale element pointers so the next Start() builds a fresh pipeline.
+    // OnPadAdded() checks depay_ as its one-time setup guard, so leaving these
+    // non-null after unref'ing the pipeline can suppress future media setup.
+    source_ = nullptr;
+    depay_ = nullptr;
+    parse_ = nullptr;
+    tee_ = nullptr;
+    appsink_ = nullptr;
+    codec_type_ = CodecType::UNKNOWN;
 }
 
 void IngestPipeline::OnPadAdded(GstElement* /*src*/, GstPad* pad, gpointer data) {
@@ -313,7 +358,16 @@ void IngestPipeline::OnPadAdded(GstElement* /*src*/, GstPad* pad, gpointer data)
     if (self->depay_) return;
 
     GstCaps* new_pad_caps = gst_pad_get_current_caps(pad);
+    if (!new_pad_caps) {
+        spdlog::warn("[{}] OnPadAdded: no caps available on new pad", self->config_.camera_id);
+        return;
+    }
     GstStructure* new_pad_struct = gst_caps_get_structure(new_pad_caps, 0);
+    if (!new_pad_struct) {
+        spdlog::warn("[{}] OnPadAdded: caps had no structure", self->config_.camera_id);
+        gst_caps_unref(new_pad_caps);
+        return;
+    }
     const gchar* media = gst_structure_get_string(new_pad_struct, "media");
     const gchar* encoding = gst_structure_get_string(new_pad_struct, "encoding-name");
 
@@ -324,9 +378,6 @@ void IngestPipeline::OnPadAdded(GstElement* /*src*/, GstPad* pad, gpointer data)
             self->parse_ = gst_element_factory_make("h264parse", "parse");
         } else if (g_strcmp0(encoding, "H265") == 0) {
             self->codec_type_ = CodecType::H265;
-            self->hls_state_.degraded = true;
-            self->hls_state_.last_error = "H265 stream — HLS not supported";
-            spdlog::warn("[{}] H265 stream detected — HLS skipped", self->config_.camera_id);
             self->depay_ = gst_element_factory_make("rtph265depay", "depay");
             self->parse_ = gst_element_factory_make("h265parse", "parse");
             if (self->parse_) g_object_set(self->parse_, "config-interval", -1, NULL);
@@ -334,18 +385,37 @@ void IngestPipeline::OnPadAdded(GstElement* /*src*/, GstPad* pad, gpointer data)
 
         if (self->depay_ && self->parse_) {
             gst_bin_add_many(GST_BIN(self->pipeline_), self->depay_, self->parse_, NULL);
+            auto removePartialChain = [&]() {
+                auto safeRemove = [&](GstElement*& element) {
+                    if (!self->pipeline_ || !element || !GST_IS_ELEMENT(element)) {
+                        return;
+                    }
+                    GstObject* parent = gst_object_get_parent(GST_OBJECT(element));
+                    const bool inPipeline = parent == GST_OBJECT(self->pipeline_);
+                    if (parent) {
+                        gst_object_unref(parent);
+                    }
+                    if (inPipeline) {
+                        gst_bin_remove(GST_BIN(self->pipeline_), element);
+                    } else {
+                        gst_object_unref(element);
+                    }
+                };
+                safeRemove(self->depay_);
+                safeRemove(self->parse_);
+            };
 
             // Step 1: link the internal chain first (depay -> parse -> tee)
             if (!gst_element_link(self->depay_, self->parse_)) {
                 spdlog::error("[{}] OnPadAdded: failed to link depay->parse", self->config_.camera_id);
-                gst_bin_remove_many(GST_BIN(self->pipeline_), self->depay_, self->parse_, NULL);
+                removePartialChain();
                 self->depay_ = nullptr; self->parse_ = nullptr;
                 if (new_pad_caps) gst_caps_unref(new_pad_caps);
                 return;
             }
             if (!gst_element_link(self->parse_, self->tee_)) {
                 spdlog::error("[{}] OnPadAdded: failed to link parse->tee", self->config_.camera_id);
-                gst_bin_remove_many(GST_BIN(self->pipeline_), self->depay_, self->parse_, NULL);
+                removePartialChain();
                 self->depay_ = nullptr; self->parse_ = nullptr;
                 if (new_pad_caps) gst_caps_unref(new_pad_caps);
                 return;
@@ -353,9 +423,18 @@ void IngestPipeline::OnPadAdded(GstElement* /*src*/, GstPad* pad, gpointer data)
 
             // Step 2: link rtspsrc pad to depay input
             GstPad* sinkpad = gst_element_get_static_pad(self->depay_, "sink");
+            if (!sinkpad) {
+                spdlog::error("[{}] OnPadAdded: failed to get depay sink pad", self->config_.camera_id);
+                removePartialChain();
+                self->depay_ = nullptr; self->parse_ = nullptr;
+                if (new_pad_caps) gst_caps_unref(new_pad_caps);
+                return;
+            }
             if (gst_pad_link(pad, sinkpad) != GST_PAD_LINK_OK) {
                 spdlog::error("[{}] OnPadAdded: failed to link rtspsrc_pad->depay", self->config_.camera_id);
                 gst_object_unref(sinkpad);
+                removePartialChain();
+                self->depay_ = nullptr; self->parse_ = nullptr;
                 if (new_pad_caps) gst_caps_unref(new_pad_caps);
                 return;
             }
@@ -379,17 +458,22 @@ GstFlowReturn IngestPipeline::OnNewSample(GstElement* sink, gpointer data) {
         std::lock_guard<std::mutex> lock(self->data_mutex_);
         self->frame_count_++;
         self->metrics_frames_processed_.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard<std::recursive_mutex> sfu_lock(self->sfu_mutex_);
 
         if (self->fsm_.GetCurrentState() == State::STARTING) {
             self->fsm_.TransitionTo(State::RUNNING);
             spdlog::info("[{}] First frame received, pipeline RUNNING", self->config_.camera_id);
-            // Signal MonitorLoop to set up HLS branch (safe: not on streaming thread)
-            if (self->codec_type_ == CodecType::H264) {
-                self->hls_branch_pending_ = true;
+        }
+
+        if (self->sfu_egress_pending_ && !self->sfu_egress_running_ && self->codec_type_ != CodecType::UNKNOWN) {
+            spdlog::info("[{}] SFU bridge pending start resolved on first sample", self->config_.camera_id);
+            if (self->StartSfuRtpEgressH265Bridge(self->sfu_config_)) {
+                self->sfu_egress_pending_ = false;
             }
         }
 
-        // Forward to SFU bridge if active (H265 only — H264 uses tee directly)
+        // Forward to the SFU bridge if active.  Both H264 and H265 now use the
+        // private bridge pipeline so the encoder can generate browser-safe IDRs.
         if (self->sfu_appsrc_ && self->sfu_egress_running_) {
             GstBuffer* buf = gst_sample_get_buffer(sample);
             if (buf) {
@@ -425,6 +509,13 @@ GstFlowReturn IngestPipeline::OnNewSample(GstElement* sink, gpointer data) {
                     }
                 }
             }
+        } else if (!self->sfu_egress_running_) {
+            // Bridge not yet active — count silently dropped frames but only log every 30.
+            self->metrics_frames_dropped_.fetch_add(1, std::memory_order_relaxed);
+            if (self->metrics_frames_dropped_.load(std::memory_order_relaxed) % 30 == 1) {
+                spdlog::debug("[{}] SFU bridge not active yet, frame dropped (total dropped: {})",
+                    self->config_.camera_id, self->metrics_frames_dropped_.load(std::memory_order_relaxed));
+            }
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -454,7 +545,17 @@ gboolean IngestPipeline::OnBusMessage(GstBus* /*bus*/, GstMessage* msg, gpointer
             GError* err;
             gchar* debug_info;
             gst_message_parse_error(msg, &err, &debug_info);
-            spdlog::error("[{}] GStreamer error: {}", self->config_.camera_id, err->message);
+            const std::string err_msg = err ? err->message : "";
+            const std::string dbg_msg = debug_info ? debug_info : "";
+            spdlog::error("[{}] GStreamer error: {}", self->config_.camera_id, err_msg);
+            if (!self->config_.prefer_tcp &&
+                (err_msg.find("Could not write to resource") != std::string::npos ||
+                 err_msg.find("setup failed") != std::string::npos ||
+                 dbg_msg.find("gst_rtspsrc_setup_streams_start") != std::string::npos ||
+                 dbg_msg.find("gst_rtspsrc_open_from_sdp") != std::string::npos)) {
+                self->prefer_tcp_hint_.store(true, std::memory_order_relaxed);
+                spdlog::warn("[{}] RTSP UDP setup failed; switching future starts to TCP.", self->config_.camera_id);
+            }
             g_clear_error(&err);
             g_free(debug_info);
             self->fsm_.TransitionTo(State::RECONNECTING);
@@ -469,10 +570,20 @@ gboolean IngestPipeline::OnBusMessage(GstBus* /*bus*/, GstMessage* msg, gpointer
 }
 
 bool IngestPipeline::IsSfuEgressRunning() const {
+    std::lock_guard<std::recursive_mutex> lock(sfu_mutex_);
     return sfu_egress_running_;
 }
 
 bool IngestPipeline::StartSfuRtpEgress(const SfuConfig& config) {
+    std::lock_guard<std::recursive_mutex> lock(sfu_mutex_);
+    sfu_config_ = config;
+    sfu_egress_pending_ = true;
+
+    if (codec_type_ == CodecType::UNKNOWN) {
+        spdlog::info("[{}] StartSfuRtpEgress: codec not yet detected â€” queued pending bridge start", config_.camera_id);
+        return true;
+    }
+
     if (sfu_egress_running_) return true;
 
     if (codec_type_ == CodecType::UNKNOWN) {
@@ -483,7 +594,6 @@ bool IngestPipeline::StartSfuRtpEgress(const SfuConfig& config) {
     const uint32_t sfu_ssrc = (config.ssrc != 0u) ? config.ssrc : 11111111u;
     const uint32_t sfu_pt   = (config.pt   != 0u) ? config.pt   : 96u;
     const int local_rtp_port  = (int)config.dst_port + 100;
-    const int local_rtcp_port = local_rtp_port + 1;
 
     spdlog::info(
         "[{}] Starting SFU egress to {}:{} (local port {}) codec={} pt={} ssrc={}",
@@ -495,80 +605,15 @@ bool IngestPipeline::StartSfuRtpEgress(const SfuConfig& config) {
         sfu_pt,
         sfu_ssrc);
 
-    if (codec_type_ == CodecType::H265) {
-        // H265: use appsrc bridge — DO NOT touch the main pipeline tee.
-        // Touching the tee sends a RECONFIGURE event that can stall the rtspsrc.
-        return StartSfuRtpEgressH265Bridge(config);
-    }
-
-    // H264 direct path — lightweight, just rtph264pay on the tee
-    sfu_queue_ = gst_element_factory_make("queue", "sfu_queue");
-    g_object_set(sfu_queue_, "leaky", 2, "max-size-buffers", 30, "max-size-time", (gint64)2000000000, NULL);
-    sfu_parse_ = gst_element_factory_make("h264parse", "sfu_parse");
-    sfu_pay_ = gst_element_factory_make("rtph264pay", "sfu_pay");
-    sfu_sink_ = gst_element_factory_make("udpsink", "sfu_sink");
-
-    if (!sfu_queue_ || !sfu_parse_ || !sfu_pay_ || !sfu_sink_) {
-        spdlog::error("[{}] Failed to create H264 SFU elements", config_.camera_id);
-        return false;
-    }
-
-    g_object_set(sfu_sink_, "host", config.dst_ip.c_str(), "port", config.dst_port,
-        "bind-port", local_rtp_port, "sync", FALSE, "async", FALSE, NULL);
-    
-    // config-interval=-1: tells h264parse to repeat SPS/PPS before every IDR frame.
-    g_object_set(sfu_parse_, "config-interval", (gint)-1, NULL);
-    
-    // rtph264pay config: 
-    // - config-interval=-1: also ensures payloader includes SPS/PPS in-band
-    // - aggregate-mode=0: none (RFC 3984) — most robust for WebView2/Chromium
-    g_object_set(sfu_pay_, "config-interval", (gint)-1, "ssrc", (guint)sfu_ssrc, "pt", (guint)sfu_pt, "aggregate-mode", (gint)0, NULL);
-
-    gst_bin_add_many(GST_BIN(pipeline_), sfu_queue_, sfu_parse_, sfu_pay_, sfu_sink_, NULL);
-    gst_element_link_many(sfu_queue_, sfu_parse_, sfu_pay_, sfu_sink_, NULL);
-
-    // Link to tee BEFORE syncing states
-    GstPad *tee_src = gst_element_request_pad_simple(tee_, "src_%u");
-    GstPad *q_sink = gst_element_get_static_pad(sfu_queue_, "sink");
-    if (gst_pad_link(tee_src, q_sink) != GST_PAD_LINK_OK) {
-        spdlog::error("[{}] Failed to link tee -> sfu_queue", config_.camera_id);
-        gst_object_unref(tee_src);
-        gst_object_unref(q_sink);
-        return false;
-    }
-    gst_object_unref(tee_src);
-    gst_object_unref(q_sink);
-
-    gst_element_sync_state_with_parent(sfu_sink_);
-    gst_element_sync_state_with_parent(sfu_pay_);
-    gst_element_sync_state_with_parent(sfu_parse_);
-    gst_element_sync_state_with_parent(sfu_queue_);
-
-    // RTCP listener for PLIs (H264 direct path)
-    sfu_rtcp_src_ = gst_element_factory_make("udpsrc", "sfu_rtcp_src");
-    if (sfu_rtcp_src_) {
-        g_object_set(sfu_rtcp_src_, "address", "127.0.0.1", "port", local_rtcp_port, NULL);
-        GstPad* rtcp_src_pad = gst_element_get_static_pad(sfu_rtcp_src_, "src");
-        if (rtcp_src_pad) {
-            gst_pad_add_probe(rtcp_src_pad, GST_PAD_PROBE_TYPE_BUFFER, OnSfuRtcpProbe, this, nullptr);
-            gst_object_unref(rtcp_src_pad);
-        }
-        gst_bin_add(GST_BIN(pipeline_), sfu_rtcp_src_);
-        if (gst_element_set_state(sfu_rtcp_src_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-            spdlog::warn("[{}] SFU RTCP listener failed to bind port {} — PLI recovery disabled", 
-                config_.camera_id, local_rtcp_port);
-            gst_bin_remove(GST_BIN(pipeline_), sfu_rtcp_src_);
-            sfu_rtcp_src_ = nullptr;
-        } else {
-            spdlog::info("[{}] SFU RTCP listener started on port {}", config_.camera_id, local_rtcp_port);
-        }
-    }
-
-    sfu_egress_running_ = true;
-    return true;
+    // Always use the bridge pipeline so the media plane can generate a browser-safe
+    // H264 stream and force keyframes on the encoder.  The direct tee-based H264
+    // pass-through path was leaving WebRTC connected but black when the source did not
+    // emit a fresh IDR fast enough.
+    return StartSfuRtpEgressH265Bridge(config);
 }
 
 bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
+    std::lock_guard<std::recursive_mutex> lock(sfu_mutex_);
     const uint32_t sfu_ssrc = (config.ssrc != 0u) ? config.ssrc : 11111111u;
     const uint32_t sfu_pt   = (config.pt   != 0u) ? config.pt   : 96u;
     const int local_rtp_port  = (int)config.dst_port + 100;
@@ -582,24 +627,44 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     sfu_appsrc_ = gst_element_factory_make("appsrc", "sfu_appsrc");
     g_object_set(sfu_appsrc_, "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", TRUE, NULL);
     GstElement* appsrc_q = gst_element_factory_make("queue", "sfu_aq");
+
+    if (!sfu_pipeline_ || !sfu_appsrc_ || !appsrc_q) {
+        spdlog::error("[{}] Failed to create SFU bridge core elements (pipeline/appsrc/queue)", config_.camera_id);
+        if (sfu_pipeline_) {
+            gst_object_unref(sfu_pipeline_);
+            sfu_pipeline_ = nullptr;
+        }
+        if (sfu_appsrc_) {
+            gst_object_unref(sfu_appsrc_);
+            sfu_appsrc_ = nullptr;
+        }
+        if (appsrc_q) {
+            gst_object_unref(appsrc_q);
+        }
+        return false;
+    }
     
-    // Transcode path selection for H265 → H264 SFU bridge.
+    // Transcode path selection for the SFU bridge.
+    //
+    // We now bridge both H264 and H265 through a private pipeline so the media plane
+    // owns keyframe generation.  This avoids the "connected but black" WebRTC state
+    // that happened when H264 was passed through directly and the source did not emit
+    // an IDR quickly enough for Chromium/WebView2.
     //
     // Priority 1 — All-NVIDIA CUDA path (no system-memory copy):
-    //   nvh265dec → nvvideoconvert → nvh264enc
+    //   nvh264dec / nvh265dec → nvvideoconvert / cudaconvertscale → nvh264enc
     //
     // Priority 2 — All-D3D11 path:
-    //   d3d11h265dec → d3d11videoconvert → mfh264enc
+    //   d3d11h264dec / d3d11h265dec → d3d11videoconvert → mfh264enc
     //
-    // Priority 3 — Mixed: NVIDIA decode + CPU encode
-    //   nvh265dec → cudadownload → videoconvert → nvh264enc
-    //   (last resort; only if neither full-GPU path works)
+    // Priority 3 — Mixed decode + CPU encode:
+    //   GPU decoder → download → videoconvert → x264enc / openh264enc / mfh264enc
     //
-    // Priority 4 — Pure software (requires gst-libav + gst-plugins-ugly):
-    //   avdec_h265 → videoconvert → x264enc
+    // Priority 4 — Pure software:
+    //   avdec_h264 / avdec_h265 → videoconvert → x264enc / openh264enc
     //
-    // Do NOT mix GPU-memory decoders with CPU videoconvert without a
-    // download element — caps negotiation silently fails at data-flow time.
+    // Do NOT mix GPU-memory decoders with CPU videoconvert without a download
+    // element — caps negotiation silently fails at data-flow time.
 
     sfu_download_  = nullptr;
     sfu_decoder_   = nullptr;
@@ -607,6 +672,9 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     sfu_encoder_   = nullptr;
 
     enum class BridgePath { NVIDIA, D3D11, MIXED, MF, SW, NONE } bridge_path = BridgePath::NONE;
+    const bool input_is_h265 = (codec_type_ == CodecType::H265);
+    const char* input_parser_name = input_is_h265 ? "h265parse" : "h264parse";
+    const char* input_label = input_is_h265 ? "h265" : "h264";
     // The pure D3D11 transcode path has produced RTP that reaches WebRTC consumers
     // but never yields decoded frames in Chromium/WebView2 on affected Windows systems.
     // Prefer mixed/system-memory paths unless this is explicitly re-enabled.
@@ -622,9 +690,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     };
 
     // --- Try Priority 1 — True NVIDIA HW path (GPU-only):
-    // nvh265dec -> cudaconvert(scale) -> nvh264enc
+    // nvh264dec / nvh265dec -> cudaconvert(scale) -> nvh264enc
     {
-        GstElement* dec  = make_any({"nvh265dec"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"nvh265dec"}, "sfu_dec")
+                                         : make_any({"nvh264dec"}, "sfu_dec");
         GstElement* conv = make_any({"cudaconvertscale", "cudaconvert", "nvvideoconvert"}, "sfu_conv");
         GstElement* enc  = make_any({"nvh264enc"}, "sfu_enc");
         if (dec && conv && enc) {
@@ -638,9 +707,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     }
 
     // --- Try Priority 2 — True D3D11 HW path (GPU-only):
-    // d3d11h265dec -> d3d11convert(scale) -> mfh264enc (or nvd3d11h264enc)
+    // d3d11h264dec / d3d11h265dec -> d3d11convert(scale) -> mfh264enc
     if (bridge_path == BridgePath::NONE && kEnablePureD3D11BridgePath) {
-        GstElement* dec  = make_any({"d3d11h265dec"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"d3d11h265dec"}, "sfu_dec")
+                                         : make_any({"d3d11h264dec"}, "sfu_dec");
         GstElement* conv = make_any({"d3d11convert", "d3d11videoconvert"}, "sfu_conv");
         GstElement* enc  = make_any({"nvd3d11h264enc", "mfh264enc"}, "sfu_enc");
         if (dec && conv && enc) {
@@ -658,10 +728,11 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     // --- Try Priority 3a: NVIDIA decode + cudadownload + CPU encode ---
     if (bridge_path == BridgePath::NONE) {
-        GstElement* dec  = make_any({"nvh265dec"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"nvh265dec"}, "sfu_dec")
+                                         : make_any({"nvh264dec"}, "sfu_dec");
         GstElement* dl   = make_any({"cudadownload"}, "sfu_dl");
         GstElement* conv = make_any({"videoconvert"}, "sfu_conv");
-        GstElement* enc  = make_any({"x264enc", "openh264enc", "mfh264enc"}, "sfu_enc");
+        GstElement* enc  = make_any({"mfh264enc", "openh264enc", "x264enc"}, "sfu_enc");
         if (dec && dl && conv && enc) {
             sfu_decoder_   = dec; sfu_download_ = dl;
             sfu_converter_ = conv; sfu_encoder_ = enc;
@@ -676,10 +747,11 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     // --- Try Priority 3b: D3D11 decode + d3d11download + CPU encode ---
     if (bridge_path == BridgePath::NONE) {
-        GstElement* dec  = make_any({"d3d11h265dec"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"d3d11h265dec"}, "sfu_dec")
+                                         : make_any({"d3d11h264dec"}, "sfu_dec");
         GstElement* dl   = make_any({"d3d11download"}, "sfu_dl");
         GstElement* conv = make_any({"videoconvert"}, "sfu_conv");
-        GstElement* enc  = make_any({"x264enc", "openh264enc", "mfh264enc"}, "sfu_enc");
+        GstElement* enc  = make_any({"mfh264enc", "openh264enc", "x264enc"}, "sfu_enc");
         if (dec && dl && conv && enc) {
             sfu_decoder_   = dec; sfu_download_ = dl;
             sfu_converter_ = conv; sfu_encoder_ = enc;
@@ -694,9 +766,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     // --- Try Priority 3c: MF decode + CPU encode ---
     if (bridge_path == BridgePath::NONE) {
-        GstElement* dec  = make_any({"mfh265dec"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"mfh265dec"}, "sfu_dec")
+                                         : make_any({"mfh264dec"}, "sfu_dec");
         GstElement* conv = make_any({"videoconvert"}, "sfu_conv");
-        GstElement* enc  = make_any({"x264enc", "openh264enc", "mfh264enc"}, "sfu_enc");
+        GstElement* enc  = make_any({"mfh264enc", "openh264enc", "x264enc"}, "sfu_enc");
         if (dec && conv && enc) {
             sfu_decoder_ = dec; sfu_converter_ = conv; sfu_encoder_ = enc;
             bridge_path  = BridgePath::MF;
@@ -709,9 +782,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     // --- Try Priority 4: pure software ---
     if (bridge_path == BridgePath::NONE) {
-        GstElement* dec  = make_any({"avdec_h265"}, "sfu_dec");
+        GstElement* dec  = input_is_h265 ? make_any({"avdec_h265"}, "sfu_dec")
+                                         : make_any({"avdec_h264"}, "sfu_dec");
         GstElement* conv = make_any({"videoconvert"}, "sfu_conv");
-        GstElement* enc  = make_any({"x264enc", "openh264enc"}, "sfu_enc");
+        GstElement* enc  = make_any({"mfh264enc", "openh264enc", "x264enc"}, "sfu_enc");
         if (dec && conv && enc) {
             sfu_decoder_ = dec; sfu_converter_ = conv; sfu_encoder_ = enc;
             bridge_path  = BridgePath::SW;
@@ -723,9 +797,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     }
 
     if (bridge_path == BridgePath::NONE) {
-        spdlog::error("[{}] No H265→H264 transcode path available "
-            "(need nvh265dec+nvvideoconvert+nvh264enc, d3d11h265dec+d3d11videoconvert+mfh264enc, "
-            "or avdec_h265+x264enc)", config_.camera_id);
+        spdlog::error("[{}] No {}→H264 transcode path available "
+            "(need nvh264dec/nvh265dec + nvvideoconvert + nvh264enc, "
+            "d3d11h264dec/d3d11h265dec + d3d11videoconvert + mfh264enc, "
+            "or avdec_h264/avdec_h265 + x264enc)", config_.camera_id, input_label);
         gst_object_unref(sfu_pipeline_); sfu_pipeline_ = nullptr;
         return false;
     }
@@ -755,15 +830,15 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     sfu_sink_ = gst_element_factory_make("udpsink", "sfu_sink");
 
     if (!sfu_appsrc_ || !appsrc_q || !sfu_caps || !sfu_parse_ || !sfu_parse_caps || !sfu_pay_ || !sfu_sink_) {
-        spdlog::error("[{}] Failed to create H265 SFU bridge common elements", config_.camera_id);
+        spdlog::error("[{}] Failed to create SFU bridge common elements", config_.camera_id);
         gst_object_unref(sfu_pipeline_); sfu_pipeline_ = nullptr;
         return false;
     }
 
-    // Configure appsrc with generic H265 byte-stream caps.
-    // Do NOT propagate the current-caps from the main pipeline's h265parse src pad:
+    // Configure appsrc with generic encoded caps.
+    // Do NOT propagate the current-caps from the main pipeline parser src pad:
     // those caps may include codec_data / specific stream-format that the bridge's
-    // own h265parse (added below) needs to re-negotiate with the decoder.
+    // own parser (added below) needs to re-negotiate with the decoder.
     // Keeping caps as ANY here lets the bridge h265parse do all the negotiation.
     g_object_set(
         sfu_appsrc_,
@@ -804,8 +879,8 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
         is_sysmem_convert = (n && g_strcmp0(n, "videoconvert") == 0);
     }
 
-    // WebRTC Level 3.1 trap: clamp to <= 1280x720 and force I420 for all bridge paths.
-    // This ensures hardware decoders/encoders don't exceed browser limits.
+    // WebRTC Level 3.1 trap: clamp to <= 1280x720 and use an encoder-friendly raw
+    // format. openh264enc prefers I420; mfh264enc prefers NV12.
     sfu_transcode_q = gst_element_factory_make("queue", "sfu_transcode_q");
     sfu_scale = gst_element_factory_make("videoscale", "sfu_scale");
     sfu_raw_caps = gst_element_factory_make("capsfilter", "sfu_raw_caps");
@@ -825,7 +900,10 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
                 "leaky", 2, // downstream (drop oldest)
                 NULL);
 
-            GstCaps* raw_caps = gst_caps_from_string("video/x-raw, format=I420, width=(int)[1,1280], height=(int)[1,720]");
+            const char* raw_caps_str = is_mf
+                ? "video/x-raw, format=NV12, width=(int)1280, height=(int)720, pixel-aspect-ratio=(fraction)1/1"
+                : "video/x-raw, format=I420, width=(int)1280, height=(int)720, pixel-aspect-ratio=(fraction)1/1";
+            GstCaps* raw_caps = gst_caps_from_string(raw_caps_str);
             if (raw_caps) {
                 g_object_set(G_OBJECT(sfu_raw_caps), "caps", raw_caps, NULL);
                 gst_caps_unref(raw_caps);
@@ -834,25 +912,32 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
         }
     }
 
+    const bool gpu_only_bridge = (bridge_path == BridgePath::NVIDIA || bridge_path == BridgePath::D3D11);
+
     // Encoder tuning (Bitrate, GOP, Zero-latency)
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "bitrate")) {
-        guint64 bitrate = is_x264enc ? 2048u : 2000u; // kbps baseline
-        // x264enc uses kbps. mfh264enc and openh264enc use bps.
-        if (is_mf || is_openh264) bitrate *= 1000u;
+        guint64 bitrate = is_x264enc ? 2048u : 2000u;
+        // x264enc uses kbps. openh264enc uses bps. mfh264enc uses kbps.
+        if (is_openh264) bitrate *= 1000u;
         g_object_set(sfu_encoder_, "bitrate", (guint)bitrate, NULL);
     }
 
-    // Force regular IDRs (15 frames = ~0.5 sec at 30fps)
+    // Force extremely frequent IDRs so WebRTC viewers get a decodable frame
+    // immediately after the consumer resumes.
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "gop-size"))
-        g_object_set(sfu_encoder_, "gop-size", 15, NULL);
+        g_object_set(sfu_encoder_, "gop-size", 1, NULL);
     else if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "key-int-max"))
-        g_object_set(sfu_encoder_, "key-int-max", 15, NULL);
+        g_object_set(sfu_encoder_, "key-int-max", 1, NULL);
 
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "idrinterval"))
-        g_object_set(sfu_encoder_, "idrinterval", 15, NULL);
+        g_object_set(sfu_encoder_, "idrinterval", 1, NULL);
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "min-force-key-unit-interval"))
+        g_object_set(sfu_encoder_, "min-force-key-unit-interval", (guint64)0, NULL);
 
     // mfh264enc specific tuning
     if (is_mf) {
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "cabac"))
+            g_object_set(sfu_encoder_, "cabac", FALSE, NULL);
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "periodic-key-frames"))
             g_object_set(sfu_encoder_, "periodic-key-frames", 30, NULL);
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "quality-vs-speed"))
@@ -883,16 +968,7 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "low-latency"))
         g_object_set(sfu_encoder_, "low-latency", TRUE, NULL);
 
-    // Profile and B-frames
-    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "profile")) {
-        if (is_mf) {
-            g_object_set(sfu_encoder_, "profile", 66 /* Baseline */, NULL);
-            if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "level"))
-                g_object_set(sfu_encoder_, "level", 31 /* 3.1 */, NULL);
-        } else {
-            g_object_set(sfu_encoder_, "profile", 0 /* baseline for x264/openh264 */, NULL);
-        }
-    }
+    // B-frames stay disabled for low-latency WebRTC output.
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "rc-mode"))
         g_object_set(sfu_encoder_, "rc-mode", 0 /* cbr for mfh264enc */, NULL);
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sfu_encoder_), "bframes"))
@@ -939,7 +1015,11 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     g_object_set(sfu_sink_, "host", config.dst_ip.c_str(), "port", (gint)config.dst_port,
         "bind-port", (gint)local_rtp_port, "sync", (gboolean)FALSE, "async", (gboolean)FALSE, NULL);
 
-    // RTCP listener for PLIs (H265 bridge path).
+    // RTCP listener for PLIs (bridge path for both codecs).
+    // Mediasoup PlainTransport with comedia=true latches the remote tuple from the
+    // first RTP packet and sends RTCP back on the sender's RTCP sideband port.
+    // Keep a dedicated RTCP socket here so PLI/FIR feedback can reach the bridge
+    // encoder directly without colliding with the RTP sender socket.
     sfu_rtcp_src_ = gst_element_factory_make("udpsrc", "sfu_rtcp_src");
     if (sfu_rtcp_src_) {
         g_object_set(sfu_rtcp_src_, "address", "127.0.0.1", "port", local_rtcp_port, NULL);
@@ -949,10 +1029,23 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
             gst_object_unref(rtcp_src_pad);
         }
         gst_bin_add(GST_BIN(sfu_pipeline_), sfu_rtcp_src_);
-        if (gst_element_set_state(sfu_rtcp_src_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-            spdlog::warn("[{}] SFU bridge RTCP listener failed to bind port {} — PLI recovery disabled", 
+        if (!SafeSetElementState(sfu_rtcp_src_, GST_STATE_PLAYING, "sfu_rtcp_src")) {
+            spdlog::warn("[{}] SFU bridge RTCP listener failed to bind port {} — PLI recovery disabled",
                 config_.camera_id, local_rtcp_port);
-            gst_bin_remove(GST_BIN(sfu_pipeline_), sfu_rtcp_src_);
+            if (GST_IS_ELEMENT(sfu_pipeline_) && GST_IS_ELEMENT(sfu_rtcp_src_)) {
+                GstObject* parent = gst_object_get_parent(GST_OBJECT(sfu_rtcp_src_));
+                const bool inPipeline = parent == GST_OBJECT(sfu_pipeline_);
+                if (parent) {
+                    gst_object_unref(parent);
+                }
+                if (inPipeline) {
+                    gst_bin_remove(GST_BIN(sfu_pipeline_), sfu_rtcp_src_);
+                } else {
+                    gst_object_unref(sfu_rtcp_src_);
+                }
+            } else if (GST_IS_ELEMENT(sfu_rtcp_src_)) {
+                gst_object_unref(sfu_rtcp_src_);
+            }
             sfu_rtcp_src_ = nullptr;
         }
     }
@@ -961,20 +1054,43 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     // decoder gets exactly what it needs (hvc1 codec_data for d3d11h265dec, or
     // byte-stream for avdec_h265).  Without it, d3d11h265dec silently discards
     // frames because the caps lack codec_data.
-    GstElement* h265_in = gst_element_factory_make("h265parse", "sfu_h265in");
-    if (!h265_in) {
-        spdlog::error("[{}] h265parse not available — bridge cannot start", config_.camera_id);
-        gst_object_unref(sfu_pipeline_); sfu_pipeline_ = nullptr;
+    GstElement* input_parse = gst_element_factory_make(input_parser_name, "sfu_input_parse");
+    if (!input_parse) {
+        spdlog::error("[{}] {}parse not available — bridge cannot start", config_.camera_id, input_label);
+        StopSfuRtpEgress();
         return false;
     }
-    // config-interval=-1: insert VPS/SPS/PPS with every IDR so the decoder always
+
+    auto ensure_element = [&](GstElement* element, const char* label) -> bool {
+        if (!element || !GST_IS_ELEMENT(element)) {
+            spdlog::error("[{}] SFU bridge missing element: {}", config_.camera_id, label);
+            StopSfuRtpEgress();
+            return false;
+        }
+        return true;
+    };
+
+    if (!ensure_element(sfu_decoder_, "decoder") ||
+        !ensure_element(sfu_converter_, "converter") ||
+        !ensure_element(sfu_encoder_, "encoder") ||
+        !ensure_element(sfu_caps, "capsfilter") ||
+        !ensure_element(sfu_parse_, "parser") ||
+        !ensure_element(sfu_parse_caps, "parse_caps") ||
+        !ensure_element(sfu_pay_, "payloader") ||
+        !ensure_element(sfu_sink_, "sink")) {
+        return false;
+    }
+
+    // config-interval=-1: insert codec config with every IDR so the decoder always
     // has a complete parameter set even if it misses the first IDR.
-    g_object_set(h265_in, "config-interval", -1, NULL);
+    g_object_set(input_parse, "config-interval", -1, NULL);
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(input_parse), "disable-passthrough"))
+        g_object_set(input_parse, "disable-passthrough", TRUE, NULL);
 
     // Add elements to the bin safely (GST_BIN_ADD_MANY is NULL-sensitive and would crash)
     gst_bin_add(GST_BIN(sfu_pipeline_), sfu_appsrc_);
     gst_bin_add(GST_BIN(sfu_pipeline_), appsrc_q);
-    gst_bin_add(GST_BIN(sfu_pipeline_), h265_in);
+    gst_bin_add(GST_BIN(sfu_pipeline_), input_parse);
     gst_bin_add(GST_BIN(sfu_pipeline_), sfu_decoder_);
     if (sfu_download_) gst_bin_add(GST_BIN(sfu_pipeline_), sfu_download_);
     gst_bin_add(GST_BIN(sfu_pipeline_), sfu_converter_);
@@ -993,7 +1109,7 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     // Link step-by-step for robustness
     bool link_ok = true;
-    link_ok = link_ok && (gst_element_link_many(sfu_appsrc_, appsrc_q, h265_in, sfu_decoder_, NULL) == TRUE);
+    link_ok = link_ok && (gst_element_link_many(sfu_appsrc_, appsrc_q, input_parse, sfu_decoder_, NULL) == TRUE);
     
     if (sfu_download_) {
         link_ok = link_ok && (gst_element_link(sfu_decoder_, sfu_download_) == TRUE);
@@ -1004,15 +1120,28 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     if (use_sw_block) {
         link_ok = link_ok && (gst_element_link_many(sfu_converter_, sfu_transcode_q, sfu_scale, sfu_raw_caps, sfu_post_conv, sfu_encoder_, NULL) == TRUE);
-    } else {
-        // Pure GPU Path: Use caps between converter and encoder to trigger HW scaling
-        GstCaps* hw_caps = (bridge_path == BridgePath::NVIDIA) 
+    } else if (gpu_only_bridge) {
+        // Pure GPU path: require the matching GPU memory type between converter and encoder.
+        GstCaps* hw_caps = (bridge_path == BridgePath::NVIDIA)
             ? gst_caps_from_string("video/x-raw(memory:CUDAMemory), format=NV12, width=1280, height=720, pixel-aspect-ratio=1/1")
             : gst_caps_from_string("video/x-raw(memory:D3D11Memory), format=NV12, width=1280, height=720, pixel-aspect-ratio=1/1");
-        
+
         if (hw_caps) {
             link_ok = link_ok && (gst_element_link_filtered(sfu_converter_, sfu_encoder_, hw_caps) == TRUE);
             gst_caps_unref(hw_caps);
+        } else {
+            link_ok = link_ok && (gst_element_link(sfu_converter_, sfu_encoder_) == TRUE);
+        }
+    } else {
+        // Mixed/system-memory path: keep the caps generic so videoconvert can negotiate
+        // with the encoder without forcing a GPU-memory type.
+        const char* raw_caps_str = is_mf
+            ? "video/x-raw, format=NV12, width=1280, height=720, pixel-aspect-ratio=1/1"
+            : "video/x-raw, format=I420, width=1280, height=720, pixel-aspect-ratio=1/1";
+        GstCaps* raw_caps = gst_caps_from_string(raw_caps_str);
+        if (raw_caps) {
+            link_ok = link_ok && (gst_element_link_filtered(sfu_converter_, sfu_encoder_, raw_caps) == TRUE);
+            gst_caps_unref(raw_caps);
         } else {
             link_ok = link_ok && (gst_element_link(sfu_converter_, sfu_encoder_) == TRUE);
         }
@@ -1022,8 +1151,11 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
 
     if (!link_ok) {
         spdlog::error("[{}] Failed to link bridge pipeline elements — memory mismatch or incompatible caps", config_.camera_id);
-        gst_object_unref(sfu_pipeline_); sfu_pipeline_ = nullptr;
-        sfu_appsrc_ = nullptr; sfu_download_ = nullptr;
+        StopSfuRtpEgress();
+        sfu_appsrc_ = nullptr;
+        sfu_download_ = nullptr;
+        sfu_appsrc_caps_set_ = false;
+        sfu_appsrc_push_count_ = 0;
         return false;
     }
 
@@ -1042,7 +1174,7 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
             gst_object_unref(p);
         }
     };
-    add_one_shot(h265_in,     "src",  "h265parse_in.src  (→ decoder)");
+    add_one_shot(input_parse,  "src",  input_is_h265 ? "h265parse_in.src  (→ decoder)" : "h264parse_in.src  (→ decoder)");
     add_one_shot(sfu_decoder_,"src",  "decoder.src       (→ download/conv)");
     add_one_shot(sfu_encoder_,"src",  "encoder.src       (→ h264parse)");
     add_one_shot(sfu_pay_,    "src",  "rtph264pay.src    (→ udpsink = RTP sent)");
@@ -1058,13 +1190,21 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     // the IDR) to be silently discarded before the flag was ever set.
     sfu_egress_running_ = true;
 
-    gst_element_set_state(sfu_pipeline_, GST_STATE_PLAYING);
+    if (!SafeSetElementState(sfu_pipeline_, GST_STATE_PLAYING, "sfu_pipeline")) {
+        spdlog::error("[{}] SFU bridge pipeline failed to enter PLAYING", config_.camera_id);
+        StopSfuRtpEgress();
+        sfu_appsrc_ = nullptr;
+        sfu_download_ = nullptr;
+        sfu_appsrc_caps_set_ = false;
+        sfu_appsrc_push_count_ = 0;
+        return false;
+    }
 
     // Wait up to 2s for hardware elements (nvh265dec, mfh264enc, d3d11h265dec) to
     // complete their async initialisation.  The previous 100ms window was too short
     // and caused the failure to be silently swallowed, leaving a broken pipeline.
     GstStateChangeReturn sc = gst_element_get_state(sfu_pipeline_, nullptr, nullptr, 2000 * GST_MSECOND);
-    if (sc == GST_STATE_CHANGE_FAILURE || sc == GST_STATE_CHANGE_ASYNC) {
+    if (sc == GST_STATE_CHANGE_FAILURE) {
         // Drain the bus for the first error message so we can log it.
         GstBus* errBus = gst_pipeline_get_bus(GST_PIPELINE(sfu_pipeline_));
         if (errBus) {
@@ -1078,16 +1218,26 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
                 g_clear_error(&err); g_free(dbg);
                 gst_message_unref(errMsg);
             } else {
-                spdlog::error("[{}] SFU bridge hw init timed out (>2s) — aborting",
+                spdlog::error("[{}] SFU bridge hw init failed — no error message on bus",
                     config_.camera_id);
             }
             gst_object_unref(errBus);
         }
-        sfu_egress_running_ = false;
-        gst_element_set_state(sfu_pipeline_, GST_STATE_NULL);
-        gst_object_unref(sfu_pipeline_); sfu_pipeline_ = nullptr;
-        sfu_appsrc_ = nullptr; sfu_download_ = nullptr;
+        StopSfuRtpEgress();
+        sfu_appsrc_ = nullptr;
+        sfu_download_ = nullptr;
+        sfu_appsrc_caps_set_ = false;
+        sfu_appsrc_push_count_ = 0;
         return false;
+    }
+
+    // GST_STATE_CHANGE_ASYNC means the pipeline is transitioning to PLAYING but has
+    // not completed yet.  This is normal for hardware decoders/encoders that need
+    // extra time for driver initialization.  Accept it as success and let the bus
+    // watch (OnSfuBusMessage) catch any real errors that occur later.
+    if (sc == GST_STATE_CHANGE_ASYNC) {
+        spdlog::info("[{}] SFU bridge pipeline is transitioning to PLAYING (async) — "
+            "bus watch will catch any subsequent errors", config_.camera_id);
     }
 
     // Pipeline reached PLAYING. Attach a persistent bus watch so that errors
@@ -1100,31 +1250,26 @@ bool IngestPipeline::StartSfuRtpEgressH265Bridge(const SfuConfig& config) {
     }
 
     // Kick the bridge encoder for a few startup IDRs even before RTCP PLIs arrive.
-    // Some encoder paths do not emit a browser-decodable first IDR soon enough on
-    // their own, which leaves WebRTC receiving RTP packets but zero complete frames.
+    // Use the same upstream force-key-unit direction as the live PLI path so the
+    // event can propagate through the bridge encoder even if the RTCP listener is
+    // slow to bind or the first request is dropped.
     auto requestStartupKeyframe = [](gpointer data) -> gboolean {
         auto* self = static_cast<IngestPipeline*>(data);
-        if (!self || !self->sfu_encoder_) return G_SOURCE_REMOVE;
-
-        spdlog::info("[{}] [SFU-Bridge] Requesting startup keyframe", self->config_.camera_id);
-        static guint key_unit_count = 0;
-        GstEvent* key_unit = gst_video_event_new_downstream_force_key_unit(
-            GST_CLOCK_TIME_NONE,
-            GST_CLOCK_TIME_NONE,
-            GST_CLOCK_TIME_NONE,
-            TRUE,
-            key_unit_count++);
-        if (key_unit) {
-            gst_element_send_event(self->sfu_encoder_, key_unit);
-        }
+        if (!self) return G_SOURCE_REMOVE;
+        self->RequestSfuBridgeKeyframe("startup");
         return G_SOURCE_REMOVE;
     };
     g_timeout_add(0, requestStartupKeyframe, this);
+    g_timeout_add(250, requestStartupKeyframe, this);
+    g_timeout_add(500, requestStartupKeyframe, this);
     g_timeout_add(750, requestStartupKeyframe, this);
+    g_timeout_add(1000, requestStartupKeyframe, this);
+    g_timeout_add(1500, requestStartupKeyframe, this);
     g_timeout_add(2000, requestStartupKeyframe, this);
+    g_timeout_add(3000, requestStartupKeyframe, this);
     LogBridgeCaps(config_.camera_id, sfu_encoder_, sfu_capsfilter_, sfu_parse_, sfu_parse_capsfilter_, sfu_pay_);
 
-    spdlog::info("[{}] SFU bridge pipeline started (H265->H264)", config_.camera_id);
+    spdlog::info("[{}] SFU bridge pipeline started ({}->H264)", config_.camera_id, input_label);
     if (sfu_rtcp_src_) {
         spdlog::info("[{}] SFU bridge RTCP listener started on port {}", config_.camera_id, config.dst_port + 1);
     }
@@ -1141,12 +1286,18 @@ gboolean IngestPipeline::OnSfuBusMessage(GstBus* /*bus*/, GstMessage* msg, gpoin
                 self->config_.camera_id, err->message, dbg ? dbg : "");
             g_clear_error(&err); g_free(dbg);
             // Stop feeding the dead pipeline; cleanup happens at next StopSfuRtpEgress.
-            self->sfu_egress_running_ = false;
+            {
+                std::lock_guard<std::recursive_mutex> lock(self->sfu_mutex_);
+                self->sfu_egress_running_ = false;
+            }
             break;
         }
         case GST_MESSAGE_EOS:
             spdlog::warn("[{}] SFU bridge received EOS — disabling egress", self->config_.camera_id);
-            self->sfu_egress_running_ = false;
+            {
+                std::lock_guard<std::recursive_mutex> lock(self->sfu_mutex_);
+                self->sfu_egress_running_ = false;
+            }
             break;
         default: break;
     }
@@ -1154,6 +1305,7 @@ gboolean IngestPipeline::OnSfuBusMessage(GstBus* /*bus*/, GstMessage* msg, gpoin
 }
 
 void IngestPipeline::StopSfuRtpEgress() {
+    std::lock_guard<std::recursive_mutex> lock(sfu_mutex_);
     // Also handle the case where the bus watch has already cleared sfu_egress_running_
     // but sfu_pipeline_ still needs to be torn down.
     if (!sfu_egress_running_ && !sfu_pipeline_) return;
@@ -1168,90 +1320,83 @@ void IngestPipeline::StopSfuRtpEgress() {
         sfu_bus_watch_id_ = 0;
     }
 
-    if (sfu_rtcp_src_) {
-        gst_element_set_state(sfu_rtcp_src_, GST_STATE_NULL);
-        // If sfu_pipeline_ exists, it's already there; if not, it might be in pipeline_
-        if (sfu_pipeline_) gst_bin_remove(GST_BIN(sfu_pipeline_), sfu_rtcp_src_);
-        else if (pipeline_) gst_bin_remove(GST_BIN(pipeline_), sfu_rtcp_src_);
+    // Stop and cleanup bridge pipeline. Its children are owned by the bridge bin,
+    // so unreffing the pipeline is enough once it has been moved to NULL.
+    if (sfu_pipeline_) {
+        if (GST_IS_ELEMENT(sfu_pipeline_)) {
+            SafeSetElementState(sfu_pipeline_, GST_STATE_NULL, "sfu_pipeline");
+            gst_object_unref(sfu_pipeline_);
+        }
+        sfu_pipeline_ = nullptr;
+        sfu_appsrc_ = nullptr;
+        sfu_download_ = nullptr;
+        sfu_decoder_ = nullptr;
+        sfu_converter_ = nullptr;
+        sfu_encoder_ = nullptr;
+        sfu_capsfilter_ = nullptr;
+        sfu_parse_capsfilter_ = nullptr;
+        sfu_parse_ = nullptr;
+        sfu_pay_ = nullptr;
+        sfu_sink_ = nullptr;
+        sfu_rtcp_src_ = nullptr;
+        sfu_appsrc_caps_set_ = false;
+        sfu_appsrc_push_count_ = 0;
+    } else if (sfu_rtcp_src_) {
+        if (GST_IS_ELEMENT(sfu_rtcp_src_)) {
+            SafeSetElementState(sfu_rtcp_src_, GST_STATE_NULL, "sfu_rtcp_src");
+            gst_object_unref(sfu_rtcp_src_);
+        }
         sfu_rtcp_src_ = nullptr;
     }
 
-    // Stop and cleanup bridge pipeline (H265)
-    if (sfu_pipeline_) {
-        gst_element_set_state(sfu_pipeline_, GST_STATE_NULL);
-        gst_object_unref(sfu_pipeline_);
-        sfu_pipeline_ = nullptr;
-        sfu_appsrc_ = nullptr;    // owned by sfu_pipeline_
-        sfu_download_ = nullptr;  // owned by sfu_pipeline_
-        sfu_capsfilter_ = nullptr;
-        sfu_parse_capsfilter_ = nullptr;
-    }
-
-    // Unlink and cleanup tee branch (H264)
+    // Legacy cleanup path retained for compatibility with previous tee-based egress.
     if (sfu_queue_) {
         GstPad* q_sink_pad = gst_element_get_static_pad(sfu_queue_, "sink");
-        GstPad* tee_src_pad = gst_pad_get_peer(q_sink_pad);
-        if (tee_src_pad) {
-            gst_pad_unlink(tee_src_pad, q_sink_pad);
-            gst_element_release_request_pad(tee_, tee_src_pad);
-            gst_object_unref(tee_src_pad);
+        if (q_sink_pad) {
+            GstPad* tee_src_pad = gst_pad_get_peer(q_sink_pad);
+            if (tee_src_pad) {
+                gst_pad_unlink(tee_src_pad, q_sink_pad);
+                gst_element_release_request_pad(tee_, tee_src_pad);
+                gst_object_unref(tee_src_pad);
+            }
+            gst_object_unref(q_sink_pad);
         }
-        gst_object_unref(q_sink_pad);
-        gst_element_set_state(sfu_queue_, GST_STATE_NULL);
-        
-        gst_bin_remove(GST_BIN(pipeline_), sfu_queue_);
+        SafeSetElementState(sfu_queue_, GST_STATE_NULL, "sfu_queue");
+        if (GST_IS_ELEMENT(pipeline_) && GST_IS_ELEMENT(sfu_queue_)) {
+            GstObject* parent = gst_object_get_parent(GST_OBJECT(sfu_queue_));
+            const bool inPipeline = parent == GST_OBJECT(pipeline_);
+            if (parent) {
+                gst_object_unref(parent);
+            }
+            if (inPipeline) {
+                gst_bin_remove(GST_BIN(pipeline_), sfu_queue_);
+            } else {
+                gst_object_unref(sfu_queue_);
+            }
+        } else if (GST_IS_ELEMENT(sfu_queue_)) {
+            gst_object_unref(sfu_queue_);
+        }
         sfu_queue_ = nullptr;
     }
 
     // Cleanup common elements (used by both paths or specifically H.264)
-    if (sfu_decoder_) { gst_element_set_state(sfu_decoder_, GST_STATE_NULL); if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_decoder")) gst_bin_remove(GST_BIN(pipeline_), sfu_decoder_); sfu_decoder_ = nullptr; }
-    if (sfu_converter_) { gst_element_set_state(sfu_converter_, GST_STATE_NULL); if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_conv")) gst_bin_remove(GST_BIN(pipeline_), sfu_converter_); sfu_converter_ = nullptr; }
-    if (sfu_encoder_) { gst_element_set_state(sfu_encoder_, GST_STATE_NULL); if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_encoder")) gst_bin_remove(GST_BIN(pipeline_), sfu_encoder_); sfu_encoder_ = nullptr; }
-    if (sfu_parse_) { gst_element_set_state(sfu_parse_, GST_STATE_NULL); if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_parse")) gst_bin_remove(GST_BIN(pipeline_), sfu_parse_); sfu_parse_ = nullptr; }
+    if (sfu_decoder_) { SafeSetElementState(sfu_decoder_, GST_STATE_NULL, "sfu_decoder"); sfu_decoder_ = nullptr; }
+    if (sfu_converter_) { SafeSetElementState(sfu_converter_, GST_STATE_NULL, "sfu_converter"); sfu_converter_ = nullptr; }
+    if (sfu_encoder_) { SafeSetElementState(sfu_encoder_, GST_STATE_NULL, "sfu_encoder"); sfu_encoder_ = nullptr; }
+    if (sfu_parse_) { SafeSetElementState(sfu_parse_, GST_STATE_NULL, "sfu_parse"); sfu_parse_ = nullptr; }
     
     if (sfu_pay_) {
-        gst_element_set_state(sfu_pay_, GST_STATE_NULL);
-        if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_pay")) gst_bin_remove(GST_BIN(pipeline_), sfu_pay_);
+        SafeSetElementState(sfu_pay_, GST_STATE_NULL, "sfu_pay");
         sfu_pay_ = nullptr;
     }
     if (sfu_sink_) {
-        gst_element_set_state(sfu_sink_, GST_STATE_NULL);
-        if (GST_IS_BIN(pipeline_) && gst_bin_get_by_name(GST_BIN(pipeline_), "sfu_sink")) gst_bin_remove(GST_BIN(pipeline_), sfu_sink_);
+        SafeSetElementState(sfu_sink_, GST_STATE_NULL, "sfu_sink");
         sfu_sink_ = nullptr;
     }
 }
 
-void IngestPipeline::SetupHlsBranch() {
-    if (!hls_config_.enabled) return;
-    CreateHlsSession();
-    hls_queue_ = gst_element_factory_make("queue", "hls_queue");
-    hls_sink_ = gst_element_factory_make("splitmuxsink", "hls_sink");
-    g_object_set(hls_sink_, "muxer-factory", "mp4mux", "location", (fs::path(hls_state_.dir_path) / "seg_%05d.mp4").string().c_str(), "max-size-time", (guint64)2000000000, "async-finalize", TRUE, NULL);
-    gst_bin_add_many(GST_BIN(pipeline_), hls_queue_, hls_sink_, NULL);
-    gst_element_link(hls_queue_, hls_sink_);
-    GstPad *tee_src = gst_element_request_pad_simple(tee_, "src_%u");
-    GstPad *q_sink = gst_element_get_static_pad(hls_queue_, "sink");
-    gst_pad_link(tee_src, q_sink);
-    hls_tee_pad_ = tee_src;
-    gst_object_unref(q_sink);
-}
+// HLS functions removed — HLS no longer supported
 
-void IngestPipeline::CreateHlsSession() {
-    hls_state_.session_id = "hls_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-    hls_state_.dir_path = (fs::path(hls_config_.root_dir) / config_.camera_id / hls_state_.session_id).string();
-    fs::create_directories(hls_state_.dir_path);
-}
-
-void IngestPipeline::DisableHlsBranch(const std::string& reason) {
-    if (!hls_sink_) return;
-    gst_element_set_state(hls_sink_, GST_STATE_NULL);
-    spdlog::warn("[{}] HLS disabled: {}", config_.camera_id, reason);
-}
-
-IngestPipeline::HlsState IngestPipeline::GetHlsState() const { return hls_state_; }
-bool IngestPipeline::GetHlsBranchPending() const { return hls_branch_pending_; }
-void IngestPipeline::ClearHlsBranchPending() { hls_branch_pending_ = false; }
-void IngestPipeline::SetHlsDegraded(bool d, const std::string& e) { hls_state_.degraded = d; hls_state_.last_error = e; }
 std::optional<std::vector<uint8_t>> IngestPipeline::CaptureSnapshot() { return std::nullopt; }
 
 void IngestPipeline::HandleStall() {
@@ -1259,41 +1404,54 @@ void IngestPipeline::HandleStall() {
     fsm_.TransitionTo(State::RECONNECTING);
 }
 
-void IngestPipeline::UpdateMetaJson() {
-    if (hls_state_.dir_path.empty()) return;
-    try {
-        json j;
-        j["session_id"] = hls_state_.session_id;
-        j["camera_id"] = config_.camera_id;
-        j["start_time_unix"] = std::chrono::system_clock::now().time_since_epoch().count();
-        j["codec"] = GetCodecString();
-        
-        std::ofstream o(fs::path(hls_state_.dir_path) / "meta.json");
-        o << std::setw(4) << j << std::endl;
-    } catch (const std::exception& e) {
-        spdlog::error("[{}] Failed to update HLS meta.json: {}", config_.camera_id, e.what());
-    }
+bool IngestPipeline::RequestSfuBridgeKeyframe(const char* reason) {
+    std::lock_guard<std::recursive_mutex> lock(sfu_mutex_);
+    if (!sfu_encoder_ && !sfu_pay_) return false;
+
+    spdlog::info("[{}] [SFU-Bridge] Requesting keyframe ({})",
+        config_.camera_id,
+        reason ? reason : "unknown");
+
+    auto send_force_key_unit = [&](GstElement* target, const char* pad_name, const char* label) -> bool {
+        if (!target) return false;
+        GstEvent* key_unit = gst_video_event_new_upstream_force_key_unit(
+            GST_CLOCK_TIME_NONE,
+            TRUE,
+            0);
+        if (!key_unit) return false;
+
+        if (pad_name) {
+            GstPad* pad = gst_element_get_static_pad(target, pad_name);
+            if (pad) {
+                const bool ok = gst_pad_send_event(pad, key_unit);
+                gst_object_unref(pad);
+                if (ok) return true;
+            }
+        }
+
+        if (gst_element_send_event(target, key_unit)) {
+            return true;
+        }
+
+        spdlog::warn("[{}] [SFU-Bridge] force-key-unit send_event failed on {}",
+            config_.camera_id,
+            label ? label : "(unknown)");
+        return false;
+    };
+
+    // Try the encoder sink pad directly first. Some payloader paths accept the
+    // event but do not propagate it reliably enough to wake the bridge encoder.
+    if (send_force_key_unit(sfu_encoder_, "sink", "encoder")) return true;
+    return send_force_key_unit(sfu_pay_, "sink", "payloader");
 }
 
 GstPadProbeReturn IngestPipeline::OnSfuRtcpProbe(GstPad* /*pad*/, GstPadProbeInfo* /*info*/, gpointer data) {
     IngestPipeline* self = static_cast<IngestPipeline*>(data);
+    if (!self) return GST_PAD_PROBE_OK;
     
-    // SFU sends RTCP PLI/FIR to request a keyframe.
-    // Send a GstForceKeyUnitEvent upstream through the SFU bridge pipeline
-    // so it reaches the encoder.  sfu_pay_ is the downstream-most element
-    // in the bridge; the event propagates upstream through h264parse and
-    // capsfilter to openh264enc / mfh264enc which then emits an IDR.
-    // NOTE: g_signal_emit_by_name("force-key-unit") is NOT supported by
-    // openh264enc and was previously sending the event to self->source_
-    // (the RTSP ingest source) which is in a different pipeline entirely.
-    GstElement* fku_target = self->sfu_pay_ ? self->sfu_pay_ : self->sfu_encoder_;
-    if (fku_target) {
-        spdlog::info("[{}] [SFU-Bridge] RTCP feedback received, forcing keyframe on bridge encoder", self->config_.camera_id);
-        GstEvent* event = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-        if (!gst_element_send_event(fku_target, event)) {
-            spdlog::warn("[{}] [SFU-Bridge] force-key-unit send_event failed — IDR may be delayed", self->config_.camera_id);
-        }
-    }
+    // SFU sends RTCP PLI/FIR to request a keyframe. Trigger the bridge encoder
+    // directly so the request does not depend on payloader-specific propagation.
+    self->RequestSfuBridgeKeyframe("rtcp");
     
     return GST_PAD_PROBE_OK;
 }

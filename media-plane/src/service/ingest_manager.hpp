@@ -17,9 +17,8 @@ struct CameraStatus {
     double fps;
     int64_t last_frame_age_ms;
     int reconnect_attempts;
-    pipeline::IngestPipeline::HlsState hls_state;
     pipeline::IngestPipeline::Metrics metrics;
-    std::string codec;   // ADD THIS: "H264", "H265", or "UNKNOWN"
+    std::string codec;
 };
 
 class IngestManager {

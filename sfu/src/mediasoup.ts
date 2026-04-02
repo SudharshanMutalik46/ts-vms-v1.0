@@ -1,8 +1,9 @@
 import * as mediasoup from 'mediasoup';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
+import path from 'path';
 
-const H264_PROFILE_LEVEL_ID = (process.env['SFU_H264_PROFILE_LEVEL_ID'] || '42c01e').toLowerCase();
+const H264_PROFILE_LEVEL_ID = (process.env['SFU_H264_PROFILE_LEVEL_ID'] || '42c01f').toLowerCase();
 
 interface RoomState {
     router: mediasoup.types.Router;
@@ -55,6 +56,17 @@ export class MediasoupManager {
     async init() {
         const numWorkers = os.cpus().length;
         const localIp = process.env['ANNOUNCED_IP'] || '127.0.0.1'; // Ensure this is set correctly in prod
+        const workerBin = path.resolve(
+            process.cwd(),
+            'node_modules',
+            'mediasoup',
+            'worker',
+            'out',
+            'Release',
+            process.platform === 'win32' ? 'mediasoup-worker.exe' : 'mediasoup-worker'
+        );
+
+        console.log(`Using mediasoup worker binary: ${workerBin}`);
 
         for (let i = 0; i < numWorkers; i++) {
             // Fix 3: Use WebRtcServer for better UDP/TCP control
@@ -62,6 +74,7 @@ export class MediasoupManager {
                 logLevel: 'warn',
                 rtcMinPort: 40000,
                 rtcMaxPort: 49999,
+                workerBin,
             });
 
             // Create WebRtcServer per worker
@@ -146,7 +159,11 @@ export class MediasoupManager {
                     'profile-level-id': H264_PROFILE_LEVEL_ID,
                     'level-asymmetry-allowed': 1,
                     'x-google-start-bitrate': 1000
-                }
+                },
+                rtcpFeedback: [
+                    { type: 'nack' },
+                    { type: 'nack', parameter: 'pli' }
+                ]
             }
         ];
 
@@ -317,22 +334,24 @@ export class MediasoupManager {
         const ssrc = 11111111;
         const pt = 96;
 
-        const codecDef = {
-            mimeType: 'video/H264',
-            payloadType: pt,
-            clockRate: 90000,
-            parameters: {
-                'packetization-mode': 1,
-                'profile-level-id': H264_PROFILE_LEVEL_ID,
-                'level-asymmetry-allowed': 1,
-                'x-google-start-bitrate': 1000
+        const h264Codecs: any[] = [
+            {
+                mimeType: 'video/H264',
+                payloadType: pt,
+                clockRate: 90000,
+                parameters: {
+                    'packetization-mode': 1,
+                    'profile-level-id': H264_PROFILE_LEVEL_ID,
+                    'level-asymmetry-allowed': 1,
+                    'x-google-start-bitrate': 1000
+                }
             }
-        };
+        ];
 
         const producer = await transport.produce({
             kind: 'video',
             rtpParameters: {
-                codecs: [codecDef],
+                codecs: h264Codecs,
                 encodings: [{ ssrc }]
             }
         });

@@ -76,7 +76,7 @@ func setupServiceWithCamera(t *testing.T) (*Service, *redis.Client, *miniredis.M
 
 	camSvc := cameras.NewService(&dummyRepo{}, &dummyLicense{}, &dummyAuditor{})
 
-	svc := NewService(rdb, camSvc, nil, nil, "http://localhost:8080", HLSParams{BaseURL: "http://localhost:8080"})
+	svc := NewService(rdb, camSvc, nil, "http://localhost:8080")
 	return svc, rdb, mr
 }
 

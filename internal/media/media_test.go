@@ -23,7 +23,7 @@ func TestSanitizeRTSPURL(t *testing.T) {
 	}
 }
 
-func TestSelectProfiles_Determinism(t *testing.T) {
+func TestSelectProfilesForCodecs_Determinism(t *testing.T) {
 	// Create a mixed bag of profiles
 	// Main Candidates: H264/H265, High Res
 	// Sub Candidates: H264, Low Res
@@ -37,25 +37,18 @@ func TestSelectProfiles_Determinism(t *testing.T) {
 	// The selector sorts internally, so order shouldn't matter.
 	input := []Profile{p4, p1, p3, p2}
 
-	res := SelectProfiles(input)
+	res := SelectProfilesForCodecs(input, []Codec{CodecH264, CodecH265})
 
-	// Expectation:
-	// Main: p1 (H264 1080p) or p3 (H265 1440p). Logic says H264 preferred if both present?
-	// Selector logic: Sort by Codec Pref (H264 > H265), then Resolution (Higher better closer to target?).
-	// Code says: Codec Rank (H264=1, H265=2). So H264 wins?
-	// Let's check selector.go logic.
-	// But assuming H264 is rank 0 or 1.
-
-	if res.MainToken == "" {
-		t.Fatal("Main profile not selected")
+	if res.MainToken != p1.Token {
+		t.Fatalf("expected main token %s, got %s", p1.Token, res.MainToken)
 	}
-	if res.SubToken == "" {
-		t.Fatal("Sub profile not selected")
+	if res.SubToken != p2.Token {
+		t.Fatalf("expected sub token %s, got %s", p2.Token, res.SubToken)
 	}
 
 	// Stability Check
 	input2 := []Profile{p2, p3, p4, p1} // Different order
-	res2 := SelectProfiles(input2)
+	res2 := SelectProfilesForCodecs(input2, []Codec{CodecH264, CodecH265})
 
 	if res.MainToken != res2.MainToken {
 		t.Errorf("Indeterministic Main: %v vs %v", res.MainToken, res2.MainToken)
@@ -66,7 +59,7 @@ func TestSelectProfiles_Determinism(t *testing.T) {
 
 	// Single Profile Case
 	single := []Profile{p1}
-	resSingle := SelectProfiles(single)
+	resSingle := SelectProfilesForCodecs(single, []Codec{CodecH264, CodecH265})
 	if resSingle.MainToken != p1.Token {
 		t.Errorf("Single profile should be main")
 	}
@@ -78,7 +71,7 @@ func TestSelectProfiles_Determinism(t *testing.T) {
 func TestDeduplication(t *testing.T) {
 	// If main and sub are same
 	p1 := Profile{Token: "t1", Name: "OnlyOne", VideoCodec: CodecH264, Width: 1920, Height: 1080, RTSPURL: "u1"}
-	res := SelectProfiles([]Profile{p1})
+	res := SelectProfilesForCodecs([]Profile{p1}, []Codec{CodecH264, CodecH265})
 
 	if res.SubToken != res.MainToken {
 		t.Errorf("Expected sub=main")

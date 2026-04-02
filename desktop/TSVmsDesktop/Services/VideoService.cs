@@ -11,6 +11,7 @@ namespace TSVmsDesktop.Services
     {
         private bool _isInitialized = false;
         private static string _logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gstreamer_log.txt");
+        private static readonly object _logLock = new object();
         private readonly object _lock = new object();
 
         [StructLayout(LayoutKind.Sequential)]
@@ -31,10 +32,12 @@ namespace TSVmsDesktop.Services
             public string Username { get; set; } = "";
             public string Password { get; set; } = "";
             public bool HasAudio { get; set; }
+            public string RtspTransport { get; set; } = "udp";
 
             public IntPtr Pipeline { get; set; }
             public IntPtr OverlayElement { get; set; }
             public IntPtr BusHandle { get; set; }
+            public bool OverlayBound { get; set; }
 
             public GstNative.GstBusSyncHandler? SyncHandler { get; set; }
             public GCHandle SyncHandlerGcHandle { get; set; }
@@ -42,7 +45,6 @@ namespace TSVmsDesktop.Services
 
             public Func<Task<(string Url, IntPtr Handle)>>? GetFreshContext { get; set; }
             public CancellationTokenSource? FallbackCts { get; set; }
-            public bool HlsAsyncDone { get; set; }
             public SemaphoreSlim TeardownLock { get; } = new(1, 1);
             public string StreamId { get; set; } = Guid.NewGuid().ToString().Substring(0, 8);
         }
@@ -63,8 +65,10 @@ namespace TSVmsDesktop.Services
             Console.WriteLine(line);
             try 
             { 
-                // Use a shared write lock if needed, but for simple app logs AppendAllText is usually sufficient
-                System.IO.File.AppendAllText(_logPath, line + Environment.NewLine); 
+                lock (_logLock)
+                {
+                    System.IO.File.AppendAllText(_logPath, line + Environment.NewLine); 
+                }
             } 
             catch (Exception ex)
             {
@@ -119,14 +123,88 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        private static string NormalizeRtspTransport(string transport)
+        {
+            return string.Equals(transport, "udp", StringComparison.OrdinalIgnoreCase) ? "udp" : "tcp";
+        }
+
+        private static string StripRtspCredentials(string rtspUrl, out string username, out string password)
+        {
+            username = "";
+            password = "";
+
+            if (string.IsNullOrWhiteSpace(rtspUrl) ||
+                !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return rtspUrl ?? "";
+            }
+
+            int schemeEnd = rtspUrl.IndexOf("://", StringComparison.OrdinalIgnoreCase);
+            if (schemeEnd < 0)
+                return rtspUrl;
+
+            int authorityStart = schemeEnd + 3;
+            int atIndex = rtspUrl.IndexOf('@', authorityStart);
+            if (atIndex < 0)
+                return rtspUrl;
+
+            int pathStart = rtspUrl.IndexOf('/', authorityStart);
+            int queryStart = rtspUrl.IndexOf('?', authorityStart);
+            int authorityEnd = rtspUrl.Length;
+
+            if (pathStart >= 0)
+                authorityEnd = pathStart;
+            else if (queryStart >= 0)
+                authorityEnd = queryStart;
+
+            if (atIndex > authorityEnd)
+                return rtspUrl;
+
+            string userInfo = rtspUrl.Substring(authorityStart, atIndex - authorityStart);
+            int colonIndex = userInfo.IndexOf(':');
+            if (colonIndex >= 0)
+            {
+                username = Uri.UnescapeDataString(userInfo.Substring(0, colonIndex));
+                password = Uri.UnescapeDataString(userInfo.Substring(colonIndex + 1));
+            }
+            else
+            {
+                username = Uri.UnescapeDataString(userInfo);
+            }
+
+            return rtspUrl.Substring(0, authorityStart) + rtspUrl.Substring(atIndex + 1);
+        }
+
+        private static bool ShouldFallbackToTcp(string errWrap, string debugWrap)
+        {
+            string combined = $"{errWrap} {debugWrap}";
+            return combined.Contains("setup failed", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Could not write to resource", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("open_from_sdp", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("setup_streams_start", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Could not open", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsRtspSetupFailure(string errWrap, string debugWrap)
+        {
+            string combined = $"{errWrap} {debugWrap}";
+            return combined.Contains("setup failed", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Could not write to resource", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Error (404): Not Found", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("404", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("open_from_sdp", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("setup_streams_start", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void BindOverlay(StreamContext ctx)
         {
-            if (ctx.OverlayElement == IntPtr.Zero || ctx.WindowHandle == IntPtr.Zero)
+            if (ctx.OverlayBound || ctx.OverlayElement == IntPtr.Zero || ctx.WindowHandle == IntPtr.Zero)
                 return;
 
             GstNative.gst_video_overlay_set_window_handle(ctx.OverlayElement, ctx.WindowHandle);
             GstNative.gst_video_overlay_handle_events(ctx.OverlayElement, true);
             GstNative.gst_video_overlay_expose(ctx.OverlayElement);
+            ctx.OverlayBound = true;
         }
 
         private static int OverlayBusSyncHandler(IntPtr bus, IntPtr message, IntPtr userData)
@@ -162,11 +240,15 @@ namespace TSVmsDesktop.Services
                     }
                     else
                     {
+                        if (ctx.OverlayBound)
+                            return GstNative.GST_BUS_DROP;
+
                         // playbin path: playbin implements GstVideoOverlay and proxies
                         // gst_video_overlay_set_window_handle() to its internal video sink.
                         // This is the canonical approach when the sink is inside playbin.
                         GstNative.gst_video_overlay_set_window_handle(ctx.Pipeline, ctx.WindowHandle);
                         GstNative.gst_video_overlay_handle_events(ctx.Pipeline, true);
+                        ctx.OverlayBound = true;
                         Log($"[TS-VMS] Overlay bound via playbin proxy. handle={ctx.WindowHandle}");
                     }
 
@@ -248,19 +330,6 @@ namespace TSVmsDesktop.Services
                         GstNative.SafeObjectUnref(d11);
                     }
 
-                    // NOTE: tsdemux rank override REMOVED. 
-                    // The current HLS stream uses fragmented MP4 (.mp4) segments (ftypmp42).
-                    // Forcing tsdemux above qtdemux causes decode failure for MP4 segments.
-                    /*
-                    IntPtr tsdemux = GstNative.gst_element_factory_find("tsdemux");
-                    if (tsdemux != IntPtr.Zero)
-                    {
-                        GstNative.gst_plugin_feature_set_rank(tsdemux, GstNative.GST_RANK_PRIMARY + 50);
-                        GstNative.SafeObjectUnref(tsdemux);
-                        Log("[TS-VMS] tsdemux rank raised above qtdemux for HLS MPEG-TS segments.");
-                    }
-                    */
-
                     _isInitialized = true;
                     Log("[TS-VMS] Video Engine: GStreamer 1.x Initialized.");
                 }
@@ -295,46 +364,44 @@ namespace TSVmsDesktop.Services
             return r.Right > 0 && r.Bottom > 0;
         }
 
-        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false, Func<Task<(string Url, IntPtr Handle)>>? getFreshContext = null)
+        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false, Func<Task<(string Url, IntPtr Handle)>>? getFreshContext = null, string rtspTransport = "udp")
         {
             if (!_isInitialized) Initialize();
 
-            // HLS streams (http/https .m3u8) use playbin — no credentials needed.
+            // HLS is no longer supported — only RTSP pipelines are created.
             if (rtspUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                 rtspUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                return StartHlsStream(windowHandle, rtspUrl, hasAudio, getFreshContext);
+                Log($"[TS-VMS] HTTP URL rejected (HLS removed): '{rtspUrl}'");
+                StreamError?.Invoke(windowHandle, "HLS is not supported");
+                return IntPtr.Zero;
             }
 
-            string authUrl = rtspUrl;
+            string transport = NormalizeRtspTransport(rtspTransport);
+            string userAgent = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TS_VMS_RTSP_USER_AGENT"))
+                ? "LibVLC/3.0.20"
+                : Environment.GetEnvironmentVariable("TS_VMS_RTSP_USER_AGENT")!;
+
+            string authUrl = StripRtspCredentials(rtspUrl, out string urlUser, out string urlPassword);
             string userIdProp = "";
             string userPwProp = "";
 
-            if (!string.IsNullOrEmpty(username) && rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            string effectiveUser = !string.IsNullOrWhiteSpace(username) ? username : urlUser;
+            string effectivePassword = !string.IsNullOrWhiteSpace(password) ? password : urlPassword;
+
+            if (!string.IsNullOrEmpty(effectiveUser) && authUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
             {
-                if (!authUrl.Contains("@"))
+                if (!string.Equals(rtspUrl, authUrl, StringComparison.Ordinal))
                 {
-                    authUrl = authUrl.Replace("rtsp://", $"rtsp://{username}:{password}@");
-                }
-                else
-                {
-                    // If URL already has credentials, do NOT pass them again as properties.
-                    // This fixes "setup failed" / "Could not write to resource" on some cameras
-                    // that reject dual-authentication headers.
-                    Log($"[TS-VMS] URL already credentialed, skipping rtspsrc props.");
+                    Log("[TS-VMS] RTSP URL contained credentials; stripped userinfo and will pass auth props explicitly.");
                 }
 
-                // Only set properties if we didn't have @ in the original URL (safety)
-                // OR if the user explicitly wants to use properties.
-                // Standard GStreamer practice is one or the other.
-                if (!rtspUrl.Contains("@"))
-                {
-                    userIdProp = $"user-id=\"{username}\"";
-                    userPwProp = $"user-pw=\"{password}\"";
-                }
+                userIdProp = $"user-id=\"{effectiveUser}\"";
+                userPwProp = $"user-pw=\"{effectivePassword}\"";
             }
 
-            Log($"[TS-VMS] StartStream Request Original: '{rtspUrl}'");
+            Log($"[TS-VMS] StartStream Request Original: '{rtspUrl}' transport={transport}");
+            Log($"[TS-VMS] RTSP target sanitized to '{authUrl}' with user-agent='{userAgent}'");
 
             // Avoid blocking the UI thread while waiting for layout.
             if (!WaitForWindowSize(windowHandle, 2000))
@@ -370,7 +437,7 @@ namespace TSVmsDesktop.Services
                 : "rtspsrc_src. ! application/x-rtp,media=audio ! queue ! fakesink sync=false async=false ";
 
             string pipelineStr =
-                $"rtspsrc location=\"{authUrl}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols=tcp name=rtspsrc_src " +
+                $"rtspsrc location=\"{authUrl}\" user-agent=\"{userAgent}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols={transport} timeout=10000000 tcp-timeout=10000000 name=rtspsrc_src " +
                 $"rtspsrc_src. ! application/x-rtp,media=video ! queue ! decodebin3 name=vdbin " +
                 $"vdbin. ! queue ! d3d11videosink name=mysink sync=false force-aspect-ratio=true " +
                 audioPart +
@@ -398,7 +465,9 @@ namespace TSVmsDesktop.Services
                 Password = password,
                 HasAudio = hasAudio,
                 Pipeline = pipeline,
-                GetFreshContext = getFreshContext
+                GetFreshContext = getFreshContext,
+                RtspTransport = transport,
+                FallbackCts = new CancellationTokenSource()
             };
 
             IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
@@ -446,6 +515,23 @@ namespace TSVmsDesktop.Services
                                     if (IsSurfaceError(errWrap))
                                     {
                                         Log($"[TS-VMS] {ctx.StreamId} Surface error detected; stopping.");
+                                        StopStream(pipeline);
+                                        break;
+                                    }
+
+                                    if (string.Equals(ctx.RtspTransport, "udp", StringComparison.OrdinalIgnoreCase) &&
+                                        ShouldFallbackToTcp(errWrap, debugWrap))
+                                    {
+                                        Log($"[TS-VMS] {ctx.StreamId} UDP RTSP setup failed; retrying once with TCP.");
+                                        ctx.RtspTransport = "tcp";
+                                        _ = RestartStreamAsync(pipeline);
+                                        break;
+                                    }
+
+                                    if (string.Equals(ctx.RtspTransport, "tcp", StringComparison.OrdinalIgnoreCase) &&
+                                        IsRtspSetupFailure(errWrap, debugWrap))
+                                    {
+                                        Log($"[TS-VMS] {ctx.StreamId} TCP RTSP setup failed; stopping stream.");
                                         StopStream(pipeline);
                                         break;
                                     }
@@ -505,11 +591,12 @@ namespace TSVmsDesktop.Services
                                     {
                                         GstNative.gst_video_overlay_expose(liveCtx.OverlayElement);
                                     }
-                                    else
+                                    else if (!liveCtx.OverlayBound)
                                     {
                                         GstNative.gst_video_overlay_set_window_handle(pipeline, liveCtx.WindowHandle);
                                         GstNative.gst_video_overlay_handle_events(pipeline, true);
                                         GstNative.gst_video_overlay_expose(pipeline);
+                                        liveCtx.OverlayBound = true;
                                     }
                                     Log($"[TS-VMS] RTSP: overlay exposed at ASYNC_DONE handle={liveCtx.WindowHandle}");
                                 }
@@ -542,333 +629,6 @@ namespace TSVmsDesktop.Services
             return pipeline;
         }
 
-        private IntPtr StartHlsStream(IntPtr windowHandle, string hlsUrl, bool hasAudio, Func<Task<(string Url, IntPtr Handle)>>? getFreshContext = null)
-        {
-            Log($"[TS-VMS] StartHlsStream: '{hlsUrl}'");
-
-            if (!WaitForWindowSize(windowHandle, 2000))
-            {
-                Log($"[TS-VMS] Window {windowHandle} never became ready; aborting.");
-                StreamError?.Invoke(windowHandle, "Video surface not ready");
-                return IntPtr.Zero;
-            }
-
-            // Build the HLS pipeline programmatically to avoid gst_parse_launch wrapping
-            // video-sink in an anonymous GstBin (via gst_parse_bin_from_description).
-            // That wrapper intercepts the prepare-window-handle sync message before it
-            // reaches our bus sync handler, preventing overlay binding entirely.
-            IntPtr pipeline = GstNative.gst_element_factory_make("playbin", "hls-pipeline");
-            if (pipeline == IntPtr.Zero)
-            {
-                Log("[TS-VMS] HLS Pipeline Creation Failed");
-                StreamError?.Invoke(windowHandle, "playbin not available");
-                return IntPtr.Zero;
-            }
-            // Sink the floating reference for programmatically created top-level elements
-            // to prevent GStreamer from finalizing it prematurely or causing ref-count assertions.
-            GstNative.g_object_ref_sink(pipeline);
-
-            GstNative.g_object_set_str(pipeline, "uri", hlsUrl, IntPtr.Zero);
-
-            // FIX-1: Set explicit playbin flags for live camera streams.
-            //
-            // playbin's default flags include GST_PLAY_FLAG_BUFFERING (0x08) and
-            // GST_PLAY_FLAG_DOWNLOAD (0x20).  For a live HLS camera stream the
-            // download buffer can never be declared "full", so playbin stalls in
-            // PAUSED waiting for a buffer level it will never reach.
-            //
-            // We keep only the three flags we need:
-            //   GST_PLAY_FLAG_VIDEO        = 0x01
-            //   GST_PLAY_FLAG_AUDIO        = 0x02
-            //   GST_PLAY_FLAG_NATIVE_VIDEO = 0x40  (skip SW colour conversion)
-            //
-            // Explicitly NOT set:
-            //   GST_PLAY_FLAG_BUFFERING    = 0x08  (causes preroll stall on live)
-            //   GST_PLAY_FLAG_DOWNLOAD     = 0x20  (not needed; wastes disk I/O)
-            //   GST_PLAY_FLAG_DEINTERLACE  = 0x10  (not needed for camera feeds)
-            //   GST_PLAY_FLAG_SOFT_VOLUME  = 0x04  (not needed; audio handled below)
-            GstNative.g_object_set_int(pipeline, "flags", 0x01 | 0x02 | 0x40, IntPtr.Zero);
-
-            // Create d3d11videosink directly so it is a plain GstElement child of playbin,
-            // not wrapped in an intermediate bin. This ensures prepare-window-handle is
-            // posted on the bus where our sync handler can intercept it.
-            IntPtr videoSink = GstNative.gst_element_factory_make("d3d11videosink", "mysink");
-            if (videoSink != IntPtr.Zero)
-            {
-                GstNative.g_object_set_int(videoSink, "sync", 0, IntPtr.Zero);
-                // async=false: do not block READY→PAUSED preroll waiting for a decoded frame.
-                // HLS must download the playlist + first segment before d3d11videosink receives
-                // any buffer. With async=true (default) the pipeline stalls at READY indefinitely.
-                GstNative.g_object_set_int(videoSink, "async", 0, IntPtr.Zero);
-                GstNative.g_object_set_ptr(pipeline, "video-sink", videoSink, IntPtr.Zero);
-                GstNative.SafeObjectUnref(videoSink); // playbin holds its own ref
-                Log("[TS-VMS] HLS: d3d11videosink created.");
-            }
-            else
-            {
-                Log("[TS-VMS] HLS: d3d11videosink not available — falling back to auto sink (no overlay).");
-            }
-
-            IntPtr audioSink = hasAudio
-                ? GstNative.gst_element_factory_make("autoaudiosink", null)
-                : GstNative.gst_element_factory_make("fakesink", null);
-            if (audioSink != IntPtr.Zero)
-            {
-                if (!hasAudio) GstNative.g_object_set_int(audioSink, "sync", 0, IntPtr.Zero);
-                GstNative.g_object_set_ptr(pipeline, "audio-sink", audioSink, IntPtr.Zero);
-                GstNative.SafeObjectUnref(audioSink);
-            }
-
-            var ctx = new StreamContext
-            {
-                Url = hlsUrl,
-                WindowHandle = windowHandle,
-                Cts = new CancellationTokenSource(),
-                HasAudio = hasAudio,
-                Pipeline = pipeline,
-                GetFreshContext = getFreshContext,
-                FallbackCts = new CancellationTokenSource()
-            };
-
-            // playbin instantiates its internal elements lazily (not until READY→PAUSED),
-            // so gst_bin_get_by_name will always return null here at NULL state.
-            // Overlay binding is handled reliably in OverlayBusSyncHandler via the
-            // prepare-window-handle sync message, which fires during preroll.
-
-            IntPtr bus = GstNative.gst_element_get_bus(pipeline);
-            if (bus != IntPtr.Zero)
-            {
-                ctx.BusHandle = bus;
-                InstallOverlaySyncHandler(ctx);
-
-                var token = ctx.Cts.Token;
-                ctx.WatchTask = Task.Run(async () =>
-                {
-                    // Increment reference for the task life
-                    GstNative.gst_object_ref(pipeline);
-                    try
-                    {
-                        Log($"[HLS-BUS-TASK] Watch task started for {ctx.StreamId}");
-                        while (!token.IsCancellationRequested)
-                        {
-                            // ── ANY MESSAGE (diagnostic) ───────────────────────────
-                            // Temporarily peek at ALL messages to see if anything is happening.
-                            // IntPtr anyMsg = GstNative.gst_bus_pop(bus); 
-                            // ...
-
-                            // ── ERROR ──────────────────────────────────────────────
-                            IntPtr errMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_ERROR);
-                            if (errMsg != IntPtr.Zero)
-                            {
-                                IntPtr errPtr, debugPtr;
-                                GstNative.gst_message_parse_error(errMsg, out errPtr, out debugPtr);
-                                string errWrap   = ReadGErrorMessage(errPtr, "Unknown HLS Error");
-                                uint   errDomain = ReadGErrorDomain(errPtr);
-                                int    errCode   = ReadGErrorCode(errPtr);
-                                string debugWrap = ReadUtf8String(debugPtr);
-                                GstNative.SafeGErrorFree(errPtr);
-                                GstNative.SafeGFree(debugPtr);
-                                GstNative.gst_message_unref(errMsg);
-
-                                if (!token.IsCancellationRequested && _activeStreams.ContainsKey(pipeline))
-                                {
-                                    Log($"[GSTREAMER-HLS-ERROR] {ctx.StreamId} domain={errDomain} code={errCode} msg={errWrap} | debug={debugWrap}");
-                                    StreamError?.Invoke(ctx.WindowHandle, errWrap);
-
-                                    if (IsPermanentHttpError(errWrap) || IsPermanentHttpError(debugWrap))
-                                    {
-                                        Log($"[TS-VMS] {ctx.StreamId} Permanent HLS error - stopping.");
-                                        StopStream(pipeline);
-                                    }
-                                    else
-                                    {
-                                        _ = RestartStreamAsync(pipeline);
-                                    }
-                                    break;
-                                }
-                            }
-
-                            // ── WARNING ────────────────────────────────────────────
-                            IntPtr warnMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_WARNING);
-                            if (warnMsg != IntPtr.Zero)
-                            {
-                                IntPtr errPtr, debugPtr;
-                                GstNative.gst_message_parse_warning(warnMsg, out errPtr, out debugPtr);
-                                string warnWrap = ReadGErrorMessage(errPtr, "Unknown HLS Warning");
-                                string debugWrap = ReadUtf8String(debugPtr);
-                                GstNative.SafeGErrorFree(errPtr);
-                                GstNative.SafeGFree(debugPtr);
-                                GstNative.gst_message_unref(warnMsg);
-                                Log(string.IsNullOrWhiteSpace(debugWrap)
-                                    ? $"[GSTREAMER-HLS-WARNING] {warnWrap}"
-                                    : $"[GSTREAMER-HLS-WARNING] {warnWrap} | debug={debugWrap}");
-                            }
-
-                            // ── BUFFERING (FIX-2) ──────────────────────────────────
-                            // GStreamer's buffering protocol requires the APPLICATION to
-                            // pause the pipeline while pct < 100 and resume when pct == 100.
-                            // Previously this block only logged — that omission causes the
-                            // streaming thread to deadlock: the queue fills up and blocks,
-                            // the sink consumes nothing, frames never reach the screen.
-                            IntPtr bufMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_BUFFERING);
-                            if (bufMsg != IntPtr.Zero)
-                            {
-                                int pct;
-                                GstNative.gst_message_parse_buffering(bufMsg, out pct);
-                                GstNative.gst_message_unref(bufMsg);
-                                Log($"[GSTREAMER-HLS-BUFFERING] {pct}%");
-
-                                if (pct < 100)
-                                {
-                                    Log("[GSTREAMER-HLS-BUFFERING] Pausing pipeline while buffer fills.");
-                                    GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PAUSED);
-                                }
-                                else
-                                {
-                                    Log("[GSTREAMER-HLS-BUFFERING] Buffer full — resuming playback.");
-                                    GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
-                                }
-                            }
-
-                            // ── STATE_CHANGED (diagnostic) ─────────────────────────
-                            IntPtr stateMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_STATE_CHANGED);
-                            if (stateMsg != IntPtr.Zero)
-                            {
-                                int oldS, newS, pendS;
-                                GstNative.gst_message_parse_state_changed(stateMsg, out oldS, out newS, out pendS);
-                                GstNative.gst_message_unref(stateMsg);
-                                Log($"[GSTREAMER-HLS-STATE] {oldS}->{newS} (pending={pendS})");
-                            }
-
-                            // ── ASYNC_DONE (FIX-3) ────────────────────────────────
-                            // ASYNC_DONE fires when playbin completes its first preroll —
-                            // i.e. after the playlist is fetched, the first .ts segment is
-                            // downloaded, and the first frame is decoded.  At this point
-                            // d3d11videosink is fully instantiated inside playbin's playsink
-                            // and gst_video_overlay_set_window_handle() is guaranteed to work.
-                            //
-                            // HLS preroll typically takes 2–6 s (one or more segment durations),
-                            // so the old 500 ms fallback Task always fired before the sink existed
-                            // — making it a silent no-op and leaving the window black.
-                            IntPtr asyncMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_ASYNC_DONE);
-                            if (asyncMsg != IntPtr.Zero)
-                            {
-                                GstNative.gst_message_unref(asyncMsg);
-                                ctx.HlsAsyncDone = true;
-                                Log($"[GSTREAMER-HLS] {ctx.StreamId} ASYNC_DONE — binding overlay.");
-                                if (_activeStreams.TryGetValue(pipeline, out var liveCtx) && liveCtx.WindowHandle != IntPtr.Zero)
-                                {
-                                    GstNative.gst_video_overlay_set_window_handle(pipeline, liveCtx.WindowHandle);
-                                    GstNative.gst_video_overlay_handle_events(pipeline, true);
-                                    GstNative.gst_video_overlay_expose(pipeline);
-                                    Log($"[TS-VMS] HLS: overlay exposed at ASYNC_DONE handle={liveCtx.WindowHandle}");
-                                }
-                                // Cancel the fallback task if ASYNC_DONE successfully bound the overlay
-                                ctx.FallbackCts?.Cancel();
-                            }
-
-                                if (DateTime.Now.Second % 10 == 0 && DateTime.Now.Millisecond < 100)
-                                {
-                                    Log($"[HLS-HEARTBEAT] {ctx.StreamId} Playing... {ctx.Url}");
-                                }
-
-                                await Task.Delay(100, token);
-                        }
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception ex) { Log($"[HLS-BUS-TASK] {ctx.StreamId} {ex.Message}"); }
-                    finally
-                    {
-                        ctx.BusHandle = IntPtr.Zero;
-                        GstNative.SafeObjectUnref(bus);
-                        // Release our task's reference
-                        GstNative.SafeObjectUnref(pipeline);
-                    }
-                }, token);
-
-                _activeStreams.TryAdd(pipeline, ctx);
-            }
-            else
-            {
-                _activeStreams.TryAdd(pipeline, ctx);
-            }
-
-            // Pre-bind window handle BEFORE set_state(PLAYING).
-            // playbin stores this and forwards it to d3d11videosink when the sink is
-            // instantiated inside playsink, so the sink renders into our VideoCanvas HWND
-            // instead of creating its own top-level popup window.
-            // This must be called before PLAYING because d3d11videosink allocates its
-            // DXGI swap chain during the READY→PAUSED preroll transition.
-            if (ctx.WindowHandle != IntPtr.Zero)
-            {
-                GstNative.gst_video_overlay_set_window_handle(pipeline, ctx.WindowHandle);
-                GstNative.gst_video_overlay_handle_events(pipeline, true);
-                Log($"[TS-VMS] {ctx.StreamId} Pre-bound window handle before PLAYING: {ctx.WindowHandle}");
-            }
-
-            int stateResult = GstNative.gst_element_set_state(pipeline, GstNative.GST_STATE_PLAYING);
-            Log($"[TS-VMS] {ctx.StreamId} HLS Set State PLAYING returned: {stateResult}");
-            // ASYNC (2) is expected for playbin — HLS preroll completes on pipeline threads.
-            // Do NOT block here; bus watch task handles errors and ASYNC_DONE asynchronously.
-
-            // FIX-4: Safety-net fallback overlay bind.
-            // Kept as a belt-and-suspenders guard in case ASYNC_DONE is never posted
-            // (e.g. pipeline stalls permanently at READY due to a missing segment).
-            // Delay raised from 500 ms → 4000 ms so it actually fires AFTER HLS preroll
-            // has had a chance to complete.  The primary bind is now ASYNC_DONE above;
-            // this is only a last-resort catch.
-            var bindPipeline = pipeline;
-            var fToken = ctx.FallbackCts.Token;
-            _ = Task.Run(async () =>
-            {
-                // Increment reference for fallback task life
-                GstNative.gst_object_ref(bindPipeline);
-                try
-                {
-                    await Task.Delay(4000, fToken);
-                    if (!fToken.IsCancellationRequested && _activeStreams.TryGetValue(bindPipeline, out var live) && live.WindowHandle != IntPtr.Zero)
-                    {
-                        Log($"[TS-VMS] Fallback overlay bind firing for {live.StreamId} handle={live.WindowHandle}");
-                        GstNative.gst_video_overlay_set_window_handle(bindPipeline, live.WindowHandle);
-                        GstNative.gst_video_overlay_expose(bindPipeline);
-                    }
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex) { Log($"[TS-VMS] {ctx.StreamId} Fallback Error: {ex.Message}"); }
-                finally
-                {
-                    GstNative.SafeObjectUnref(bindPipeline);
-                }
-            }, fToken);
-
-            var prerollPipeline = pipeline;
-            var prerollToken = ctx.FallbackCts.Token;
-            _ = Task.Run(async () =>
-            {
-                GstNative.gst_object_ref(prerollPipeline);
-                try
-                {
-                    await Task.Delay(8000, prerollToken);
-                    if (!prerollToken.IsCancellationRequested &&
-                        _activeStreams.TryGetValue(prerollPipeline, out var liveCtx) &&
-                        !liveCtx.HlsAsyncDone)
-                    {
-                        Log($"[TS-VMS] {liveCtx.StreamId} HLS preroll timed out without ASYNC_DONE.");
-                        StreamError?.Invoke(liveCtx.WindowHandle, "HLS preroll timeout");
-                        StopStream(prerollPipeline);
-                    }
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex) { Log($"[TS-VMS] {ctx.StreamId} Preroll watchdog error: {ex.Message}"); }
-                finally
-                {
-                    GstNative.SafeObjectUnref(prerollPipeline);
-                }
-            }, prerollToken);
-
-            return pipeline;
-        }
-
         private async Task RestartStreamAsync(IntPtr oldPipeline)
         {
             if (!_activeStreams.TryGetValue(oldPipeline, out var ctx)) return;
@@ -884,6 +644,7 @@ namespace TSVmsDesktop.Services
             var savedPw      = ctx.Password;
             var savedAudio   = ctx.HasAudio;
             var savedGetFreshContext = ctx.GetFreshContext;
+            var savedTransport = ctx.RtspTransport;
 
             if (savedGetFreshContext != null)
             {
@@ -913,7 +674,7 @@ namespace TSVmsDesktop.Services
             }
 
             Log($"[TS-VMS] Re-starting stream on handle {savedWindow}: {savedUrl}");
-            StartStream(savedWindow, savedUrl, savedUser, savedPw, savedAudio, savedGetFreshContext);
+            StartStream(savedWindow, savedUrl, savedUser, savedPw, savedAudio, savedGetFreshContext, savedTransport);
         }
 
         public void Reattach(IntPtr pipeline, IntPtr windowHandle)
@@ -927,6 +688,7 @@ namespace TSVmsDesktop.Services
                 return;
 
             ctx.WindowHandle = windowHandle;
+            ctx.OverlayBound = false;
             BindOverlay(ctx);
             Log($"[TS-VMS] Reattached old={oldHandle} new={windowHandle}");
         }
@@ -1041,6 +803,7 @@ namespace TSVmsDesktop.Services
                 // Dispose tokens
                 try { ctx.Cts?.Dispose(); } catch { }
                 try { ctx.FallbackCts?.Dispose(); } catch { }
+                ctx.OverlayBound = false;
 
                 Log($"[TS-VMS] {ctx.StreamId} Stopped and handle cleared.");
             }
@@ -1084,22 +847,6 @@ namespace TSVmsDesktop.Services
             return msg.Contains("Output window was closed", StringComparison.OrdinalIgnoreCase) ||
                    msg.Contains("Cannot create d3d11window", StringComparison.OrdinalIgnoreCase) ||
                    msg.Contains("Resource not found", StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>HTTP-level permanent failures that should never be retried with the same URL.</summary>
-        private static bool IsPermanentHttpError(string msg)
-        {
-            if (string.IsNullOrEmpty(msg)) return false;
-
-            return msg.Contains("Not Found",            StringComparison.OrdinalIgnoreCase)  // 404
-                || msg.Contains("Unauthorized",         StringComparison.OrdinalIgnoreCase)  // 401
-                || msg.Contains("Forbidden",            StringComparison.OrdinalIgnoreCase)  // 403
-                || msg.Contains("Internal Server Error",StringComparison.OrdinalIgnoreCase)  // 500
-                || msg.Contains("Internal data stream error", StringComparison.OrdinalIgnoreCase) // Connection refused/stalled
-                || msg.Contains("Could not connect",    StringComparison.OrdinalIgnoreCase)
-                || msg.Contains("404", StringComparison.Ordinal)
-                || msg.Contains("401", StringComparison.Ordinal)
-                || msg.Contains("500", StringComparison.Ordinal);
         }
 
         public async Task<bool> RecordLiveEventAsync(string eventType, string details)

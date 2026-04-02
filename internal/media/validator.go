@@ -1,15 +1,16 @@
 package media
 
 import (
+	"context"
 	"fmt"
 	"html"
-	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/technosupport/ts-vms/internal/nvr/adapters"
 )
 
 const (
@@ -139,69 +140,30 @@ func (v *Validator) validate(job ValidationJob) ValidationResult {
 	}
 
 	start := time.Now()
-
-	// TCP Connect (Stage 1)
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		return ValidationResult{Status: StatusInvalid, LastErrorCode: "parse_error"}
-	}
-
-	host := u.Host
-	if !strings.Contains(host, ":") {
-		host += ":554" // Default RTSP port
-	}
-
-	conn, err := net.DialTimeout("tcp", host, ValidationTimeout)
-	if err != nil {
-		if strings.Contains(err.Error(), "timeout") {
-			return ValidationResult{Status: StatusTimeout, LastErrorCode: "tcp_timeout"}
-		}
-		return ValidationResult{Status: StatusError, LastErrorCode: err.Error()}
-	}
-	defer conn.Close()
-
-	// RTSP OPTIONS (Stage 2)
-	// Simple handshake
-	// CSeq: 1
-	// User-Agent: TechnoSupportVMS
-
-	req := fmt.Sprintf("OPTIONS %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: TechnoSupportVMS\r\n\r\n", job.RTSPURL) // Use raw URL in request line usually, or full
-	// Auth is tricky in raw socket. If 401, we need to handle Digest/Basic.
-	// For CONNECTIVITY test (validity), getting a 401 implies "Valid RTSP Endpoint" but "Unauthorized".
-	// Getting 200 OK implies "Valid and Authorized" (or no auth).
-	// So 401 is actually a success for "Connectivity", but failure for "Streamability".
-	// We map 401 to StatusUnauthorized.
-
-	conn.SetDeadline(time.Now().Add(ValidationTimeout))
-	if _, err := conn.Write([]byte(req)); err != nil {
-		return ValidationResult{Status: StatusError, LastErrorCode: "write_error"}
-	}
-
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return ValidationResult{Status: StatusInvalid, LastErrorCode: "read_error"}
-	}
-
-	resp := string(buf[:n])
+	probeErr := adapters.ProbeRTSPWithTimeout(context.Background(), targetURL, ValidationTimeout)
 	rtt := int(time.Since(start).Milliseconds())
 
-	if strings.HasPrefix(resp, "RTSP/1.0 200 OK") {
+	if probeErr == nil {
 		return ValidationResult{Status: StatusValid, RTT: rtt}
 	}
 
-	if strings.Contains(resp, "401 Unauthorized") {
+	errText := strings.ToLower(probeErr.Error())
+
+	if strings.Contains(errText, "timeout") {
+		return ValidationResult{Status: StatusTimeout, LastErrorCode: "probe_timeout", RTT: rtt}
+	}
+
+	if strings.Contains(errText, "auth_failed") || strings.Contains(errText, "401") || strings.Contains(errText, "403") {
 		return ValidationResult{Status: StatusUnauthorized, LastErrorCode: "401_unauthorized", RTT: rtt}
 	}
 
-	if strings.Contains(resp, "404 Not Found") {
+	if strings.Contains(errText, "404") {
 		return ValidationResult{Status: StatusInvalid, LastErrorCode: "404_not_found", RTT: rtt}
 	}
 
-	return ValidationResult{Status: StatusInvalid, LastErrorCode: "unknown_response", RTT: rtt}
+	return ValidationResult{Status: StatusError, LastErrorCode: errText, RTT: rtt}
 }
 
-// Helper: Sanitize URL
 func SanitizeRTSPURL(raw string) string {
 	// 1. First unescape XML entities like &amp;
 	unescaped := html.UnescapeString(raw)

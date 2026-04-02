@@ -161,7 +161,7 @@ namespace TSVmsDesktop.Views
             }
         }
 
-        // 3. The Actual Logic to Start the GStreamer Stream (HLS or RTSP tile)
+        // 3. The Actual Logic to Start the GStreamer Stream (RTSP tile)
         private async void StartVideo(VideoCanvas canvas)
         {
             if (canvas.DataContext is CameraSlot slot)
@@ -208,10 +208,8 @@ namespace TSVmsDesktop.Views
                         return;
                     }
 
-                    // Pick URL based on active tier (VideoCanvas is only shown for Hls/Rtsp)
-                    string urlToPlay = slot.ActiveTier == StreamTier.Hls
-                        ? slot.HlsUrl
-                        : slot.RtspUrl;
+                    // Pick URL based on active tier (VideoCanvas is only shown for Rtsp)
+                    string urlToPlay = slot.RtspUrl;
 
                     if (string.IsNullOrEmpty(urlToPlay)) urlToPlay = slot.RtspUrl; // ultimate fallback
                     if (string.IsNullOrEmpty(urlToPlay)) return;
@@ -236,7 +234,7 @@ namespace TSVmsDesktop.Views
                             {
                                 if (this.DataContext is LiveViewModel vm)
                                     await vm.FetchCredentialsForSlot(slot);
-                                string url = slot.ActiveTier == StreamTier.Hls ? slot.HlsUrl : slot.RtspUrl;
+                                string url = slot.RtspUrl;
                                 tcs.TrySetResult((url, canvas.Handle));
                             }
                             catch (Exception ex)
@@ -249,7 +247,7 @@ namespace TSVmsDesktop.Views
 
                     slot.PipelineHandle = await Task.Run(() =>
                         videoService.StartStream(canvas.Handle, urlToPlay,
-                                                 slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext));
+                                                 slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext, slot.RtspTransport));
 
                     if (slot.PipelineHandle != IntPtr.Zero)
                     {
@@ -271,6 +269,9 @@ namespace TSVmsDesktop.Views
 
         private void WebRtcSurface_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
+            if (!LiveViewModel.WebRtcEnabled)
+                return;
+
             if (sender is not WebView2 webView) return;
 
             if (webView.Visibility == Visibility.Visible)
@@ -302,15 +303,13 @@ namespace TSVmsDesktop.Views
             catch { }
         }
 
-        // Shared WebView2 environment: avoid Chromium's accelerated video decode /
-        // overlay path inside WPF-hosted WebView2. On hybrid-GPU laptops this can
-        // produce a permanently black video surface even though signaling succeeds.
+        // Shared WebView2 environment: keep the video pipeline as close to the
+        // browser defaults as possible. The stream is already isolated in a
+        // dedicated WebView, so we avoid forcing software decode flags here.
         private static Microsoft.Web.WebView2.Core.CoreWebView2Environment? _sharedWv2Env;
         private static readonly System.Threading.SemaphoreSlim _wv2EnvLock = new(1, 1);
         private const string WebView2LiveVideoArgs =
-            "--autoplay-policy=no-user-gesture-required " +
-            "--disable-accelerated-video-decode " +
-            "--disable-direct-composition-video-overlays";
+            "--autoplay-policy=no-user-gesture-required";
 
         private static async Task<Microsoft.Web.WebView2.Core.CoreWebView2Environment> GetSharedWv2EnvAsync()
         {
@@ -328,6 +327,9 @@ namespace TSVmsDesktop.Views
 
         private async Task StartWebRtcStream(WebView2 webView, CameraSlot slot)
         {
+            if (!LiveViewModel.WebRtcEnabled)
+                return;
+
             // Guard: only start if still on WebRtc tier and connected
             if (slot.ActiveTier != StreamTier.WebRtc || !slot.IsConnected) return;
 
@@ -559,7 +561,7 @@ namespace TSVmsDesktop.Views
                             if (activeSlot != null)
                             {
                                 await vm.FetchCredentialsForSlot(activeSlot);
-                                string url = activeSlot.ActiveTier == StreamTier.Hls ? activeSlot.HlsUrl : activeSlot.RtspUrl;
+                                string url = string.IsNullOrWhiteSpace(vm.FullScreenRtspUrl) ? activeSlot.RtspUrl : vm.FullScreenRtspUrl;
                                 tcs.TrySetResult((url, canvas.Handle));
                             }
                             else
@@ -576,7 +578,7 @@ namespace TSVmsDesktop.Views
                 };
 
                 _fullScreenPipeline = await System.Threading.Tasks.Task.Run(() =>
-                    videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio, getFreshContext));
+                    videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio, getFreshContext, activeSlot?.RtspTransport ?? "udp"));
             }
             finally
             {

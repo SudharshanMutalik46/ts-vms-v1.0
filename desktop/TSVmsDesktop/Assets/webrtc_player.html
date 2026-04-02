@@ -24,10 +24,14 @@ const sessionId      = p.sessionId;
 const token          = p.token;
 const preferredCodec = normalizeCodecName(p.preferredCodec || '');
 const signalingTimeoutMs = p.timeoutMs || 10000;
-const firstFrameTimeoutMs = Math.max(p.trackTimeoutMs || 20000, 20000);
+const firstFrameTimeoutMs = Math.max(p.trackTimeoutMs || 45000, 45000);
 
 const STATUS = document.getElementById('status');
 const VIDEO  = document.getElementById('video');
+VIDEO.autoplay = true;
+VIDEO.muted = true;
+VIDEO.playsInline = true;
+VIDEO.controls = false;
 const H = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
 
 let _pc = null;
@@ -94,11 +98,68 @@ function success(codec) {
 function hasRenderableFrame() {
   return (
     VIDEO.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-    VIDEO.videoWidth >= 16 &&
-    VIDEO.videoHeight >= 16 &&
+    VIDEO.videoWidth > 0 &&
+    VIDEO.videoHeight > 0 &&
     !VIDEO.paused &&
     !VIDEO.ended
   );
+}
+
+function getDecodedFrameCount() {
+  try {
+    if (typeof VIDEO.getVideoPlaybackQuality === 'function') {
+      const quality = VIDEO.getVideoPlaybackQuality();
+      if (quality && Number.isFinite(quality.totalVideoFrames)) {
+        return Number(quality.totalVideoFrames);
+      }
+    }
+  } catch (_) {}
+
+  const webkitFrames = Number(VIDEO.webkitDecodedFrameCount);
+  return Number.isFinite(webkitFrames) ? webkitFrames : 0;
+}
+
+function getRenderedFrameCount() {
+  try {
+    if (typeof VIDEO.getVideoPlaybackQuality === 'function') {
+      const quality = VIDEO.getVideoPlaybackQuality();
+      if (quality && Number.isFinite(quality.totalVideoFrames)) {
+        return Number(quality.totalVideoFrames);
+      }
+    }
+  } catch (_) {}
+
+  return getDecodedFrameCount();
+}
+
+function tryMarkReady(source) {
+  if (_done) return;
+
+  const rendered = hasRenderableFrame();
+  const playbackFrames = getRenderedFrameCount();
+
+  if (rendered && playbackFrames > 0) {
+    debug('video-frame-ready', {
+      source,
+      playbackFrames,
+      width: VIDEO.videoWidth,
+      height: VIDEO.videoHeight,
+      readyState: VIDEO.readyState
+    });
+    success(source);
+    return true;
+  }
+
+  debug('frame-not-ready', {
+    source,
+    playbackFrames,
+    width: VIDEO.videoWidth,
+    height: VIDEO.videoHeight,
+    readyState: VIDEO.readyState,
+    paused: VIDEO.paused,
+    ended: VIDEO.ended
+  });
+  return false;
 }
 
 let _lastStatsDump = 0;
@@ -116,11 +177,13 @@ async function detectInboundVideo(codec) {
         const framesDecoded = Number(report.framesDecoded || 0);
         const framesReceived = Number(report.framesReceived || 0);
         const rendered = hasRenderableFrame();
-        if (framesDecoded > 0 || (framesReceived > 0 && rendered)) {
+        const playbackFrames = getRenderedFrameCount();
+        if (rendered && (framesDecoded > 0 || playbackFrames > 0 || framesReceived > 0)) {
           debug('inbound-video', {
             bytes,
             framesDecoded,
             framesReceived,
+            playbackFrames,
             rendered,
             width: VIDEO.videoWidth,
             height: VIDEO.videoHeight,
@@ -137,6 +200,7 @@ async function detectInboundVideo(codec) {
             bytes,
             framesDecoded,
             framesReceived,
+            playbackFrames,
             packetsReceived: report.packetsReceived,
             rendered,
             width: VIDEO.videoWidth,
@@ -149,8 +213,19 @@ async function detectInboundVideo(codec) {
     // Log if no inbound-rtp report at all
     if (!foundInbound && now - _lastStatsDump > 2000) {
       _lastStatsDump = now;
+      const playbackFrames = getRenderedFrameCount();
+      if (hasRenderableFrame() && playbackFrames > 0) {
+        debug('playback-ready-no-inbound', {
+          playbackFrames,
+          width: VIDEO.videoWidth,
+          height: VIDEO.videoHeight,
+          readyState: VIDEO.readyState
+        });
+        success(codec);
+        return true;
+      }
       const types = [...stats.values()].map(r => r.type).join(',');
-      debug('stats-no-inbound', types);
+      debug('stats-no-inbound', { types, playbackFrames, width: VIDEO.videoWidth, height: VIDEO.videoHeight, readyState: VIDEO.readyState });
     }
   } catch (err) {
     debug('getStats-error', err?.message || String(err));
@@ -279,7 +354,7 @@ function parseOfferVideoCaps(sdp) {
 
 function chooseH264Pm1Codec(offerCaps) {
   const { rtpmap, fmtpMap } = offerCaps;
-  const targetProfiles = ['42c01e', '42001f', '42e01f', '420032', '4d001f', '640c1f', '64001f'];
+  const targetProfiles = ['42e01f', '42c01f', '42e01e', '42c01e', '42001f', '420032', '4d001f', '640c1f', '64001f'];
 
   const entries = Object.values(rtpmap)
     .filter(c => normalizeCodecName(c.codecName) === 'H264')
@@ -340,13 +415,11 @@ function buildConsumeCaps(routerCaps, offerCaps, preferredCodec) {
 
     const chosenParams = Object.assign({}, chosen.parameters || {});
     chosenParams['packetization-mode'] = 1;
-    if (!chosenParams['level-asymmetry-allowed']) {
-      chosenParams['level-asymmetry-allowed'] = 1;
-    }
-    // Keep the negotiated H264 profile aligned with the browser's actual
-    // offer and the SFU producer. The media plane emits constrained-baseline
-    // 42c01e, so we preserve that profile when Chromium advertises it.
-    chosenParams['profile-level-id'] = chosen.profileLevelId || '42c01e';
+    chosenParams['level-asymmetry-allowed'] = 1;
+    // Mediasoup matches H264 profiles strictly. The SFU bridge emits
+    // constrained-baseline, so normalize the browser caps to the same profile
+    // instead of preserving Chromium's baseline-only offer.
+    chosenParams['profile-level-id'] = '42e01f';
 
     return {
       codecs: [{
@@ -409,7 +482,10 @@ function buildRemoteSdp(transport, consumer, offerExtmaps, consumeCaps) {
   const mime = String(chosen.mimeType || 'video/H264').split('/')[1];
   const clockRate = chosen.clockRate || 90000;
   const channels = chosen.channels;
-  const params = consumerCodec?.parameters || offeredCodec?.parameters || {};
+  // Keep the SDP answer aligned with the SFU consumer metadata. The browser-side
+  // consume-cap normalization already handles mediasoup's strict H264 matching;
+  // the answer should not rewrite the negotiated codec parameters again.
+  const params = Object.assign({}, offeredCodec?.parameters || {}, consumerCodec?.parameters || {});
   const rtcpFeedback = consumerCodec?.rtcpFeedback || offeredCodec?.rtcpFeedback || [];
 
   const firstCand = cands[0] || {};
@@ -488,32 +564,43 @@ function armFirstFrameHandlers(codec) {
   if (_firstFrameArmed) return;
   _firstFrameArmed = true;
 
-  const maybeConnected = () => {
-    if (_done) return;
-    if (hasRenderableFrame()) {
-      debug('video-frame-ready', {
-        width: VIDEO.videoWidth,
-        height: VIDEO.videoHeight,
-        readyState: VIDEO.readyState
-      });
-      success(codec);
-    }
-  };
-
   VIDEO.addEventListener('loadedmetadata', () => {
     debug('loadedmetadata', {
       width: VIDEO.videoWidth,
       height: VIDEO.videoHeight,
       readyState: VIDEO.readyState
     });
-    maybeConnected();
+    tryMarkReady('loadedmetadata');
   }, { once: true });
-  VIDEO.addEventListener('loadeddata', maybeConnected, { once: true });
-  VIDEO.addEventListener('playing', maybeConnected, { once: true });
-  VIDEO.addEventListener('canplay', maybeConnected, { once: true });
+  VIDEO.addEventListener('loadeddata', () => tryMarkReady('loadeddata'), { once: true });
+  VIDEO.addEventListener('playing', () => tryMarkReady('playing'), { once: true });
+  VIDEO.addEventListener('canplay', () => tryMarkReady('canplay'), { once: true });
+  VIDEO.addEventListener('resize', () => {
+    debug('video-resize', {
+      width: VIDEO.videoWidth,
+      height: VIDEO.videoHeight,
+      readyState: VIDEO.readyState
+    });
+    tryMarkReady('resize');
+  }, { once: true });
+  VIDEO.addEventListener('waiting', () => debug('video-waiting', {
+    readyState: VIDEO.readyState,
+    width: VIDEO.videoWidth,
+    height: VIDEO.videoHeight
+  }), { once: true });
+  VIDEO.addEventListener('stalled', () => debug('video-stalled', {
+    readyState: VIDEO.readyState,
+    width: VIDEO.videoWidth,
+    height: VIDEO.videoHeight
+  }), { once: true });
+  VIDEO.addEventListener('error', () => debug('video-error', {
+    code: VIDEO.error?.code || null,
+    message: VIDEO.error?.message || null,
+    readyState: VIDEO.readyState
+  }), { once: true });
 
   if (typeof VIDEO.requestVideoFrameCallback === 'function') {
-    VIDEO.requestVideoFrameCallback(() => maybeConnected());
+    VIDEO.requestVideoFrameCallback(() => tryMarkReady('requestVideoFrameCallback'));
   }
 
   _statsTimer = setInterval(() => {
@@ -531,7 +618,7 @@ function armFirstFrameHandlers(codec) {
 
 async function connectOnce(preferredCodec) {
   setStatus(`Trying WebRTC (${preferredCodec})…`);
-  debug('attempt-start', preferredCodec);
+    debug('attempt-start', preferredCodec);
 
   _signalingTimer = setTimeout(() => fail('Signaling timeout'), signalingTimeoutMs);
 
@@ -570,10 +657,12 @@ async function connectOnce(preferredCodec) {
     VIDEO.srcObject = stream;
     VIDEO.style.display = 'block';
     STATUS.style.display = 'block';
+    setStatus(`WebRTC connected, waiting for first frame (${negotiatedCodec})...`);
 
     if (e.track) {
       e.track.onunmute = () => {
         debug('track-unmute', e.track.kind);
+        tryMarkReady('track-unmute');
       };
       e.track.onmute = () => debug('track-mute', e.track.kind);
       e.track.onended = () => debug('track-ended', e.track.kind);
@@ -581,13 +670,20 @@ async function connectOnce(preferredCodec) {
 
     armFirstFrameHandlers(negotiatedCodec);
 
-    VIDEO.play().then(() => {
+    const tryPlay = () => VIDEO.play().then(() => {
       if (_done) return;
       debug('video-play-ok');
     }).catch(err => {
       if (_done) return;
-      fail('VIDEO.play() failed: ' + (err?.message || String(err)));
+      debug('video-play-retry', err?.message || String(err));
     });
+
+    tryPlay();
+    setTimeout(() => {
+      if (!_done && VIDEO.srcObject) {
+        tryPlay();
+      }
+    }, 750);
   };
 
   const offer = await pc.createOffer();

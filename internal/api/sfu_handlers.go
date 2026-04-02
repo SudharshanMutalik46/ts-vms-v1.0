@@ -65,6 +65,8 @@ func (h *SfuHandler) writeStructuredError(w http.ResponseWriter, r *http.Request
 			statusCode = http.StatusTooManyRequests
 		case "ERR_CAMERA_NOT_FOUND":
 			statusCode = http.StatusNotFound
+		case "ERR_SFU_DOWN":
+			statusCode = http.StatusServiceUnavailable
 		case "ERR_BAD_REQUEST":
 			statusCode = http.StatusBadRequest
 		default:
