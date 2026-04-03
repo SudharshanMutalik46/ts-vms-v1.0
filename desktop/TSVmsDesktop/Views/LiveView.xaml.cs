@@ -1,7 +1,7 @@
 using System;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Extensions.DependencyInjection;
 using TSVmsDesktop.ViewModels;
 using TSVmsDesktop.Services;
 using System.Linq;
@@ -11,6 +11,23 @@ using Microsoft.Web.WebView2.Core;
 using System.Text.Json;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Windows.Media.Animation;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
+using System.Windows.Input;
+using Microsoft.Extensions.DependencyInjection;
+using WpfButton = System.Windows.Controls.Button;
+using WpfGrid = System.Windows.Controls.Grid;
+using WpfTextBlock = System.Windows.Controls.TextBlock;
+using WpfThickness = System.Windows.Thickness;
+using WpfBrushes = System.Windows.Media.Brushes;
+using WpfColor = System.Windows.Media.Color;
+using WpfFontWeights = System.Windows.FontWeights;
+using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
+using WpfVerticalAlignment = System.Windows.VerticalAlignment;
+using WpfTextTrimming = System.Windows.TextTrimming;
+using WpfPopupAnimation = System.Windows.Controls.Primitives.PopupAnimation;
+using WpfPlacementMode = System.Windows.Controls.Primitives.PlacementMode;
 
 namespace TSVmsDesktop.Views
 {
@@ -18,11 +35,106 @@ namespace TSVmsDesktop.Views
     {
         private IntPtr _fullScreenPipeline = IntPtr.Zero;
         private bool _isFullScreenStarting = false;
+        private Popup? _fullScreenOverlayPopup;
+        private WpfGrid? _fullScreenOverlayRoot;
+        private DispatcherTimer _hoverTimer;
+        private bool _isTileOverlayHovered;
+        private bool _isMoreOptionsMenuOpen;
 
         public LiveView()
         {
             InitializeComponent();
+            CreateFullScreenOverlayPopup();
             this.DataContextChanged += OnDataContextChanged;
+
+            _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _hoverTimer.Tick += HoverTimer_Tick;
+        }
+
+        private void HoverTimer_Tick(object? sender, EventArgs e)
+        {
+            _hoverTimer.Stop();
+            if (_isTileOverlayHovered)
+                return;
+
+            UpdateHoverFromPointer();
+        }
+
+        private void CreateFullScreenOverlayPopup()
+        {
+            if (_fullScreenOverlayPopup != null) return;
+
+            var closeButton = new WpfButton
+            {
+                Width = 44,
+                Height = 44,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "Exit Full Screen (Esc)",
+                Background = WpfBrushes.Transparent,
+                BorderThickness = new WpfThickness(0, 0, 0, 0),
+                Content = new WpfGrid()
+            };
+
+            var closeGlyph = new WpfTextBlock
+            {
+                Text = "X",
+                FontSize = 20,
+                FontWeight = WpfFontWeights.Bold,
+                Foreground = WpfBrushes.White,
+                HorizontalAlignment = WpfHorizontalAlignment.Center,
+                VerticalAlignment = WpfVerticalAlignment.Center,
+                Margin = new WpfThickness(0, -1, 0, 0)
+            };
+            var closeHalo = new System.Windows.Shapes.Ellipse
+            {
+                Width = 44,
+                Height = 44,
+                Fill = new SolidColorBrush(WpfColor.FromArgb(180, 17, 24, 39)),
+                Stroke = new SolidColorBrush(WpfColor.FromArgb(140, 51, 65, 85)),
+                StrokeThickness = 1
+            };
+            ((WpfGrid)closeButton.Content).Children.Add(closeHalo);
+            ((WpfGrid)closeButton.Content).Children.Add(closeGlyph);
+            closeButton.Click += (_, __) =>
+            {
+                if (DataContext is LiveViewModel vm)
+                {
+                    vm.ExitFullScreenCommand.Execute(null);
+                }
+            };
+
+            _fullScreenOverlayRoot = new WpfGrid
+            {
+                Background = WpfBrushes.Transparent
+            };
+            _fullScreenOverlayRoot.Children.Add(closeButton);
+            closeButton.HorizontalAlignment = WpfHorizontalAlignment.Right;
+            closeButton.VerticalAlignment = WpfVerticalAlignment.Top;
+            closeButton.Margin = new WpfThickness(0, 16, 16, 0);
+
+            _fullScreenOverlayPopup = new Popup
+            {
+                Placement = WpfPlacementMode.Relative,
+                AllowsTransparency = true,
+                StaysOpen = true,
+                PopupAnimation = WpfPopupAnimation.Fade,
+                PlacementTarget = FullScreenGrid,
+                Child = _fullScreenOverlayRoot
+            };
+        }
+
+
+        private CustomPopupPlacement[] TileActionPopup_Placement(System.Windows.Size popupSize, System.Windows.Size targetSize, System.Windows.Point offset)
+        {
+            // Center horizontally: (TargetWidth - PopupWidth) / 2
+            // Position at bottom with 15px margin: TargetHeight - PopupHeight - 15
+            var x = (targetSize.Width - popupSize.Width) / 2;
+            var y = targetSize.Height - popupSize.Height - 15;
+
+            return new[]
+            {
+                new CustomPopupPlacement(new System.Windows.Point(x, y), PopupPrimaryAxis.None)
+            };
         }
 
         private async void UserControl_Loaded(object sender, RoutedEventArgs e)
@@ -43,6 +155,11 @@ namespace TSVmsDesktop.Views
             {
                 vm.PropertyChanged += Vm_PropertyChanged;
             }
+
+            if (_fullScreenOverlayRoot != null)
+            {
+                _fullScreenOverlayRoot.DataContext = DataContext;
+            }
         }
 
 
@@ -54,16 +171,11 @@ namespace TSVmsDesktop.Views
                 var vm = (LiveViewModel)DataContext;
                 if (!vm.IsFullScreen)
                 {
-                    // STOP FULL SCREEN
-                    StopFullScreenStream();
+                    _ = HideFullScreenShellAsync();
                 }
                 else
                 {
-                    // Ensure the stream starts if we enter full screen while the control is already loaded
-                    if (FullScreenPlayer.IsLoaded && FullScreenPlayer.Visibility == Visibility.Visible) 
-                    {
-                        StartFullScreenStream(FullScreenPlayer);
-                    }
+                    ShowFullScreenShellAsync();
                 }
             }
             // If the URL changes while already in Full Screen (e.g., from Double Click or another selection method)
@@ -72,10 +184,89 @@ namespace TSVmsDesktop.Views
                 var vm = (LiveViewModel)DataContext;
                 if (vm.IsFullScreen && FullScreenPlayer.IsLoaded && FullScreenPlayer.Visibility == Visibility.Visible)
                 {
+                    SetFullScreenLoading(true);
                     StopFullScreenStream();
                     StartFullScreenStream(FullScreenPlayer);
                 }
             }
+        }
+
+        private void SetFullScreenLoading(bool isVisible)
+        {
+            if (FullScreenLoadingOverlay == null)
+                return;
+
+            FullScreenLoadingOverlay.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+            FullScreenLoadingOverlay.Opacity = isVisible ? 1 : 0;
+        }
+
+        private void SetDashboardVisible(bool isVisible)
+        {
+            if (DashboardGrid == null)
+                return;
+
+            DashboardGrid.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ShowFullScreenShellAsync()
+        {
+            if (FullScreenGrid == null) return;
+
+            SetDashboardVisible(true);
+            DashboardGrid.Opacity = 1;
+            FullScreenGrid.Visibility = Visibility.Visible;
+            FullScreenGrid.Opacity = 0;
+            SetFullScreenLoading(true);
+
+            if (FullScreenCurtain != null)
+            {
+                FullScreenCurtain.BeginAnimation(OpacityProperty, null);
+                FullScreenCurtain.Opacity = 0;
+            }
+
+            if (_fullScreenOverlayRoot != null)
+            {
+                _fullScreenOverlayRoot.DataContext = DataContext;
+            }
+
+            if (_fullScreenOverlayPopup != null)
+            {
+                _fullScreenOverlayPopup.IsOpen = true;
+            }
+        }
+
+        private async Task HideFullScreenShellAsync()
+        {
+            if (FullScreenGrid == null) return;
+
+            SetDashboardVisible(true);
+            DashboardGrid.Opacity = 0;
+            SetFullScreenLoading(false);
+
+            if (FullScreenCurtain != null)
+            {
+                FullScreenCurtain.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+                });
+            }
+
+            var dashboardFade = new DoubleAnimation(1, TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            DashboardGrid.BeginAnimation(OpacityProperty, dashboardFade);
+
+            await Task.Delay(220);
+
+            if (_fullScreenOverlayPopup != null)
+            {
+                _fullScreenOverlayPopup.IsOpen = false;
+            }
+
+            StopFullScreenStream();
+            FullScreenGrid.Visibility = Visibility.Collapsed;
+            FullScreenGrid.Opacity = 1;
         }
 
         private async void CameraGrid_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -94,6 +285,309 @@ namespace TSVmsDesktop.Views
                     }
                 }
             }
+        }
+
+        private void TileRoot_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            UpdateHoverFromPointer();
+        }
+
+        private void TileRoot_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            UpdateHoverFromPointer();
+        }
+
+        private void TileRoot_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            UpdateHoverFromPointer();
+        }
+
+        private void TileOverlay_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            _isTileOverlayHovered = true;
+            _hoverTimer.Stop();
+            UpdateHoverFromPointer();
+        }
+
+        private void TileOverlay_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            _isTileOverlayHovered = false;
+            _hoverTimer.Start();
+        }
+
+        private void MoreOptionsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not WpfButton button || button.ContextMenu == null)
+                return;
+
+            button.ContextMenu.PlacementTarget = button;
+            button.ContextMenu.DataContext = button.DataContext;
+            button.ContextMenu.IsOpen = true;
+        }
+
+        private void MoreOptionsMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            _isMoreOptionsMenuOpen = true;
+            _hoverTimer.Stop();
+        }
+
+        private void MoreOptionsMenu_Closed(object sender, RoutedEventArgs e)
+        {
+            _isMoreOptionsMenuOpen = false;
+            UpdateHoverFromPointer();
+        }
+
+        private void VideoSurface_NativeMouseEnter(object sender, EventArgs e)
+        {
+            if (sender is FrameworkElement element)
+            {
+                _isTileOverlayHovered = false;
+                HandleHoverElement(element);
+            }
+        }
+
+        private void VideoSurface_NativeMouseMove(object sender, EventArgs e)
+        {
+            if (sender is FrameworkElement element)
+            {
+                _isTileOverlayHovered = false;
+                HandleHoverElement(element);
+            }
+        }
+
+        private void VideoSurface_NativeMouseLeave(object sender, EventArgs e)
+        {
+            _hoverTimer.Start();
+        }
+
+        private void LiveViewRoot_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            UpdateHoverFromPointer();
+        }
+
+        private void LiveViewRoot_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            _hoverTimer.Start();
+        }
+
+        private void UpdateHoverFromPointer()
+        {
+            if (LiveViewRoot == null)
+                return;
+
+            if (_isTileOverlayHovered || _isMoreOptionsMenuOpen)
+                return;
+
+            var hit = LiveViewRoot.InputHitTest(Mouse.GetPosition(LiveViewRoot)) as DependencyObject;
+            var slot = FindCameraSlot(hit);
+
+            if (slot != null && DataContext is LiveViewModel vm)
+            {
+                FrameworkElement? target = FindPopupTarget(hit);
+                SetHoverState(vm, slot, target ?? LiveViewRoot);
+                return;
+            }
+
+            ClearHoverState();
+            CloseTileOverlay();
+        }
+
+        private void HandleHoverElement(FrameworkElement element)
+        {
+            _hoverTimer.Stop();
+
+            if (element.DataContext is not CameraSlot slot || DataContext is not LiveViewModel vm)
+                return;
+
+            SetHoverState(vm, slot, element);
+        }
+
+        private void SetHoverState(LiveViewModel vm, CameraSlot slot, FrameworkElement placementTarget)
+        {
+            if (vm.ActiveHoverSlot != null && vm.ActiveHoverSlot != slot)
+            {
+                vm.ActiveHoverSlot.IsHovered = false;
+            }
+
+            vm.ActiveHoverSlot = slot;
+            slot.IsHovered = true;
+            OpenTileOverlay(placementTarget, slot);
+        }
+
+        private void ClearHoverState()
+        {
+            if (DataContext is LiveViewModel vm && vm.ActiveHoverSlot != null)
+            {
+                vm.ActiveHoverSlot.IsHovered = false;
+                vm.ActiveHoverSlot = null;
+            }
+        }
+
+        private void OpenTileOverlay(FrameworkElement placementTarget, CameraSlot slot)
+        {
+            if (TileOverlayPopup == null) return;
+
+            TileOverlayPopup.IsOpen = false;
+            TileOverlayPopup.DataContext = slot;
+            TileOverlayPopup.PlacementTarget = placementTarget;
+            TileOverlayPopup.IsOpen = true;
+        }
+
+        private void CloseTileOverlay()
+        {
+            if (TileOverlayPopup != null)
+            {
+                TileOverlayPopup.IsOpen = false;
+            }
+        }
+
+        private CameraSlot? GetMenuSlot(object? sender)
+        {
+            if (sender is not FrameworkElement element)
+                return null;
+
+            if (element.DataContext is CameraSlot slot)
+                return slot;
+
+            if (element.Parent is MenuItem parentItem && parentItem.DataContext is CameraSlot parentSlot)
+                return parentSlot;
+
+            if (element.Parent is ContextMenu menu && menu.DataContext is CameraSlot menuSlot)
+                return menuSlot;
+
+            if (element.Parent is ContextMenu menu2 &&
+                menu2.PlacementTarget is FrameworkElement target &&
+                target.DataContext is CameraSlot targetSlot)
+                return targetSlot;
+
+            return null;
+        }
+
+        private MainViewModel? GetMainViewModel() => App.Current.Services.GetRequiredService<MainViewModel>();
+
+        private PlaybackViewModel? GetPlaybackViewModel() => App.Current.Services.GetRequiredService<PlaybackViewModel>();
+
+        private LiveViewModel? GetLiveViewModel() => DataContext as LiveViewModel;
+
+        private void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = GetLiveViewModel();
+            var slot = (sender as FrameworkElement)?.DataContext as CameraSlot;
+            if (vm == null || slot == null) return;
+            vm.SnapshotCommand.Execute(slot.CameraName);
+        }
+
+        private async void FullScreenButton_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = GetLiveViewModel();
+            var slot = (sender as FrameworkElement)?.DataContext as CameraSlot;
+            if (vm == null || slot == null) return;
+            await vm.EnterFullScreen(slot);
+        }
+
+        private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = GetLiveViewModel();
+            var slot = (sender as FrameworkElement)?.DataContext as CameraSlot;
+            if (vm == null || slot == null) return;
+            await vm.ReconnectStream(slot);
+        }
+
+        private void CameraDetailsMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var slot = GetMenuSlot(sender);
+            var mainVm = GetMainViewModel();
+            if (slot == null || mainVm == null) return;
+
+            mainVm.NavigateToCameraDetailsCommand.Execute(slot.Id);
+        }
+
+        private void OpenPlaybackMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var slot = GetMenuSlot(sender);
+            var mainVm = GetMainViewModel();
+            var playbackVm = GetPlaybackViewModel();
+            if (slot == null || mainVm == null || playbackVm == null) return;
+
+            mainVm.NavigateToPlaybackCommand.Execute(null);
+
+            var camService = App.Current.Services.GetRequiredService<CameraService>();
+            var cam = camService.AllCameras.FirstOrDefault(c => c.Id == slot.Id);
+            if (cam != null)
+            {
+                playbackVm.SelectedCamera = cam;
+            }
+        }
+
+        private void CopyRtspMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var slot = GetMenuSlot(sender);
+            if (slot == null || string.IsNullOrWhiteSpace(slot.RtspUrl))
+                return;
+
+            System.Windows.Clipboard.SetText(slot.RtspUrl);
+        }
+
+        private void StreamInfoMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var slot = GetMenuSlot(sender);
+            if (slot == null) return;
+
+            string info =
+                $"Camera: {slot.CameraName}\n" +
+                $"ID: {slot.Id}\n" +
+                $"RTSP URL: {slot.RtspUrl}\n" +
+                $"Main URL: {slot.MainRtspUrl}\n" +
+                $"Transport: {slot.RtspTransport}\n" +
+                $"Codec: {slot.PreferredCodec}\n" +
+                $"Audio: {(slot.HasAudioCapability ? "Yes" : "No")}";
+
+            System.Windows.MessageBox.Show(info, "Stream Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private static CameraSlot? FindCameraSlot(DependencyObject? current)
+        {
+            while (current != null)
+            {
+                if (current is FrameworkElement element && element.DataContext is CameraSlot slot)
+                {
+                    return slot;
+                }
+
+                current = GetParent(current);
+            }
+
+            return null;
+        }
+
+        private static FrameworkElement? FindPopupTarget(DependencyObject? current)
+        {
+            while (current != null)
+            {
+                if (current is FrameworkElement element && element.DataContext is CameraSlot)
+                {
+                    return element;
+                }
+
+                current = GetParent(current);
+            }
+
+            return null;
+        }
+
+        private static DependencyObject? GetParent(DependencyObject current)
+        {
+            if (current is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D)
+            {
+                return VisualTreeHelper.GetParent(current);
+            }
+
+            if (current is FrameworkElement fe)
+            {
+                return fe.Parent ?? fe.TemplatedParent;
+            }
+
+            return null;
         }
 
         // 1. This runs when the tile becomes Visible (IsConnected = true)
@@ -247,7 +741,7 @@ namespace TSVmsDesktop.Views
 
                     slot.PipelineHandle = await Task.Run(() =>
                         videoService.StartStream(canvas.Handle, urlToPlay,
-                                                 slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext, slot.RtspTransport));
+                                                 slot.Username, slot.Password, slot.HasAudioCapability, getFreshContext, slot.RtspTransport, slot.CameraName));
 
                     if (slot.PipelineHandle != IntPtr.Zero)
                     {
@@ -523,12 +1017,16 @@ namespace TSVmsDesktop.Views
                 return;
             }
 
+            VideoService? videoService = null;
+            Action<IntPtr>? readyHandler = null;
+
             try
             {
                 _isFullScreenStarting = true;
+                SetFullScreenLoading(true);
 
-                // Wait for handle.
-                int retries = 50;
+                // Wait briefly for the HWND to exist.
+                int retries = 20;
                 while (canvas.Handle == IntPtr.Zero && retries-- > 0)
                 {
                     await System.Threading.Tasks.Task.Delay(10);
@@ -536,17 +1034,22 @@ namespace TSVmsDesktop.Views
 
                 if (canvas.Handle == IntPtr.Zero) return;
 
-                // Wait for non-zero layout size without blocking the dispatcher.
-                retries = 100;
-                while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
-                {
-                    await System.Threading.Tasks.Task.Delay(10);
-                }
+                // The control already has a minimum size; do not wait for a full layout pass.
 
                 var vm = DataContext as LiveViewModel;
                 if (vm == null || string.IsNullOrEmpty(vm.FullScreenUrl)) return;
 
-                var videoService = App.Current.Services.GetRequiredService<VideoService>();
+                videoService = App.Current.Services.GetRequiredService<VideoService>();
+                var targetHandle = canvas.Handle;
+                var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                readyHandler = handle =>
+                {
+                    if (handle == targetHandle)
+                    {
+                        readyTcs.TrySetResult(true);
+                    }
+                };
+                videoService.StreamReady += readyHandler;
                 
                 VideoService.Log($"[TS-VMS] Starting Full Screen Stream: {vm.FullScreenUrl}");
 
@@ -561,7 +1064,9 @@ namespace TSVmsDesktop.Views
                             if (activeSlot != null)
                             {
                                 await vm.FetchCredentialsForSlot(activeSlot);
-                                string url = string.IsNullOrWhiteSpace(vm.FullScreenRtspUrl) ? activeSlot.RtspUrl : vm.FullScreenRtspUrl;
+                                string url = string.IsNullOrWhiteSpace(vm.FullScreenUrl)
+                                    ? (string.IsNullOrWhiteSpace(activeSlot.MainRtspUrl) ? activeSlot.RtspUrl : activeSlot.MainRtspUrl)
+                                    : vm.FullScreenUrl;
                                 tcs.TrySetResult((url, canvas.Handle));
                             }
                             else
@@ -578,11 +1083,47 @@ namespace TSVmsDesktop.Views
                 };
 
                 _fullScreenPipeline = await System.Threading.Tasks.Task.Run(() =>
-                    videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio, getFreshContext, activeSlot?.RtspTransport ?? "udp"));
+                    videoService.StartStream(canvas.Handle, vm.FullScreenUrl, "", "", vm.FullScreenHasAudio, getFreshContext, activeSlot?.RtspTransport ?? "tcp", vm.SelectedCameraName));
+
+                var completed = await Task.WhenAny(readyTcs.Task, Task.Delay(3500));
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    SetFullScreenLoading(false);
+                    if (completed == readyTcs.Task)
+                    {
+                        SetDashboardVisible(false);
+                        DashboardGrid.Opacity = 0;
+
+                        var fadeInFullScreen = new DoubleAnimation(1, TimeSpan.FromMilliseconds(180))
+                        {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                        };
+                        FullScreenGrid.BeginAnimation(OpacityProperty, fadeInFullScreen);
+                        if (FullScreenGrid != null)
+                        {
+                            FullScreenGrid.Visibility = Visibility.Visible;
+                            FullScreenGrid.Opacity = 1;
+                        }
+                    }
+                    else
+                    {
+                        // Keep the dashboard visible rather than showing a black
+                        // fullscreen shell when preroll is slow or the ready
+                        // signal does not arrive in time.
+                        SetDashboardVisible(true);
+                        DashboardGrid.Opacity = 1;
+                        FullScreenGrid.Opacity = 0;
+                    }
+                });
             }
             finally
             {
+                if (videoService != null && readyHandler != null)
+                {
+                    videoService.StreamReady -= readyHandler;
+                }
                 _isFullScreenStarting = false;
+                SetFullScreenLoading(false);
             }
         }
 
@@ -605,6 +1146,9 @@ namespace TSVmsDesktop.Views
         // 5. Cleanup when leaving the view
         private async void UserControl_Unloaded(object sender, RoutedEventArgs e)
         {
+            _hoverTimer.Stop();
+            ClearHoverState();
+
             var app = (App)System.Windows.Application.Current;
             if (app?.Services == null) return;
 

@@ -92,3 +92,5 @@ GEMINI.md
 WEBRTC_FIX_HANDOFF.txt
 .gomodcache/
 **/bin_temp*/
+*~
+*.bak

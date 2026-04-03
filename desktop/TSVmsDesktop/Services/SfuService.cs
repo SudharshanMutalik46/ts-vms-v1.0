@@ -36,8 +36,8 @@ namespace TSVmsDesktop.Services
 
         public async Task<TransportInfo?> CreateTransportAsync(string roomId)
         {
-             // Typically we ask for "producing" or "consuming". For playback, it's consuming.
-             return await _api.PostAsync<object, TransportInfo>($"/api/v1/sfu/rooms/{roomId}/transports", new { type = "recv" });
+             // WebRTC playback uses the dedicated transport endpoint.
+             return await _api.PostAsync<object, TransportInfo>($"/api/v1/sfu/rooms/{roomId}/transports/webrtc", new { type = "recv" });
         }
 
         public async Task<bool> ConnectTransportAsync(string transportId, object dtlsParameters)

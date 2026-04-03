@@ -1,93 +1,212 @@
 <UserControl x:Class="TSVmsDesktop.Views.AuditView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Margin="20">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <UserControl.Resources>
+        <Style x:Key="AuditPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+
+        <Style x:Key="AuditSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+        </Style>
+
+        <Style x:Key="AuditTileStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Padding" Value="22"/>
+        </Style>
+
+        <Style x:Key="AuditStatusBadgeStyle" TargetType="Border">
+            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#F5F7FA"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="EnableRowVirtualization" Value="True"/>
+            <Setter Property="EnableColumnVirtualization" Value="True"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="AlternationCount" Value="2"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource PageBackground}" Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="Audit Logs" FontSize="24" FontWeight="Bold" Foreground="#333" Margin="0,0,0,20"/>
+        <Border Grid.Row="0" Style="{StaticResource AuditTileStyle}">
+            <Border.Effect>
+                <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Audit Logs" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Search security events, export activity, and review user actions."
+                               FontSize="12" Foreground="#64748B" Margin="0,4,0,0"/>
+                </StackPanel>
 
-        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,20">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Filter Action:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                <TextBox Text="{Binding FilterAction}" Width="150" Height="30" VerticalContentAlignment="Center" Margin="0,0,20,0" Style="{StaticResource ModernInputStyle}"/>
-                
-                <Button Content="Search" Command="{Binding LoadEventsCommand}" Style="{StaticResource PillButtonStyle}" Width="100" Height="30"/>
-                <Button Content="Export CSV" Command="{Binding ExportCommand}" Style="{StaticResource OutlineButtonStyle}" Width="100" Height="30" Margin="10,0,0,0" Foreground="#555" BorderBrush="#CCC"/>
-            </StackPanel>
+                <Border Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,6" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Events.Count, StringFormat={}{0} events loaded}"
+                               Foreground="#475569" FontWeight="SemiBold"/>
+                </Border>
+            </Grid>
         </Border>
 
-        <DataGrid Grid.Row="2" ItemsSource="{Binding Events}" AutoGenerateColumns="False" 
-                  IsReadOnly="True" HeadersVisibility="Column" 
-                  Background="White" BorderThickness="0"
-                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEE"
-                  RowHeight="35">
-            
-            <DataGrid.Resources>
-                <Style TargetType="DataGridColumnHeader">
-                    <Setter Property="Background" Value="#F5F5F5"/>
-                    <Setter Property="Foreground" Value="#666"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Padding" Value="10,8"/>
-                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                    <Setter Property="BorderBrush" Value="#DDD"/>
-                </Style>
-                <Style TargetType="DataGridCell">
-                    <Setter Property="Padding" Value="10,0"/>
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="DataGridCell">
-                                <Border Padding="{TemplateBinding Padding}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
-                                    <ContentPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                    <Style.Triggers>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Background" Value="#FFF0E6"/> <!-- Light Orange tint -->
-                            <Setter Property="Foreground" Value="Black"/>
-                            <Setter Property="BorderThickness" Value="0"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </DataGrid.Resources>
+        <Border Grid.Row="1" Style="{StaticResource AuditTileStyle}" Margin="0,18,0,18" Padding="18">
+            <Border.Effect>
+                <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="240"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp, StringFormat='{}{0:MM/dd/yyyy HH:mm:ss}'}" Width="160" Foreground="#555"/>
-                <DataGridTextColumn Header="Actor" Binding="{Binding Actor}" Width="140" Foreground="#555"/>
-                <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="180" FontWeight="SemiBold"/>
-                <DataGridTextColumn Header="Resource" Binding="{Binding Resource}" Width="150" Foreground="#777"/>
-                <DataGridTextColumn Header="IP Address" Binding="{Binding ClientIp}" Width="120" Foreground="#777"/>
-                
-                <!-- Custom Result Column with Color Trigger logic via Style is hard in DataGridTextColumn without a Converter. 
-                     Using ElementStyle to achieve basic text coloring. -->
-                <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="100">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="VerticalAlignment" Value="Center"/>
+                <TextBlock Text="Filter Action" VerticalAlignment="Center" Foreground="#334155" Margin="0,0,10,0"/>
+                <TextBox Grid.Column="1"
+                         Text="{Binding FilterAction, UpdateSourceTrigger=PropertyChanged}"
+                         Height="38"
+                         Style="{StaticResource ModernInputStyle}"
+                         VerticalContentAlignment="Center"/>
+                <Button Grid.Column="2"
+                        Content="Search"
+                        Command="{Binding LoadEventsCommand}"
+                        Style="{StaticResource AuditPrimaryButtonStyle}"
+                        Margin="12,0,0,0"/>
+                <Button Grid.Column="3"
+                        Content="Export CSV"
+                        Command="{Binding ExportCommand}"
+                        Style="{StaticResource AuditSecondaryButtonStyle}"
+                        Margin="10,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Style="{StaticResource AuditTileStyle}" Padding="8">
+            <Border.Effect>
+                <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
+            </Border.Effect>
+
+            <Grid>
+                <DataGrid ItemsSource="{Binding Events}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          Background="White"
+                          BorderThickness="0"
+                          RowHeight="36"
+                          HorizontalGridLinesBrush="#EEF2F7">
+
+                    <DataGrid.Resources>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="Padding" Value="12,0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridCell">
+                                        <Border Padding="{TemplateBinding Padding}"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                SnapsToDevicePixels="True">
+                                            <ContentPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding Result}" Value="failure">
-                                    <Setter Property="Foreground" Value="#D32F2F"/>
-                                    <Setter Property="FontWeight" Value="Bold"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding Result}" Value="success">
-                                    <Setter Property="Foreground" Value="#388E3C"/>
-                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                </DataTrigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#F0F9FF"/>
+                                    <Setter Property="Foreground" Value="Black"/>
+                                </Trigger>
                             </Style.Triggers>
                         </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
+                    </DataGrid.Resources>
 
-                <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" Foreground="#555"/>
-            </DataGrid.Columns>
-        </DataGrid>
-        
-        <ProgressBar Grid.Row="2" IsIndeterminate="True" Width="200" Height="4" VerticalAlignment="Top" 
-                     Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp, StringFormat='{}{0:MM/dd/yyyy HH:mm:ss}'}" Width="170" Foreground="#475569"/>
+                        <DataGridTextColumn Header="Actor" Binding="{Binding Actor}" Width="150" Foreground="#475569"/>
+                        <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="190" FontWeight="SemiBold"/>
+                        <DataGridTextColumn Header="Resource" Binding="{Binding Resource}" Width="180" Foreground="#64748B"/>
+                        <DataGridTextColumn Header="IP Address" Binding="{Binding ClientIp}" Width="140" Foreground="#64748B"/>
+
+                        <DataGridTemplateColumn Header="Result" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border>
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource AuditStatusBadgeStyle}">
+                                                <Setter Property="Background" Value="#E8F5E9"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Result}" Value="failure">
+                                                        <Setter Property="Background" Value="#FEE2E2"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Result}" Value="success">
+                                                        <Setter Property="Background" Value="#DCFCE7"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding Result}" FontSize="11" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="#15803D"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Result}" Value="failure">
+                                                            <Setter Property="Foreground" Value="#B91C1C"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Result}" Value="success">
+                                                            <Setter Property="Foreground" Value="#15803D"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" Foreground="#475569"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <Border Background="#FFFFFFFF" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,10,0" Padding="10,6" CornerRadius="10"
+                        Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal">
+                        <ProgressBar Width="120" Height="4" IsIndeterminate="True" Margin="0,0,10,0"/>
+                        <TextBlock Text="Loading..." Foreground="#475569" VerticalAlignment="Center" FontSize="12"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

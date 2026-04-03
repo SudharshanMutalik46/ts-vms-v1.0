@@ -39,6 +39,9 @@ namespace TSVmsDesktop.Services
         public static extern int gst_element_get_state(IntPtr element, out int state, out int pending, ulong timeout);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool gst_element_query_position(IntPtr element, int format, out long cur);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr gst_bin_get_by_name(IntPtr bin, string name);
 
         [DllImport(VideoDllName, CallingConvention = CallingConvention.Cdecl)]
@@ -139,6 +142,9 @@ namespace TSVmsDesktop.Services
         public const int GST_STATE_READY = 2;
         public const int GST_STATE_PAUSED = 3;
         public const int GST_STATE_PLAYING = 4;
+
+        // GstFormat: 3 = GST_FORMAT_TIME
+        public const int GST_FORMAT_TIME = 3;
 
         // Message types
         public const int GST_MESSAGE_EOS = 1;

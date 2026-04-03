@@ -27,29 +27,32 @@ const (
 )
 
 type RecorderWorker struct {
-	CameraID         string
-	Camera           CameraConfig
-	Config           *Config
-	Store            ArchiveIndex
-	State            WorkerState
-	cancel           context.CancelFunc
-	cmd              *exec.Cmd
-	loopRunning      bool
-	paused           bool
-	stopping         bool
-	running          bool
-	runID            uint64
-	licenseHeld      bool
-	retries          int
-	lastErr          string
-	lastBeat         time.Time
-	lastDataTime     time.Time
-	knownFiles       map[string]struct{}
-	currentDir       string // Path to the current run's storage directory
-	lastSegmentEndTS time.Time
-	Keyring          *crypto.Keyring
-	mu               sync.RWMutex
+	CameraID          string
+	Camera            CameraConfig
+	Config            *Config
+	Store             ArchiveIndex
+	State             WorkerState
+	cancel            context.CancelFunc
+	cmd               *exec.Cmd
+	loopRunning       bool
+	paused            bool
+	stopping          bool
+	running           bool
+	runID             uint64
+	licenseHeld       bool
+	retries           int
+	lastErr           string
+	lastBeat          time.Time
+	lastDataTime      time.Time
+	knownFiles        map[string]struct{}
+	currentDir        string // Path to the current run's storage directory
+	lastSegmentEndTS  time.Time
+	lastFinalizedScan time.Time
+	Keyring           *crypto.Keyring
+	mu                sync.RWMutex
 }
+
+const finalizedBackfillInterval = 1 * time.Minute
 
 func NewRecorderWorker(cfg *Config, cam CameraConfig, store ArchiveIndex, keyring *crypto.Keyring) *RecorderWorker {
 	return &RecorderWorker{
@@ -143,14 +146,13 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 
 				// Use a shorter timeout for segment syncing to prevent hanging the whole worker
 				syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				syncErr := w.syncSegments(syncCtx)
+				syncErr := w.syncSegments(syncCtx, false)
 				cancel()
 
 				if syncErr != nil {
 					log.Printf("[WARNING] syncSegments failed for %s: %v", w.CameraID, syncErr)
 					w.stopProcess() // force handle release, let errCh path restart cleanly
 				}
-
 
 				if w.checkWatchdog(runID) {
 					log.Printf("[WARNING] watchdog triggered for %s: no data for too long. killing process.", w.CameraID)
@@ -159,7 +161,7 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 			case err := <-errCh:
 				ticker.Stop()
 				time.Sleep(2 * time.Second) // let GStreamer/taskkill release handles on Windows
-				_ = w.syncSegments(ctx)
+				_ = w.syncSegments(ctx, true)
 				w.cleanupEmptyRunDir()
 				if ctx.Err() != nil || w.isIntentionalStop(runID) {
 					w.markStopped(runID)
@@ -203,6 +205,7 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 	w.currentDir = runDir
 	w.knownFiles = make(map[string]struct{})
 	w.lastSegmentEndTS = time.Time{} // Reset on new run
+	w.lastFinalizedScan = time.Time{}
 	w.mu.Unlock()
 
 	// Fetch Credentials if available
@@ -240,7 +243,7 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 	return nil
 }
 
-func (w *RecorderWorker) syncSegments(ctx context.Context) error {
+func (w *RecorderWorker) syncSegments(ctx context.Context, forceBackfill bool) error {
 	w.mu.RLock()
 	dir := w.currentDir
 	w.mu.RUnlock()
@@ -327,32 +330,36 @@ func (w *RecorderWorker) syncSegments(ctx context.Context) error {
 		return nil
 	}
 
-	// 1) Backfill finalized files first.
-	// This covers the case where rename succeeded earlier but DB upsert failed or process restarted.
-	finalizedMatches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()))
-	if err != nil {
-		return err
-	}
-	sort.Strings(finalizedMatches)
-
-	for _, finalPath := range finalizedMatches {
-		info, err := os.Stat(finalPath)
-		if err != nil || info.IsDir() || info.Size() == 0 {
-			continue
-		}
-		if _, ok := w.knownFiles[finalPath]; ok {
-			continue
-		}
-
-		checksum, err := ComputeSHA256(finalPath)
+	// 1) Backfill finalized files on a cadence.
+	// This keeps recovery coverage while avoiding a full directory walk every tick.
+	if forceBackfill || w.shouldBackfillFinalized() {
+		finalizedMatches, err := filepath.Glob(filepath.Join(dir, "*"+w.segmentExt()))
 		if err != nil {
-			log.Printf("[RecorderWorker] checksum failed for finalized segment %s: %v", finalPath, err)
-			continue
-		}
-
-		if err := upsertFinalized(finalPath, info, checksum); err != nil {
 			return err
 		}
+		sort.Strings(finalizedMatches)
+
+		for _, finalPath := range finalizedMatches {
+			info, err := os.Stat(finalPath)
+			if err != nil || info.IsDir() || info.Size() == 0 {
+				continue
+			}
+			if _, ok := w.knownFiles[finalPath]; ok {
+				continue
+			}
+
+			checksum, err := ComputeSHA256(finalPath)
+			if err != nil {
+				log.Printf("[RecorderWorker] checksum failed for finalized segment %s: %v", finalPath, err)
+				continue
+			}
+
+			if err := upsertFinalized(finalPath, info, checksum); err != nil {
+				return err
+			}
+		}
+
+		w.markFinalizedScan()
 	}
 
 	// 2) Process tmp files in order.
@@ -649,6 +656,19 @@ func (w *RecorderWorker) currentCmd() *exec.Cmd {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.cmd
+}
+
+func (w *RecorderWorker) shouldBackfillFinalized() bool {
+	w.mu.RLock()
+	lastScan := w.lastFinalizedScan
+	w.mu.RUnlock()
+	return lastScan.IsZero() || time.Since(lastScan) >= finalizedBackfillInterval
+}
+
+func (w *RecorderWorker) markFinalizedScan() {
+	w.mu.Lock()
+	w.lastFinalizedScan = time.Now()
+	w.mu.Unlock()
 }
 
 func (w *RecorderWorker) cameraCodec() string {

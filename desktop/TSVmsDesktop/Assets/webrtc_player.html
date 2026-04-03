@@ -616,20 +616,22 @@ function armFirstFrameHandlers(codec) {
   }, firstFrameTimeoutMs);
 }
 
+async function createWebRtcTransport() {
+  return await api('POST', `/rooms/${cameraId}/transports/webrtc`, {});
+}
+
 async function connectOnce(preferredCodec) {
   setStatus(`Trying WebRTC (${preferredCodec})…`);
-    debug('attempt-start', preferredCodec);
+  debug('attempt-start', preferredCodec);
 
   _signalingTimer = setTimeout(() => fail('Signaling timeout'), signalingTimeoutMs);
 
-  const joinResult = await api('POST', `/rooms/${cameraId}/join`, {
+  await api('POST', `/rooms/${cameraId}/join`, {
     sessionId,
     codecPreferences: [preferredCodec]
   });
-  const routerCaps =
-    joinResult && Array.isArray(joinResult.codecs)
-      ? joinResult
-      : await api('GET', `/rooms/${cameraId}/rtp-capabilities`);
+
+  const routerCaps = await api('GET', `/rooms/${cameraId}/rtp-capabilities`);
 
   let negotiatedCodec = preferredCodec;
   if (!routerHasCodec(routerCaps, negotiatedCodec)) {
@@ -641,7 +643,7 @@ async function connectOnce(preferredCodec) {
     negotiatedCodec = fallbackCodec;
   }
 
-  const transport = await api('POST', `/rooms/${cameraId}/transports`, {});
+  const transport = await createWebRtcTransport();
   const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
   _pc = pc;
 

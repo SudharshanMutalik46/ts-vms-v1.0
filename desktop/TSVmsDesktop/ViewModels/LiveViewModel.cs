@@ -22,9 +22,13 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsGStreamerActive))]
         [NotifyPropertyChangedFor(nameof(IsWebRtcActive))]
+        [NotifyPropertyChangedFor(nameof(IsToolbarVisible))]
         private bool _isConnected = false;
 
-        [ObservableProperty] private bool _isSelected = false;
+        [ObservableProperty] private bool _isPlaceholder = false;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsToolbarVisible))]
+        private bool _isSelected = false;
         [ObservableProperty] private bool _isLoading = false;
 
         /// <summary>Current streaming tier. Changes trigger WebRtc/GStreamer surface swap.</summary>
@@ -83,7 +87,7 @@ namespace TSVmsDesktop.ViewModels
         public int WebRtcTrackTimeoutMs { get; set; } = 2500;
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
-        public string RtspTransport { get; set; } = "udp";
+        public string RtspTransport { get; set; } = "tcp";
         public bool RtspRetriedWithTcp { get; set; } = false;
         public bool RtspRetriedWithUdp { get; set; } = false;
         public bool RtspRetriedWithoutQuery { get; set; } = false;
@@ -104,6 +108,12 @@ namespace TSVmsDesktop.ViewModels
 
         [ObservableProperty] private bool _hasAudioCapability = false;
         [ObservableProperty] private bool _isAudioPlaying = false;
+        
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsToolbarVisible))]
+        private bool _isHovered = false;
+
+        public bool IsToolbarVisible => IsConnected && (IsHovered || IsSelected);
         
         [ObservableProperty] private CameraViewModel? _cameraVM;
     }
@@ -176,7 +186,14 @@ namespace TSVmsDesktop.ViewModels
             _videoService.StreamError += OnStreamError;
             
             _cameraService.AllCameras.CollectionChanged += (s, e) => RequestRefresh();
+            CameraGrid.CollectionChanged += (s, e) => OnPropertyChanged(nameof(ShowEmptyLiveState));
         }
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsHoverToolbarOpen))]
+        private CameraSlot? _activeHoverSlot;
+
+        public bool IsHoverToolbarOpen => !IsFullScreen && ActiveHoverSlot != null && ActiveHoverSlot.IsConnected;
 
         private async void RequestRefresh()
         {
@@ -247,7 +264,7 @@ namespace TSVmsDesktop.ViewModels
                 slot.TransientStatusText = "";
             }
 
-            OnPropertyChanged(nameof(ActiveStreamCount));
+            NotifyLiveStateChanged();
         }
 
         public async Task OnViewActivated() => await ActivateAsync();
@@ -272,7 +289,9 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private string _fullScreenUrl = "";
         [ObservableProperty] private string _fullScreenRtspUrl = "";
         [ObservableProperty] private bool _fullScreenHasAudio = false;
-        [ObservableProperty] private bool _isFullScreen = false;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsHoverToolbarOpen))]
+        private bool _isFullScreen = false;
         [ObservableProperty] private string _selectedCameraName = "";
         [ObservableProperty] private bool _isSyncing = false;
 
@@ -283,6 +302,13 @@ namespace TSVmsDesktop.ViewModels
 
         public int GridSize => GridRows * GridColumns;
         public string CurrentPageDisplay => $"Page {CurrentPage + 1} of {TotalPages}";
+        public bool ShowEmptyLiveState => CameraGrid.Count == 0;
+
+        private void NotifyLiveStateChanged()
+        {
+            OnPropertyChanged(nameof(ActiveStreamCount));
+            OnPropertyChanged(nameof(ShowEmptyLiveState));
+        }
 
         [RelayCommand]
         public void SetLayout(string sizeParam)
@@ -300,6 +326,7 @@ namespace TSVmsDesktop.ViewModels
 
         public void SelectSlot(CameraSlot slot)
         {
+            if (slot.IsPlaceholder) return;
             if (SelectedSlot != null) SelectedSlot.IsSelected = false;
             SelectedSlot = slot;
             if (SelectedSlot != null) SelectedSlot.IsSelected = true;
@@ -371,7 +398,7 @@ namespace TSVmsDesktop.ViewModels
                 }
             }
             UpdateAudioStates();
-            OnPropertyChanged(nameof(ActiveStreamCount));
+            NotifyLiveStateChanged();
         }
 
         [RelayCommand]
@@ -511,6 +538,19 @@ namespace TSVmsDesktop.ViewModels
             var cam = _cameraService.AllCameras.FirstOrDefault(c => c.Id == slot.Id);
             if (cam == null) return;
 
+            bool preserveRtspRecoveryState =
+                slot.PipelineHandle != IntPtr.Zero ||
+                slot.IsConnected ||
+                slot.RtspRetriedWithTcp ||
+                slot.RtspRetriedWithUdp ||
+                slot.RtspRetriedWithoutQuery ||
+                slot.RtspRetriedWithMain;
+
+            bool priorRetryWithTcp = slot.RtspRetriedWithTcp;
+            bool priorRetryWithUdp = slot.RtspRetriedWithUdp;
+            bool priorRetryWithoutQuery = slot.RtspRetriedWithoutQuery;
+            bool priorRetryWithMain = slot.RtspRetriedWithMain;
+
             if (string.IsNullOrWhiteSpace(cam.Username))
             {
                 var creds = await _credentialService.GetCredentialsAsync(cam.Id);
@@ -523,18 +563,41 @@ namespace TSVmsDesktop.ViewModels
 
             slot.Username = cam.Username ?? "";
             slot.Password = cam.Password ?? "";
-            slot.RtspRetriedWithTcp = false;
-            slot.RtspRetriedWithUdp = false;
-            slot.RtspRetriedWithoutQuery = false;
+
+            if (!preserveRtspRecoveryState)
+            {
+                slot.RtspRetriedWithTcp = false;
+                slot.RtspRetriedWithUdp = false;
+                slot.RtspRetriedWithoutQuery = false;
+                slot.RtspRetriedWithMain = false;
+                // Keep the learned transport across refreshes so a successful
+                // transport recovery is not immediately undone by a reconnect.
+                if (string.IsNullOrWhiteSpace(slot.RtspTransport))
+                    slot.RtspTransport = "tcp";
+            }
+            else
+            {
+                slot.RtspRetriedWithTcp = priorRetryWithTcp;
+                slot.RtspRetriedWithUdp = priorRetryWithUdp;
+                slot.RtspRetriedWithoutQuery = priorRetryWithoutQuery;
+                slot.RtspRetriedWithMain = priorRetryWithMain;
+                slot.RtspTransport = "tcp";
+            }
             InvalidateStreamCaches(cam.Id);
 
             string resolvedMain = await ResolvePreferredMainUrlAsync(cam, slot.Username, slot.Password);
             slot.MainRtspUrl = resolvedMain;
 
             // --- Always resolve RTSP as the final fallback tier ---
+            // If we already promoted this slot to the main stream because the
+            // sub stream failed, keep that decision intact.  getFreshContext()
+            // calls back into this method during restart, so unconditionally
+            // reapplying the sub URL would undo the retry and resurrect the
+            // bad stream path.
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
-            slot.RtspUrl = resolvedSub;
-            slot.RtspRetriedWithMain = false;
+            slot.RtspUrl = slot.RtspRetriedWithMain && !string.IsNullOrWhiteSpace(resolvedMain)
+                ? resolvedMain
+                : resolvedSub;
             slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
             slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
             slot.PreferredFallbackTier = StreamTier.Rtsp;
@@ -708,6 +771,7 @@ namespace TSVmsDesktop.ViewModels
             if (CurrentPage >= TotalPages) CurrentPage = Math.Max(0, TotalPages - 1);
 
             var visibleBatch = uniqueCameras.Skip(CurrentPage * GridSize).Take(GridSize).ToList();
+            var needsConnectionRefresh = false;
 
             var toRemove = CameraGrid.Where(s => visibleBatch.All(c => c.Id != s.Id)).ToList();
             foreach (var slot in toRemove)
@@ -718,6 +782,7 @@ namespace TSVmsDesktop.ViewModels
                     slot.PipelineHandle = IntPtr.Zero;
                 }
                 CameraGrid.Remove(slot);
+                needsConnectionRefresh = true;
             }
 
             foreach (var cam in visibleBatch)
@@ -740,8 +805,10 @@ namespace TSVmsDesktop.ViewModels
                     };
                     UpdateIp(slot, cam);
                     await FetchCredentialsForSlot(slot);
+                    WarmMainStreamCache(slot);
                     CameraGrid.Add(slot);
                     _ = slot.CameraVM.PollRecordingStatusAsync();
+                    needsConnectionRefresh = true;
                 }
                 else
                 {
@@ -751,6 +818,7 @@ namespace TSVmsDesktop.ViewModels
                     if (existing.BackendStatus != cam.Status) 
                     {
                         existing.BackendStatus = cam.Status ?? "Offline";
+                        needsConnectionRefresh = true;
                         if (string.Equals(cam.Status, "Offline", StringComparison.OrdinalIgnoreCase) && existing.IsConnected)
                         {
                             existing.IsConnected = false;
@@ -773,18 +841,32 @@ namespace TSVmsDesktop.ViewModels
 
                     existing.HasAudioCapability = cam.Capabilities?.HasAudio ?? false;
                     UpdateIp(existing, cam);
+                    WarmMainStreamCache(existing);
                     if (!WebRtcEnabled && existing.ActiveTier == StreamTier.WebRtc)
                     {
                         existing.ActiveTier = StreamTier.Rtsp;
                         existing.IsWebRtcStarted = false;
+                        needsConnectionRefresh = true;
                     }
                     if (existing.CameraVM != null) _ = existing.CameraVM.PollRecordingStatusAsync();
                 }
             }
-            OnPropertyChanged(nameof(ActiveStreamCount));
+
+            // Keep only real cameras in the grid. Empty cells remain blank instead of
+            // showing synthetic "No Signal" tiles when there are fewer cameras than slots.
+            foreach (var placeholder in CameraGrid.Where(s => s.IsPlaceholder).ToList())
+            {
+                CameraGrid.Remove(placeholder);
+            }
+
+            NotifyLiveStateChanged();
             if (_isActive)
             {
-                await ConnectAll();
+                if (needsConnectionRefresh || CameraGrid.Any(s => s.IsConnected == false && !string.IsNullOrWhiteSpace(s.Id) &&
+                    string.Equals(s.BackendStatus, "Online", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await ConnectAll();
+                }
                 UpdateAudioStates();
             }
         }
@@ -814,46 +896,56 @@ namespace TSVmsDesktop.ViewModels
             return mainUrl;
         }
 
+        private void WarmMainStreamCache(CameraSlot slot)
+        {
+            if (slot == null || string.IsNullOrWhiteSpace(slot.Id))
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await GetMainStreamUrlAsync(slot);
+                }
+                catch
+                {
+                }
+            });
+        }
+
         public int ActiveStreamCount => CameraGrid.Count(c => c.IsConnected);
 
         [RelayCommand]
         public async Task EnterFullScreen(CameraSlot slot)
         {
             if (slot == null || string.IsNullOrEmpty(slot.RtspUrl)) return;
+            ActiveHoverSlot = null;
             SelectedCameraName = slot.CameraName;
-            IsFullScreen = true;
+            var subUrl = slot.RtspUrl;
 
+            _subStreamCache[slot.Id] = subUrl;
             string mainUrl = await GetMainStreamUrlAsync(slot);
-            _subStreamCache[slot.Id] = slot.RtspUrl;
-            slot.RtspUrl = string.Empty; 
+            if (string.IsNullOrWhiteSpace(mainUrl))
+                mainUrl = subUrl;
 
-            await Task.Delay(800); 
-
-            if (!string.IsNullOrEmpty(mainUrl) && mainUrl != _subStreamCache[slot.Id]) FullScreenUrl = mainUrl;
-            else FullScreenUrl = _subStreamCache[slot.Id];
-
-            FullScreenRtspUrl = FullScreenUrl;
-
+            FullScreenUrl = mainUrl;
+            FullScreenRtspUrl = mainUrl;
             FullScreenHasAudio = slot.HasAudioCapability;
+
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
-            mainVm.IsKioskMode = true; 
+            mainVm.IsKioskMode = true;
+            IsFullScreen = true;
             UpdateAudioStates();
+
+            return;
         }
 
         [RelayCommand]
-        public async Task ExitFullScreen() 
+        public void ExitFullScreen() 
         {
+            IsFullScreen = false;
             FullScreenUrl = string.Empty;
             FullScreenRtspUrl = string.Empty;
-            var activeSlot = CameraGrid.FirstOrDefault(s => s.CameraName == SelectedCameraName);
-            await Task.Delay(800);
-            
-            if (activeSlot != null && _subStreamCache.TryGetValue(activeSlot.Id, out var subUrl))
-            {
-                activeSlot.RtspUrl = subUrl; 
-            }
-
-            IsFullScreen = false;
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
             mainVm.IsKioskMode = false;
             UpdateAudioStates();
@@ -966,7 +1058,7 @@ namespace TSVmsDesktop.ViewModels
                 {
                     _ = FailReconnectAsync(slot, "No stream URL available for any tier");
                 }
-                OnPropertyChanged(nameof(ActiveStreamCount));
+                NotifyLiveStateChanged();
                 return;
             }
 
@@ -990,7 +1082,7 @@ namespace TSVmsDesktop.ViewModels
                 await Task.Delay(1000);
                 slot.IsConnected = true;
             });
-            OnPropertyChanged(nameof(ActiveStreamCount));
+            NotifyLiveStateChanged();
         }
 
         private static bool IsPermanentGStreamerError(string msg) =>
@@ -1009,6 +1101,40 @@ namespace TSVmsDesktop.ViewModels
          || msg.Contains("404", StringComparison.Ordinal)
          || msg.Contains("Not Found", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsRtspStallError(string msg) =>
+            msg.Contains("stalled", StringComparison.OrdinalIgnoreCase)
+         || msg.Contains("no frame progress", StringComparison.OrdinalIgnoreCase)
+         || msg.Contains("freeze", StringComparison.OrdinalIgnoreCase);
+
+        private static bool ShouldForceTcpFallback(string message)
+        {
+            return message.Contains("Could not receive any packets", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("No other protocols to try", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("RTSP transport setup failed", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("Could not connect to server", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsRecoverableTransportError(string message) =>
+            message.Contains("Could not read from resource", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Could not receive any packets", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("No other protocols to try", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("RTSP transport setup failed", StringComparison.OrdinalIgnoreCase);
+
+        private static bool ShouldPreferMainStreamFallback(CameraSlot slot, string message)
+        {
+            string url = slot.RtspUrl ?? "";
+            string combined = $"{message} {url}";
+            return combined.Contains("404", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Not Found", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("Could not write to resource", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("setup failed", StringComparison.OrdinalIgnoreCase)
+                || combined.Contains("setup_streams_start", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("sub", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("stream=1", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("dev=1", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("channel=1_stream=1", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string StripRtspQuery(string url)
         {
             if (string.IsNullOrWhiteSpace(url)) return "";
@@ -1021,25 +1147,95 @@ namespace TSVmsDesktop.ViewModels
             var slot = CameraGrid.FirstOrDefault(s => s.WindowHandle == windowHandle);
             if (slot == null) return;
 
-            if (slot.ActiveTier == StreamTier.Rtsp && IsRtspSetupError(message))
+            if (slot.ActiveTier == StreamTier.Rtsp && (IsRtspSetupError(message) || IsRtspStallError(message)))
             {
-                if (string.Equals(slot.RtspTransport, "udp", StringComparison.OrdinalIgnoreCase) &&
+                bool isStall = IsRtspStallError(message);
+
+                if (string.Equals(slot.RtspTransport, "tcp", StringComparison.OrdinalIgnoreCase) &&
                     !slot.RtspRetriedWithTcp &&
-                    !message.Contains("404", StringComparison.OrdinalIgnoreCase) &&
-                    !message.Contains("Not Found", StringComparison.OrdinalIgnoreCase))
+                    IsRecoverableTransportError(message))
                 {
-                    VideoService.Log($"[TS-VMS] RTSP UDP setup failed for {slot.CameraName}; switching future starts to TCP.");
+                    VideoService.Log($"[TS-VMS] RTSP transport issue for {slot.CameraName}; keeping tile alive on TCP.");
                     slot.RtspRetriedWithTcp = true;
                     slot.RtspTransport = "tcp";
+                    slot.StreamErrorMessage = "";
+                    slot.IsStreamFailed = false;
+                    slot.IsConnected = true;
+                    NotifyLiveStateChanged();
+                    return;
                 }
-                else if (string.Equals(slot.RtspTransport, "tcp", StringComparison.OrdinalIgnoreCase) &&
-                         !slot.RtspRetriedWithUdp)
+
+                if (isStall &&
+                    !slot.RtspRetriedWithMain &&
+                    !string.IsNullOrWhiteSpace(slot.MainRtspUrl) &&
+                    !string.Equals(slot.RtspUrl, slot.MainRtspUrl, StringComparison.OrdinalIgnoreCase))
                 {
-                    VideoService.Log($"[TS-VMS] RTSP TCP setup failed for {slot.CameraName}; retrying once with UDP.");
-                    slot.RtspRetriedWithUdp = true;
-                    slot.RtspTransport = "udp";
+                    VideoService.Log($"[TS-VMS] RTSP stream stalled for {slot.CameraName}; retrying once with main stream.");
+                    slot.RtspRetriedWithMain = true;
+                    slot.RtspUrl = slot.MainRtspUrl;
+
+                    var retrySlot = slot;
+                    System.Windows.Application.Current?.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await Task.Delay(1200);
+                        if (retrySlot.ActiveTier == StreamTier.Rtsp &&
+                            retrySlot.RtspRetriedWithMain &&
+                            string.Equals(retrySlot.RtspUrl, retrySlot.MainRtspUrl, StringComparison.OrdinalIgnoreCase))
+                        {
+                            retrySlot.IsStreamFailed = false;
+                            retrySlot.StreamErrorMessage = "";
+                            retrySlot.IsConnected = true;
+                        }
+                    });
+                    slot.IsConnected = false;
+                    slot.IsStreamFailed = true;
+                    slot.StreamErrorMessage = message;
+                    if (slot.PipelineHandle != IntPtr.Zero)
+                    {
+                        var h = slot.PipelineHandle;
+                        slot.PipelineHandle = IntPtr.Zero;
+                        _videoService.StopStream(h);
+                    }
+                    NotifyLiveStateChanged();
+                    return;
                 }
-                else if (!slot.RtspRetriedWithoutQuery)
+
+                if (ShouldPreferMainStreamFallback(slot, message) &&
+                    !slot.RtspRetriedWithMain &&
+                    !string.IsNullOrWhiteSpace(slot.MainRtspUrl) &&
+                    !string.Equals(slot.RtspUrl, slot.MainRtspUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    VideoService.Log($"[TS-VMS] RTSP URL/path fallback for {slot.CameraName}; switching directly to main stream.");
+                    slot.RtspRetriedWithMain = true;
+                    slot.RtspUrl = slot.MainRtspUrl;
+
+                    var retrySlot = slot;
+                    System.Windows.Application.Current?.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await Task.Delay(900);
+                        if (retrySlot.ActiveTier == StreamTier.Rtsp &&
+                            retrySlot.RtspRetriedWithMain &&
+                            string.Equals(retrySlot.RtspUrl, retrySlot.MainRtspUrl, StringComparison.OrdinalIgnoreCase))
+                        {
+                            retrySlot.IsStreamFailed = false;
+                            retrySlot.StreamErrorMessage = "";
+                            retrySlot.IsConnected = true;
+                        }
+                    });
+                    slot.IsConnected = false;
+                    slot.IsStreamFailed = true;
+                    slot.StreamErrorMessage = message;
+                    if (slot.PipelineHandle != IntPtr.Zero)
+                    {
+                        var h = slot.PipelineHandle;
+                        slot.PipelineHandle = IntPtr.Zero;
+                        _videoService.StopStream(h);
+                    }
+                    NotifyLiveStateChanged();
+                    return;
+                }
+
+                if (!slot.RtspRetriedWithoutQuery)
                 {
                     string queryless = StripRtspQuery(slot.RtspUrl);
                     if (!string.IsNullOrWhiteSpace(queryless) &&
@@ -1081,7 +1277,7 @@ namespace TSVmsDesktop.ViewModels
                         slot.PipelineHandle = IntPtr.Zero;
                         _videoService.StopStream(h);
                     }
-                    OnPropertyChanged(nameof(ActiveStreamCount));
+                    NotifyLiveStateChanged();
                     return;
                 }
             }
@@ -1097,7 +1293,7 @@ namespace TSVmsDesktop.ViewModels
                 _videoService.StopStream(h);
             }
 
-            OnPropertyChanged(nameof(ActiveStreamCount));
+            NotifyLiveStateChanged();
         }
     }
 }

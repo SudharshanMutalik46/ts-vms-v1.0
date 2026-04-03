@@ -29,10 +29,13 @@ namespace TSVmsDesktop.Services
             public CancellationTokenSource? Cts { get; set; }
             public Task? WatchTask { get; set; }
             public bool IsRestarting { get; set; }
+            public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
+            public DateTime LastProgressAtUtc { get; set; } = DateTime.UtcNow;
+            public long LastProgressPositionNs { get; set; } = -1;
             public string Username { get; set; } = "";
             public string Password { get; set; } = "";
             public bool HasAudio { get; set; }
-            public string RtspTransport { get; set; } = "udp";
+            public string RtspTransport { get; set; } = "tcp";
 
             public IntPtr Pipeline { get; set; }
             public IntPtr OverlayElement { get; set; }
@@ -50,6 +53,7 @@ namespace TSVmsDesktop.Services
         }
 
         public event Action<IntPtr, string>? StreamError;
+        public event Action<IntPtr>? StreamReady;
         private readonly ConcurrentDictionary<IntPtr, StreamContext> _activeStreams = new();
         private readonly ApiClient _api;
 
@@ -123,10 +127,7 @@ namespace TSVmsDesktop.Services
             }
         }
 
-        private static string NormalizeRtspTransport(string transport)
-        {
-            return string.Equals(transport, "udp", StringComparison.OrdinalIgnoreCase) ? "udp" : "tcp";
-        }
+        private static string NormalizeRtspTransport(string transport) => "tcp";
 
         private static string StripRtspCredentials(string rtspUrl, out string username, out string password)
         {
@@ -175,14 +176,11 @@ namespace TSVmsDesktop.Services
             return rtspUrl.Substring(0, authorityStart) + rtspUrl.Substring(atIndex + 1);
         }
 
-        private static bool ShouldFallbackToTcp(string errWrap, string debugWrap)
+        private static bool IsStreamStall(string message)
         {
-            string combined = $"{errWrap} {debugWrap}";
-            return combined.Contains("setup failed", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("Could not write to resource", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("open_from_sdp", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("setup_streams_start", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("Could not open", StringComparison.OrdinalIgnoreCase);
+            return message.Contains("stalled", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("no frame progress", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("freeze", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsRtspSetupFailure(string errWrap, string debugWrap)
@@ -364,7 +362,7 @@ namespace TSVmsDesktop.Services
             return r.Right > 0 && r.Bottom > 0;
         }
 
-        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false, Func<Task<(string Url, IntPtr Handle)>>? getFreshContext = null, string rtspTransport = "udp")
+        public IntPtr StartStream(IntPtr windowHandle, string rtspUrl, string username = "", string password = "", bool hasAudio = false, Func<Task<(string Url, IntPtr Handle)>>? getFreshContext = null, string rtspTransport = "tcp", string cameraName = "")
         {
             if (!_isInitialized) Initialize();
 
@@ -414,24 +412,8 @@ namespace TSVmsDesktop.Services
             Log($"[TS-VMS] Window Handle: {windowHandle}");
 
             // ------------------------------------------------------------------
-            // FIX 2: Replace hardcoded H.265-only pipeline with decodebin3 so
-            // the pipeline works for both H.264 and H.265 cameras automatically.
-            //
-            // ROOT CAUSE:
-            //   "rtph265depay ! h265parse ! d3d11h265dec ! d3d11colorconvert ! d3d11videosink"
-            //   (a) Only works for H.265 cameras — H.264 cameras caused immediate
-            //       error → restart loops.
-            //   (b) d3d11colorconvert between d3d11h265dec and d3d11videosink is
-            //       redundant (both share the same D3D11 device) and adds an extra
-            //       device context, contributing to the "Refcount:52" D3D11 object
-            //       leak visible in the logs at t=16s.
-            //
-            // FIX: Use decodebin3 for automatic codec negotiation.  It selects
-            // d3d11h265dec for H.265 and d3d11h264dec for H.264.  Remove
-            // d3d11colorconvert — d3d11videosink accepts NV12 D3D11Memory directly.
+            // ALWAYS consume non-video RTP pads and add textoverlay for persistent names.
             // ------------------------------------------------------------------
-            // Always consume non-video RTP pads. Otherwise cameras that expose
-            // audio/metadata tracks can fail with "streaming stopped, reason not-linked".
             string audioPart = hasAudio
                 ? "rtspsrc_src. ! application/x-rtp,media=audio ! queue ! decodebin3 name=abind abind. ! queue ! audioconvert ! audioresample ! volume name=myvolume ! autoaudiosink sync=false "
                 : "rtspsrc_src. ! application/x-rtp,media=audio ! queue ! fakesink sync=false async=false ";
@@ -439,7 +421,7 @@ namespace TSVmsDesktop.Services
             string pipelineStr =
                 $"rtspsrc location=\"{authUrl}\" user-agent=\"{userAgent}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols={transport} timeout=10000000 tcp-timeout=10000000 name=rtspsrc_src " +
                 $"rtspsrc_src. ! application/x-rtp,media=video ! queue ! decodebin3 name=vdbin " +
-                $"vdbin. ! queue ! d3d11videosink name=mysink sync=false force-aspect-ratio=true " +
+                $"vdbin. ! queue ! textoverlay text=\"{cameraName.Replace("\"", "\\\"")}\" valignment=top halignment=right font-desc=\"Sans Bold 10\" ! d3d11videosink name=mysink sync=false force-aspect-ratio=false " +
                 audioPart +
                 "rtspsrc_src. ! application/x-rtp,media=application ! queue ! fakesink sync=false async=false";
 
@@ -467,7 +449,10 @@ namespace TSVmsDesktop.Services
                 Pipeline = pipeline,
                 GetFreshContext = getFreshContext,
                 RtspTransport = transport,
-                FallbackCts = new CancellationTokenSource()
+                FallbackCts = new CancellationTokenSource(),
+                StartedAtUtc = DateTime.UtcNow,
+                LastProgressAtUtc = DateTime.UtcNow,
+                LastProgressPositionNs = -1
             };
 
             IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
@@ -494,6 +479,11 @@ namespace TSVmsDesktop.Services
                         Log($"[TS-VMS] {ctx.StreamId} Bus monitor started for {rtspUrl}");
                         while (!token.IsCancellationRequested)
                         {
+                            if (TryCheckForStall(ctx, pipeline, token))
+                            {
+                                break;
+                            }
+
                             IntPtr errMsg = GstNative.gst_bus_pop_filtered(bus, GstNative.GST_MESSAGE_ERROR);
                             if (errMsg != IntPtr.Zero)
                             {
@@ -516,15 +506,6 @@ namespace TSVmsDesktop.Services
                                     {
                                         Log($"[TS-VMS] {ctx.StreamId} Surface error detected; stopping.");
                                         StopStream(pipeline);
-                                        break;
-                                    }
-
-                                    if (string.Equals(ctx.RtspTransport, "udp", StringComparison.OrdinalIgnoreCase) &&
-                                        ShouldFallbackToTcp(errWrap, debugWrap))
-                                    {
-                                        Log($"[TS-VMS] {ctx.StreamId} UDP RTSP setup failed; retrying once with TCP.");
-                                        ctx.RtspTransport = "tcp";
-                                        _ = RestartStreamAsync(pipeline);
                                         break;
                                     }
 
@@ -599,6 +580,7 @@ namespace TSVmsDesktop.Services
                                         liveCtx.OverlayBound = true;
                                     }
                                     Log($"[TS-VMS] RTSP: overlay exposed at ASYNC_DONE handle={liveCtx.WindowHandle}");
+                                    StreamReady?.Invoke(liveCtx.WindowHandle);
                                 }
                             }
 
@@ -627,6 +609,39 @@ namespace TSVmsDesktop.Services
             Log($"[TS-VMS] {ctx.StreamId} Set State PLAYING returned: {stateResult} ({rtspUrl})");
 
             return pipeline;
+        }
+
+        private bool TryCheckForStall(StreamContext ctx, IntPtr pipeline, CancellationToken token)
+        {
+            if (token.IsCancellationRequested)
+                return false;
+
+            var age = DateTime.UtcNow - ctx.StartedAtUtc;
+            if (age.TotalSeconds < 10)
+                return false;
+
+            if (!GstNative.gst_element_query_position(pipeline, GstNative.GST_FORMAT_TIME, out long positionNs))
+                return false;
+
+            if (positionNs < 0)
+                return false;
+
+            if (ctx.LastProgressPositionNs < 0 || positionNs > ctx.LastProgressPositionNs + 250_000_000L)
+            {
+                ctx.LastProgressPositionNs = positionNs;
+                ctx.LastProgressAtUtc = DateTime.UtcNow;
+                return false;
+            }
+
+            if ((DateTime.UtcNow - ctx.LastProgressAtUtc).TotalSeconds < 12)
+                return false;
+
+            if (ctx.IsRestarting)
+                return false;
+
+            Log($"[TS-VMS] {ctx.StreamId} RTSP stream stalled at {positionNs / 1_000_000_000.0:F2}s; notifying UI.");
+            StreamError?.Invoke(ctx.WindowHandle, "RTSP stream stalled");
+            return true;
         }
 
         private async Task RestartStreamAsync(IntPtr oldPipeline)

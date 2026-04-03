@@ -44,10 +44,13 @@ namespace TSVmsDesktop.ViewModels
 
         public ObservableCollection<string> AvailableRoles { get; } = new() { "admin", "operator", "viewer" };
 
+        public bool ShowWorkspaceOverview => !IsCreatingUser && !IsAssigningRole && !IsVerifying && !ShowDetails;
+
         partial void OnCurrentUserChanged(UserDto? value)
         {
             IsUserLoaded = value != null;
             ShowDetails = value != null && !IsCreatingUser && !IsAssigningRole && !IsVerifying;
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
             if (value != null)
             {
                 if (SearchUserId != value.Id)
@@ -64,6 +67,27 @@ namespace TSVmsDesktop.ViewModels
             {
                 CurrentUser = value;
             }
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
+        }
+
+        partial void OnIsCreatingUserChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
+        }
+
+        partial void OnIsAssigningRoleChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
+        }
+
+        partial void OnIsVerifyingChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
+        }
+
+        partial void OnShowDetailsChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
         }
 
         public UsersViewModel(UserService userService, ISessionService session, SettingsService settings)
@@ -84,6 +108,7 @@ namespace TSVmsDesktop.ViewModels
                 UsersList.Add(user);
             }
             StatusMessage = $"Loaded {users.Count} users.";
+            OnPropertyChanged(nameof(ShowWorkspaceOverview));
         }
 
         [RelayCommand]

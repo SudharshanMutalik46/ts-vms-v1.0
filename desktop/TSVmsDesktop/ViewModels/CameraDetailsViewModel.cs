@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using System.Windows;
+using MessageBox = System.Windows.MessageBox;
 using TSVmsDesktop.Models;
 using TSVmsDesktop.Services;
 
@@ -16,7 +17,7 @@ namespace TSVmsDesktop.ViewModels
         private readonly CameraService _camService;
         private readonly CredentialService _credService;
         private readonly MediaService _mediaService;
-        private readonly MainViewModel _mainViewModel; 
+        private readonly MainViewModel _mainViewModel;
         private string _cameraId = "";
 
         [ObservableProperty] private CameraModel _camera = new();
@@ -26,8 +27,9 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private MediaProfile _selectedMainProfile = new();
         [ObservableProperty] private MediaProfile _selectedSubProfile = new();
         [ObservableProperty] private string _rtspValidationResult = "";
+        [ObservableProperty] private string _editableCameraName = "";
+        [ObservableProperty] private bool _isEditingName;
 
-        // Health tab properties
         [ObservableProperty] private string _healthStatus = "Unknown";
         [ObservableProperty] private string _healthStatusColor = "#999";
         [ObservableProperty] private string _healthLatency = "—";
@@ -40,81 +42,135 @@ namespace TSVmsDesktop.ViewModels
 
         public CameraDetailsViewModel(CameraService cam, CredentialService cred, MediaService media, MainViewModel mainViewModel)
         {
-            _camService = cam; _credService = cred; _mediaService = media; _mainViewModel = mainViewModel;
+            _camService = cam;
+            _credService = cred;
+            _mediaService = media;
+            _mainViewModel = mainViewModel;
         }
 
         public async void Load(string camId)
         {
             _cameraId = camId;
             var cam = await _camService.GetCameraAsync(camId);
-            
             if (cam == null)
             {
-                 // Orphaned: Camera no longer exists
-                 System.Windows.MessageBox.Show("Camera no longer exists.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                 Close();
-                 return;
+                MessageBox.Show("Camera no longer exists.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Close();
+                return;
             }
 
             Camera = cam;
-            // Clear previous state
+            EditableCameraName = cam.Name;
+            IsEditingName = false;
             CredUsername = "";
             CredPassword = "";
             Profiles.Clear();
             RtspValidationResult = "";
 
-            // Populate health info
             HealthIpAddress = cam.IpAddress;
             HealthPort = cam.Port > 0 ? cam.Port.ToString() : "554";
             HealthRtspUrl = cam.EffectiveRtspUrl;
             HealthIsEnabled = cam.IsEnabled ? "Yes" : "No";
 
-            await FetchProfiles();
-            
-            // Auto-sync if no profiles found OR if they seem to be "old" data (no audio codec info)
-            bool needsSync = Profiles.Count == 0 || System.Linq.Enumerable.All(Profiles, p => string.IsNullOrEmpty(p.AudioCodec) || p.AudioCodec == "—");
-            
-            if (needsSync)
-            {
-                await SyncProfiles();
-            }
+            RtspValidationResult = "Click Refresh Profiles to load media details.";
             await CheckHealth();
         }
 
         [RelayCommand]
         public async Task SaveCredentials()
         {
-            if(string.IsNullOrWhiteSpace(CredUsername) && string.IsNullOrWhiteSpace(CredPassword))
+            if (string.IsNullOrWhiteSpace(CredUsername) && string.IsNullOrWhiteSpace(CredPassword))
             {
-                 System.Windows.MessageBox.Show("Please enter username and password.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
-                 return;
+                MessageBox.Show("Please enter username and password.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
 
             try
             {
                 bool success = await _credService.UpdateCredentialsAsync(_cameraId, CredUsername, CredPassword);
-                if (success) 
+                if (success)
                 {
-                    System.Windows.MessageBox.Show("Credentials saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                    
-                    // Trigger auto-discovery & selection of profiles to ensure a selection exists for validation
+                    MessageBox.Show("Credentials saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                     RtspValidationResult = "Discovering profiles...";
-                    await _mediaService.SelectProfilesAsync(_cameraId, "", ""); // Triggers backend auto-select
-                    
+                    await _mediaService.SelectProfilesAsync(_cameraId, "", "");
                     await FetchProfiles();
-
-                    // Auto-validate RTSP
                     await ValidateRtsp();
                 }
                 else
                 {
-                    System.Windows.MessageBox.Show("Failed to save credentials.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("Failed to save credentials.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 RtspValidationResult = $"Error: {ex.Message}";
-                System.Windows.MessageBox.Show($"Server Error while saving: {ex.Message}\nCheck api_debug_log.txt for details.", "Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Server Error while saving: {ex.Message}\nCheck api_debug_log.txt for details.", "Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void StartEditName()
+        {
+            EditableCameraName = Camera.Name;
+            IsEditingName = true;
+        }
+
+        [RelayCommand]
+        public void CancelEditName()
+        {
+            EditableCameraName = Camera.Name;
+            IsEditingName = false;
+        }
+
+        [RelayCommand]
+        public async Task SaveName()
+        {
+            var newName = EditableCameraName?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                MessageBox.Show("Please enter a camera name.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (string.Equals(newName, Camera.Name, StringComparison.Ordinal))
+            {
+                IsEditingName = false;
+                return;
+            }
+
+            try
+            {
+                var updated = new CameraModel
+                {
+                    Id = Camera.Id,
+                    Name = newName,
+                    IpAddress = Camera.IpAddress,
+                    SiteId = Camera.SiteId,
+                    Port = Camera.Port,
+                    RtspUrl = Camera.RtspUrl,
+                    IsEnabled = Camera.IsEnabled,
+                    Model = Camera.Model,
+                    Thumbnail = Camera.Thumbnail,
+                    Capabilities = Camera.Capabilities
+                };
+
+                bool success = await _camService.UpdateCameraAsync(updated);
+                if (success)
+                {
+                    EditableCameraName = newName;
+                    var refreshed = await _camService.GetCameraAsync(_cameraId);
+                    Camera = refreshed ?? updated;
+                    IsEditingName = false;
+                    MessageBox.Show("Camera name updated successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Failed to update camera name.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to update camera name: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -124,7 +180,6 @@ namespace TSVmsDesktop.ViewModels
             RtspValidationResult = "Syncing profiles from camera...";
             try
             {
-                // Trigger backend re-discovery (POST)
                 bool success = await _mediaService.SelectProfilesAsync(_cameraId, "", "");
                 if (success)
                 {
@@ -133,12 +188,14 @@ namespace TSVmsDesktop.ViewModels
                 }
                 else
                 {
-                    RtspValidationResult = "Sync failed. Check credentials.";
+                    RtspValidationResult = "Sync failed. Check camera access.";
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                RtspValidationResult = $"Sync Error: {ex.Message}";
+                RtspValidationResult = IsAuthError(ex)
+                    ? "Camera media access is not available for this account."
+                    : $"Sync Error: {ex.Message}";
             }
         }
 
@@ -152,7 +209,7 @@ namespace TSVmsDesktop.ViewModels
                 var selection = info?.Selection;
 
                 Profiles.Clear();
-                foreach(var p in list) 
+                foreach (var p in list)
                 {
                     if (selection != null)
                     {
@@ -162,20 +219,22 @@ namespace TSVmsDesktop.ViewModels
                     }
                     Profiles.Add(p);
                 }
-                
-                if (Profiles.Count == 0 && !string.IsNullOrWhiteSpace(RtspValidationResult) && !RtspValidationResult.Contains("Syncing"))
+
+                if (Profiles.Count == 0 && (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded", StringComparison.OrdinalIgnoreCase)))
                 {
-                     RtspValidationResult = "No profiles found. Try Sync.";
+                    RtspValidationResult = "No profiles loaded. Click Refresh Profiles.";
                 }
-                else if (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded"))
+                else if (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded", StringComparison.OrdinalIgnoreCase))
                 {
                     RtspValidationResult = $"Loaded {list.Count} profiles.";
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"FetchProfiles Error: {ex.Message}");
-                RtspValidationResult = $"Fetch Error: {ex.Message}";
+                Debug.WriteLine($"FetchProfiles Error: {ex.Message}");
+                RtspValidationResult = IsAuthError(ex)
+                    ? "Camera media access is not available for this account."
+                    : "Unable to load profiles. Click Refresh Profiles to try again.";
             }
         }
 
@@ -183,7 +242,7 @@ namespace TSVmsDesktop.ViewModels
         public async Task ValidateRtsp()
         {
             RtspValidationResult = "Validating...";
-            try 
+            try
             {
                 var res = await _mediaService.ValidateRtspAsync(_cameraId);
                 if (res != null)
@@ -191,14 +250,14 @@ namespace TSVmsDesktop.ViewModels
                     if (res.Success)
                     {
                         RtspValidationResult = $"Success! Latency: {res.LatencyMs}ms";
-                        await FetchProfiles(); // Refresh list if it was empty
+                        await FetchProfiles();
                     }
                     else if (res.Status == "queued")
                     {
                         RtspValidationResult = "Validation Started (Queued)...";
-                        _ = PollValidationResult(); // Run in background
+                        _ = PollValidationResult();
                     }
-                    else if (res.Error != null && res.Error.Contains("credentials not found"))
+                    else if (res.Error != null && res.Error.Contains("credentials not found", StringComparison.OrdinalIgnoreCase))
                     {
                         RtspValidationResult = "Missing Credentials. Please Save.";
                     }
@@ -212,18 +271,29 @@ namespace TSVmsDesktop.ViewModels
                     RtspValidationResult = "Server Error (Null Response)";
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                if (ex.Message.Contains("InternalServerError"))
+                if (IsAuthError(ex))
+                    RtspValidationResult = "Camera media access is not available for this account.";
+                else if (ex.Message.Contains("InternalServerError", StringComparison.OrdinalIgnoreCase))
                     RtspValidationResult = "Server Error: Check Credentials & Camera Status";
                 else
                     RtspValidationResult = $"Error: {ex.Message}";
             }
         }
 
+        private static bool IsAuthError(Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            return msg.Contains("401", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("403", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("forbidden", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("ERR_RBAC_DENIED", StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task PollValidationResult()
         {
-            // Poll for up to 30 seconds
             for (int i = 0; i < 15; i++)
             {
                 await Task.Delay(2000);
@@ -232,7 +302,6 @@ namespace TSVmsDesktop.ViewModels
                     var info = await _mediaService.GetMediaInfoAsync(_cameraId);
                     if (info?.ValidationResults != null && info.ValidationResults.Count > 0)
                     {
-                        // Check main variant for result
                         var main = info.ValidationResults.Find(r => r.Variant == "main");
                         if (main != null && main.Status != "queued" && main.Status != "pending")
                         {
@@ -240,15 +309,15 @@ namespace TSVmsDesktop.ViewModels
                                 RtspValidationResult = $"Success! Latency: {main.LatencyMs}ms";
                             else
                                 RtspValidationResult = $"Failed: {main.Status} ({main.Error})";
-                            
-                            await FetchProfiles(); // Refresh profiles now that discovery is done
+
+                            await FetchProfiles();
                             return;
                         }
                     }
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Polling error: {ex.Message}");
+                    Debug.WriteLine($"Polling error: {ex.Message}");
                 }
             }
             RtspValidationResult = "Validation timed out. Try refreshing profiles.";
@@ -291,7 +360,7 @@ namespace TSVmsDesktop.ViewModels
                 HealthStatus = "Offline";
                 HealthStatusColor = "#C62828";
                 HealthLatency = "N/A";
-                System.Diagnostics.Debug.WriteLine($"Health check error: {ex.Message}");
+                Debug.WriteLine($"Health check error: {ex.Message}");
             }
             finally
             {
@@ -303,7 +372,7 @@ namespace TSVmsDesktop.ViewModels
         [RelayCommand]
         public void Close()
         {
-             _mainViewModel.NavigateToCameras();
+            _mainViewModel.NavigateToCameras();
         }
     }
 }

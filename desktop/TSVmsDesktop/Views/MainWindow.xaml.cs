@@ -61,18 +61,17 @@ namespace TSVmsDesktop.Views
                     _previousStyle = this.WindowStyle;
                     _previousResizeMode = this.ResizeMode;
 
-                    // 2. Win32 Seamless Transition (No hiding, no peeking)
-                    // We avoid Visibility.Collapsed because it shows the background apps.
-                    // Instead, we use native Win32 style changes to "snap" to full screen.
-                    
-                    var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                    int style = GetWindowLong(hwnd, GWL_STYLE);
-                    
-                    // Remove TitleBar and Borders
-                    SetWindowLong(hwnd, GWL_STYLE, style & ~(WS_CAPTION | WS_THICKFRAME));
-                    
+                    // 2. Switch to a true borderless fullscreen window.
+                    // Maximized alone leaves the taskbar visible; using a borderless
+                    // normal window sized to the screen gives a cleaner kiosk handoff.
+                    this.WindowStyle = WindowStyle.None;
+                    this.ResizeMode = ResizeMode.NoResize;
+                    this.WindowState = WindowState.Normal;
+                    this.Left = SystemParameters.VirtualScreenLeft;
+                    this.Top = SystemParameters.VirtualScreenTop;
+                    this.Width = SystemParameters.VirtualScreenWidth;
+                    this.Height = SystemParameters.VirtualScreenHeight;
                     this.Topmost = true;
-                    this.WindowState = WindowState.Maximized;
                     this.Activate();
 
                     System.Diagnostics.Debug.WriteLine("[MainWindow] FULLSCREEN ENGAGED (Seamless)");
@@ -80,13 +79,9 @@ namespace TSVmsDesktop.Views
                 else
                 {
                     // 3. Restore State Seamlessly
-                    var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                    int style = GetWindowLong(hwnd, GWL_STYLE);
-
-                    // Restore TitleBar and Borders
-                    SetWindowLong(hwnd, GWL_STYLE, style | WS_CAPTION | WS_THICKFRAME);
-
                     this.Topmost = false;
+                    this.WindowStyle = _previousStyle;
+                    this.ResizeMode = _previousResizeMode;
                     this.WindowState = _previousState;
                     this.Activate();
 
@@ -94,18 +89,6 @@ namespace TSVmsDesktop.Views
                 }
             }
         }
-
-        [DllImport("user32.dll")]
-        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-        
-        [DllImport("user32.dll")]
-        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        private const int GWL_STYLE = -16;
-        private const int WS_CAPTION = 0x00C00000;
-        private const int WS_THICKFRAME = 0x00040000;
-        private const int WS_MAXIMIZEBOX = 0x00010000;
-        private const int WS_MINIMIZEBOX = 0x00020000;
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {

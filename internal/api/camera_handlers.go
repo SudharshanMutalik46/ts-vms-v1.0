@@ -198,6 +198,47 @@ func (h *CameraHandler) Create(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, c)
 }
 
+// PUT /api/v1/cameras/{id}
+func (h *CameraHandler) Update(w http.ResponseWriter, r *http.Request) {
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		respondError(w, http.StatusBadRequest, "Missing ID")
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		respondError(w, http.StatusBadRequest, "Camera name is required")
+		return
+	}
+
+	cam, err := h.Service.GetCamera(r.Context(), uuid.MustParse(ac.TenantID), idStr)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Camera not found")
+		return
+	}
+
+	cam.Name = strings.TrimSpace(req.Name)
+	if err := h.Service.UpdateCamera(r.Context(), cam); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, cam)
+}
+
 // GET /api/v1/cameras
 func (h *CameraHandler) List(w http.ResponseWriter, r *http.Request) {
 	ac, ok := middleware.GetAuthContext(r.Context())

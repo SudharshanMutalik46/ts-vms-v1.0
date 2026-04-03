@@ -390,6 +390,7 @@ func main() {
 	mux.Handle("POST /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.create", "tenant")(http.HandlerFunc(camHandler.Create))))
 	mux.Handle("GET /api/v1/cameras", Protect(permsMiddleware.RequirePermission("cameras.read", "tenant")(http.HandlerFunc(camHandler.List))))
 	mux.Handle("GET /api/v1/cameras/{id}", Protect(permsMiddleware.RequirePermission("cameras.read", "tenant")(http.HandlerFunc(camHandler.Get))))
+	mux.Handle("PUT /api/v1/cameras/{id}", Protect(http.HandlerFunc(camHandler.Update)))
 	mux.Handle("DELETE /api/v1/cameras/{id}", Protect(permsMiddleware.RequirePermission("cameras.delete", "tenant")(http.HandlerFunc(camHandler.Delete))))
 	mux.Handle("POST /api/v1/cameras/{id}/enable", Protect(permsMiddleware.RequirePermission("cameras.update", "tenant")(http.HandlerFunc(camHandler.Enable))))
 	mux.Handle("POST /api/v1/cameras/{id}/disable", Protect(permsMiddleware.RequirePermission("cameras.update", "tenant")(http.HandlerFunc(camHandler.Disable))))
@@ -409,10 +410,10 @@ func main() {
 	mux.Handle("POST /api/v1/onvif/discovered-devices/{id}/probe", Protect(http.HandlerFunc(discHandler.ProbeDevice)))
 
 	// Media (Phase 2.4)
-	mux.Handle("GET /api/v1/cameras/{id}/media-profiles", Protect(permsMiddleware.RequirePermission("camera.media.read", "tenant")(http.HandlerFunc(mediaHandler.ListProfiles))))
-	mux.Handle("POST /api/v1/cameras/{id}/select-media-profiles", Protect(permsMiddleware.RequirePermission("camera.media.select", "tenant")(http.HandlerFunc(mediaHandler.SelectProfiles))))
-	mux.Handle("GET /api/v1/cameras/{id}/media-selection", Protect(permsMiddleware.RequirePermission("camera.media.read", "tenant")(http.HandlerFunc(mediaHandler.GetSelection))))
-	mux.Handle("POST /api/v1/cameras/{id}/validate-rtsp", Protect(permsMiddleware.RequirePermission("camera.media.validate", "tenant")(http.HandlerFunc(mediaHandler.ValidateRTSP))))
+	mux.Handle("GET /api/v1/cameras/{id}/media-profiles", Protect(http.HandlerFunc(mediaHandler.ListProfiles)))
+	mux.Handle("POST /api/v1/cameras/{id}/select-media-profiles", Protect(http.HandlerFunc(mediaHandler.SelectProfiles)))
+	mux.Handle("GET /api/v1/cameras/{id}/media-selection", Protect(http.HandlerFunc(mediaHandler.GetSelection)))
+	mux.Handle("POST /api/v1/cameras/{id}/validate-rtsp", Protect(http.HandlerFunc(mediaHandler.ValidateRTSP)))
 
 	// Health (Phase 2.5)
 	// Permissions:

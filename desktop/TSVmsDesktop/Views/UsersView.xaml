@@ -4,204 +4,333 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:converters="clr-namespace:TSVmsDesktop.Converters"
-             mc:Ignorable="d" 
+             mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="900">
     <UserControl.Resources>
-        <!-- Use local or relies on App.xaml, but adding just in case or if App.xaml one is hidden/different scope issues in some WPF versions -->
-        <!-- Actually App.xaml has it, so we can skip or keep. I'll keep it to be safe if I don't know for sure App.xaml is loaded correctly in designer -->
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
+
+        <Style x:Key="UsersTileStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Padding" Value="22"/>
+        </Style>
+
+        <Style x:Key="UsersPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="18,0"/>
+        </Style>
+
+        <Style x:Key="UsersSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+        </Style>
     </UserControl.Resources>
 
-    <Grid Margin="20">
+    <Grid Background="{StaticResource PageBackground}" Margin="20">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="18"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Margin="0,0,20,0">
-            <TextBlock Text="User Management" FontSize="22" FontWeight="Bold" Margin="0,0,0,20"/>
-
-            <Button Command="{Binding StartCreateCommand}" Content="+ Create New User" 
-                    Style="{StaticResource PillButtonStyle}" Height="40" Margin="0,0,0,20"/>
-
-            <Border Background="White" Padding="15" CornerRadius="8" Margin="0,0,0,20">
+        <StackPanel Grid.Column="0">
+            <Border Style="{StaticResource UsersTileStyle}" Margin="0,0,0,18">
                 <Border.Effect>
-                    <DropShadowEffect Color="#EEE" BlurRadius="10" ShadowDepth="2"/>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel>
-                    <TextBlock Text="Lookup User" FontWeight="Bold" Margin="0,0,0,10"/>
-                    <TextBox Text="{Binding SearchUserId}" Height="35" Style="{StaticResource ModernInputStyle}" 
-                             VerticalContentAlignment="Center" Margin="0,0,0,10" Tag="User ID"/>
-                    <Button Command="{Binding FindUserCommand}" Content="Search ID" Height="30" Style="{StaticResource OutlineButtonStyle}" Background="#BBB"/>
+                    <TextBlock Text="User Management" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Create accounts, assign roles, and manage passwords from one place."
+                               Margin="0,4,0,16" Foreground="#64748B" FontSize="12"/>
+
+                    <Button Command="{Binding StartCreateCommand}"
+                            Content="+ Create New User"
+                            Style="{StaticResource UsersPrimaryButtonStyle}"
+                            Margin="0,0,0,14"/>
+
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="14">
+                        <StackPanel>
+                            <TextBlock Text="Lookup User" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
+                            <TextBox Text="{Binding SearchUserId}"
+                                     Height="38"
+                                     Style="{StaticResource ModernInputStyle}"
+                                     VerticalContentAlignment="Center"
+                                     Margin="0,0,0,10"/>
+                            <Button Command="{Binding FindUserCommand}"
+                                    Content="Search ID"
+                                    Style="{StaticResource UsersSecondaryButtonStyle}"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
 
-            <!-- Added List View back because I promised to keep it! The user snippet REMOVED IT but I should keep it for better UX? 
-                 The user snippet explicitly REPLACED the left panel with just Lookup and Create. 
-                 "Step 4: View ... This now includes the Wizard UI..." 
-                 The user's snippet for View is:
-                 <StackPanel Grid.Column="0" ...>
-                    ... Lookup User ... Status Message ...
-                 </StackPanel>
-                 It DOES NOT include the ListView. 
-                 
-                 If I strictly follow "Here is the implementation... Update Views/UsersView.xaml", I should probably use their code. 
-                 BUT, losing the user list is a regression from my previous work.
-                 
-                 However, the user might WANT this specific verified flow. 
-                 I will stick to the user's snippet but I will verify if I can re-add the list.
-                 Actually, the user's snippet for ViewModel REMOVED `UsersList` property if I wasn't careful (I kept it).
-                 
-                 I will ADD the ListView back to the left panel because it's useful.
-            -->
-            
-            <TextBlock Text="All Users" FontWeight="Bold" Margin="0,10,0,5"/>
-            <ListView ItemsSource="{Binding UsersList}" SelectedItem="{Binding SelectedUser}" Height="300" BorderThickness="0" Background="Transparent">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="5">
-                             <TextBlock Text="{Binding DisplayName}" FontWeight="Bold"/> 
-                             <!-- Using DisplayName which maps to Email usually if empty, or Username -->
-                             <TextBlock Text="{Binding Email}" FontSize="11" Foreground="#777"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <Border Style="{StaticResource UsersTileStyle}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
+                </Border.Effect>
+                <StackPanel>
+                    <TextBlock Text="All Users" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,0,12"/>
+                    <ListView ItemsSource="{Binding UsersList}"
+                              SelectedItem="{Binding SelectedUser}"
+                              BorderThickness="0"
+                              Background="Transparent"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              MaxHeight="440"
+                              HorizontalContentAlignment="Stretch">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0,0,0,8"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListViewItem">
+                                            <Border x:Name="Bd" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="12">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#F0F9FF"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                    <TextBlock Text="{Binding Email}" FontSize="11" Foreground="#64748B" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
 
-            <TextBlock Text="{Binding StatusMessage}" Foreground="#555" TextWrapping="Wrap" Margin="5"/>
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#475569" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
-        <Grid Grid.Column="1">
-            
-            <Border Background="White" CornerRadius="10" Padding="30" 
-                    Visibility="{Binding IsCreatingUser, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border.Effect><DropShadowEffect Color="#DDD" BlurRadius="20"/></Border.Effect>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="300">
-                    <TextBlock Text="Step 1: Create User" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TechnoOrange}" Margin="0,0,0,20"/>
-                    
-                    <TextBlock Text="Display Name" Margin="0,0,0,5"/>
-                    <TextBox Text="{Binding NewDisplayName}" Height="35" Margin="0,0,0,15" Style="{StaticResource ModernInputStyle}"/>
+        <Grid Grid.Column="2">
+            <Border Background="White" CornerRadius="18" Padding="32"
+                    Visibility="{Binding ShowWorkspaceOverview, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="24"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                    <TextBlock Text="Email Address" Margin="0,0,0,5"/>
-                    <TextBox Text="{Binding NewEmail}" Height="35" Margin="0,0,0,15" Style="{StaticResource ModernInputStyle}"/>
-                    
-                    <TextBlock Text="Initial Password" Margin="0,0,0,5"/>
-                    <TextBox Text="{Binding NewPassword}" Height="35" Margin="0,0,0,20" Style="{StaticResource ModernInputStyle}"/>
-                    
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Command="{Binding CancelCreateCommand}" Content="Cancel" Width="80" Height="35" Background="Transparent" Foreground="#777" Margin="0,0,10,0"/>
-                        <Button Command="{Binding CreateUserCommand}" Content="Next" Width="100" Height="35" Style="{StaticResource PillButtonStyle}"/>
+                    <StackPanel>
+                        <TextBlock Text="Workspace Overview" FontSize="22" FontWeight="Bold" Foreground="#1E293B"/>
+                        <TextBlock Text="Select a user from the list or start a new account to open the detail workspace."
+                                   Margin="0,6,0,0" Foreground="#64748B" FontSize="12"/>
                     </StackPanel>
-                </StackPanel>
-            </Border>
 
-            <Border Background="White" CornerRadius="10" Padding="30"
-                    Visibility="{Binding IsAssigningRole, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border.Effect><DropShadowEffect Color="#DDD" BlurRadius="20"/></Border.Effect>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="300">
-                    <TextBlock Text="Step 2: Assign Role" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TechnoOrange}" Margin="0,0,0,10"/>
-                    <TextBlock Text="A role is mandatory for the user to log in." Foreground="#999" Margin="0,0,0,20"/>
-                    
-                    <TextBlock Text="User ID" FontWeight="Bold"/>
-                    <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#555" Margin="0,0,0,15"/>
-
-                    <TextBlock Text="Select Role" Margin="0,0,0,5"/>
-                    <ComboBox ItemsSource="{Binding AvailableRoles}" SelectedItem="{Binding SelectedRole}" 
-                              Height="40" Margin="0,0,0,20" Style="{StaticResource ModernComboBox}"/>
-
-                    <Button Command="{Binding AssignRoleCommand}" Content="Assign &amp; Continue" Height="40" Style="{StaticResource PillButtonStyle}"/>
-                </StackPanel>
-            </Border>
-
-            <Border Background="White" CornerRadius="10" Padding="30"
-                    Visibility="{Binding IsVerifying, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border.Effect><DropShadowEffect Color="#DDD" BlurRadius="20"/></Border.Effect>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="350">
-                    <TextBlock Text="Step 3: Verification" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TechnoOrange}" Margin="0,0,0,20"/>
-                    
-                    <Border Background="#E8F5E9" Padding="15" CornerRadius="5" Margin="0,0,0,20">
+                    <Border Grid.Row="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="18">
                         <StackPanel>
-                            <TextBlock Text="User Created Successfully!" FontWeight="Bold" Foreground="#2E7D32"/>
-                            <TextBlock Text="Now verifying login capability..." Foreground="#2E7D32" FontSize="12"/>
+                            <TextBlock Text="No user is currently selected." FontSize="18" FontWeight="SemiBold" Foreground="#0F172A"/>
+                            <TextBlock Text="Use the left list to open an existing account, search by ID, or create a new user and continue through role assignment."
+                                       Margin="0,8,0,0" Foreground="#64748B" TextWrapping="Wrap"/>
+
+                            <UniformGrid Grid.Row="2" Columns="3" Margin="0,18,0,0">
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
+                                    <StackPanel>
+                                        <TextBlock Text="1" FontSize="22" FontWeight="Bold" Foreground="#EA580C"/>
+                                        <TextBlock Text="Create" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Start a new user flow from the primary action button." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
+                                    <StackPanel>
+                                        <TextBlock Text="2" FontSize="22" FontWeight="Bold" Foreground="#0EA5E9"/>
+                                        <TextBlock Text="Search" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Lookup by ID from the search field on the left." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14">
+                                    <StackPanel>
+                                        <TextBlock Text="3" FontSize="22" FontWeight="Bold" Foreground="#16A34A"/>
+                                        <TextBlock Text="Manage" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Open a user to edit name, role, and password." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </UniformGrid>
                         </StackPanel>
                     </Border>
 
-                    <Button Command="{Binding TestLoginCommand}" Content="Run Self-Test Login" Height="45" Style="{StaticResource OutlineButtonStyle}" Background="#4CAF50" BorderBrush="#4CAF50" Margin="0,0,0,10"/>
-                    <Button Command="{Binding FinishWizardCommand}" Content="Skip / Finish" Height="35" Background="Transparent" Foreground="#999"/>
+                    <Grid Grid.Row="4" VerticalAlignment="Bottom">
+                        <Border Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="14" Padding="16">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <StackPanel Width="48" Height="48" Background="#DBEAFE" Margin="0,0,14,0">
+                                    <TextBlock Text="i" FontSize="24" FontWeight="Bold" Foreground="#1D4ED8"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Ready for the next action" FontWeight="SemiBold" Foreground="#1E293B"/>
+                                    <TextBlock Text="{Binding StatusMessage}" Foreground="#475569" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border Background="White" CornerRadius="18" Padding="28"
+                    Visibility="{Binding IsCreatingUser, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+                </Border.Effect>
+                <StackPanel Width="360" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="Step 1: Create User" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Add the identity details and initial password."
+                               Foreground="#64748B" FontSize="12" Margin="0,0,0,20"/>
+
+                    <TextBlock Text="Display Name" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding NewDisplayName}" Height="38" Margin="0,0,0,12" Style="{StaticResource ModernInputStyle}"/>
+
+                    <TextBlock Text="Email Address" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding NewEmail}" Height="38" Margin="0,0,0,12" Style="{StaticResource ModernInputStyle}"/>
+
+                    <TextBlock Text="Initial Password" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding NewPassword}" Height="38" Margin="0,0,0,18" Style="{StaticResource ModernInputStyle}"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Command="{Binding CancelCreateCommand}" Content="Cancel" Width="90" Height="38" Background="Transparent" Foreground="#64748B" BorderThickness="0" Margin="0,0,10,0"/>
+                        <Button Command="{Binding CreateUserCommand}" Content="Next" Style="{StaticResource UsersPrimaryButtonStyle}" Width="110"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
-            <Border Background="White" CornerRadius="10" Padding="30"
+            <Border Background="White" CornerRadius="18" Padding="28"
+                    Visibility="{Binding IsAssigningRole, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+                </Border.Effect>
+                <StackPanel Width="360" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="Step 2: Assign Role" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Choose the minimum role required for login."
+                               Foreground="#64748B" FontSize="12" Margin="0,0,0,18"/>
+
+                    <TextBlock Text="User ID" FontWeight="SemiBold" Foreground="#334155"/>
+                    <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#475569" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="Select Role" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding AvailableRoles}" SelectedItem="{Binding SelectedRole}"
+                              Height="40" Margin="0,0,0,18" Style="{StaticResource ModernComboBox}"/>
+
+                    <Button Command="{Binding AssignRoleCommand}" Content="Assign &amp; Continue" Style="{StaticResource UsersPrimaryButtonStyle}" HorizontalAlignment="Right"/>
+                </StackPanel>
+            </Border>
+
+            <Border Background="White" CornerRadius="18" Padding="28"
+                    Visibility="{Binding IsVerifying, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+                </Border.Effect>
+                <StackPanel Width="380" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="Step 3: Verification" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Validate that the user can log in with the assigned role."
+                               Foreground="#64748B" FontSize="12" Margin="0,0,0,18"/>
+
+                    <Border Background="#E8F5E9" Padding="16" CornerRadius="12" Margin="0,0,0,18">
+                        <StackPanel>
+                            <TextBlock Text="User Created Successfully!" FontWeight="SemiBold" Foreground="#166534"/>
+                            <TextBlock Text="Now verifying login capability..." Foreground="#166534" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Command="{Binding TestLoginCommand}" Content="Run Self-Test Login" Style="{StaticResource UsersSecondaryButtonStyle}" Margin="0,0,10,0"/>
+                        <Button Command="{Binding FinishWizardCommand}" Content="Skip / Finish" Background="Transparent" Foreground="#64748B" BorderThickness="0" Height="36" MinWidth="90"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Background="White" CornerRadius="18" Padding="28"
                     Visibility="{Binding ShowDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Effect>
+                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
+                </Border.Effect>
                 <StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                        <Border Width="60" Height="60" CornerRadius="30" Background="#F5F5F5" Margin="0,0,20,0">
-                            <TextBlock Text="User" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="#AAA"/>
+                        <Border Width="72" Height="72" CornerRadius="36" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,18,0">
+                            <TextBlock Text="User" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" Foreground="#94A3B8"/>
                         </Border>
                         <StackPanel VerticalAlignment="Center">
-                            <!-- READ MODE -->
                             <StackPanel Orientation="Horizontal" Visibility="{Binding IsEditingName, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                                <TextBlock Text="{Binding CurrentUser.DisplayName}" FontSize="24" FontWeight="Bold" Margin="0,0,10,0"/>
-                                <Button Command="{Binding EditNameCommand}" Content="✎" Width="30" Height="30" Background="Transparent" BorderThickness="0" Foreground="#AAA" ToolTip="Edit Name"/>
+                                <TextBlock Text="{Binding CurrentUser.DisplayName}" FontSize="26" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,10,0"/>
+                                <Button Command="{Binding EditNameCommand}" Content="Edit" Height="30" Background="Transparent" BorderThickness="0" Foreground="#94A3B8"/>
                             </StackPanel>
 
-                            <!-- EDIT MODE -->
                             <StackPanel Orientation="Horizontal" Visibility="{Binding IsEditingName, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <TextBox Text="{Binding CurrentUser.DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="200" Height="30" Style="{StaticResource ModernInputStyle}" Margin="0,0,10,0"/>
-                                <Button Command="{Binding SaveNameCommand}" Content="✓" Width="30" Height="30" Background="#E8F5E9" Foreground="#2E7D32" BorderThickness="0" Margin="0,0,5,0" ToolTip="Save"/>
-                                <Button Command="{Binding CancelEditNameCommand}" Content="✕" Width="30" Height="30" Background="#FFEBEE" Foreground="#C62828" BorderThickness="0" ToolTip="Cancel"/>
+                                <TextBox Text="{Binding CurrentUser.DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="220" Height="32" Style="{StaticResource ModernInputStyle}" Margin="0,0,10,0"/>
+                                <Button Command="{Binding SaveNameCommand}" Content="Save" Height="32" Width="70" Background="#E8F5E9" Foreground="#166534" BorderThickness="0" Margin="0,0,5,0"/>
+                                <Button Command="{Binding CancelEditNameCommand}" Content="Cancel" Height="32" Width="70" Background="#FFEBEE" Foreground="#B91C1C" BorderThickness="0"/>
                             </StackPanel>
-                            
-                            <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#999" FontSize="12"/>
-                            
-                            <!-- Change Password Section (Only for self) -->
-                            <!-- Note: ideally check if CurrentUser.Id == Session.UserId but View doesn't have session. 
-                                 We'll just expose it and let ViewModel handle logic or just show it for everyone as admin override?
-                                 User requirement: "user can use ther own password".
-                                 So this should be a "Change Password" button that opens inputs.
-                            -->
-                            <Button Command="{Binding ToggleChangePasswordCommand}" Content="Change my/user Password" Width="160" Height="25" Margin="0,10,0,0" Background="Transparent" Foreground="#555" BorderThickness="0" HorizontalAlignment="Left"/>
-                            
-                            <StackPanel Visibility="{Binding IsChangingPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,5,0,0">
-                                <TextBlock Text="Old Password (Leave empty if Admin)" Margin="0,5,0,2" FontSize="10"/>
-                                <TextBox Text="{Binding CurrentPasswordInput}" Width="200" Height="25" Style="{StaticResource ModernInputStyle}" ToolTip="Leave empty to force set password (Admin only)"/>
-                                
-                                <TextBlock Text="New Password" Margin="0,5,0,2" FontSize="10"/>
-                                <TextBox Text="{Binding NewPasswordInput}" Width="200" Height="25" Style="{StaticResource ModernInputStyle}"/>
-                                
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <Button Command="{Binding ChangeOwnPasswordCommand}" Content="Update" Width="80" Height="25" Background="#E8F5E9" Foreground="#2E7D32" BorderThickness="0" Margin="0,0,10,0"/>
-                                </StackPanel>
-                            </StackPanel>
+
+                            <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#94A3B8" FontSize="12"/>
                         </StackPanel>
                     </StackPanel>
 
-                    <Separator Margin="0,0,0,20"/>
+                    <Separator Margin="0,0,0,18"/>
 
                     <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="Email:" FontWeight="Bold" Foreground="#555"/>
-                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.Email}"/>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Email:" FontWeight="SemiBold" Foreground="#475569"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.Email}" Foreground="#0F172A"/>
                     </Grid>
-                    
+
                     <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="Disabled:" FontWeight="Bold" Foreground="#555"/>
-                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.IsDisabled}" FontWeight="SemiBold"/>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Disabled:" FontWeight="SemiBold" Foreground="#475569"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.IsDisabled}" FontWeight="SemiBold" Foreground="#0F172A"/>
                     </Grid>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,40,0,0">
-                        <Button Command="{Binding EditRoleCommand}" Content="Assign Role" Width="100" Height="35" Margin="0,0,10,0" Style="{StaticResource PillButtonStyle}" Background="{StaticResource TechnoOrange}"/>
-                        
-                        <Button Command="{Binding DisableUserCommand}" Content="Disable User" Width="100" Height="35" Margin="0,0,10,0" Background="#FFEBEE" Foreground="#D32F2F" BorderThickness="0"
-                                Visibility="{Binding CurrentUser.IsDisabled, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                        
-                        <Button Command="{Binding EnableUserCommand}" Content="Enable User" Width="100" Height="35" Margin="0,0,10,0" Background="#E8F5E9" Foreground="#2E7D32" BorderThickness="0"
-                                Visibility="{Binding CurrentUser.IsDisabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Button Command="{Binding ToggleChangePasswordCommand}"
+                            Content="Change my/user Password"
+                            Background="Transparent"
+                            Foreground="#475569"
+                            BorderThickness="0"
+                            HorizontalAlignment="Left"
+                            Margin="0,12,0,0"/>
 
+                    <StackPanel Visibility="{Binding IsChangingPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,10,0,0">
+                        <TextBlock Text="Old Password (Leave empty if Admin)" FontSize="11" Foreground="#64748B" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding CurrentPasswordInput}" Width="240" Height="32" Style="{StaticResource ModernInputStyle}" ToolTip="Leave empty to force set password (Admin only)"/>
 
-                        <Button Command="{Binding DeleteUserCommand}" Content="Delete User" Width="100" Height="35" Background="#FFE0E0" Foreground="#B71C1C" BorderThickness="0"/>
+                        <TextBlock Text="New Password" FontSize="11" Foreground="#64748B" Margin="0,10,0,4"/>
+                        <TextBox Text="{Binding NewPasswordInput}" Width="240" Height="32" Style="{StaticResource ModernInputStyle}"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Command="{Binding ChangeOwnPasswordCommand}" Content="Update" Width="90" Height="32" Background="#E8F5E9" Foreground="#166534" BorderThickness="0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,30,0,0">
+                        <Button Command="{Binding EditRoleCommand}" Content="Assign Role" Style="{StaticResource UsersPrimaryButtonStyle}" Width="110" Margin="0,0,10,0"/>
+                        <Button Command="{Binding DisableUserCommand}" Content="Disable User" Width="110" Height="36" Background="#FFEBEE" Foreground="#B91C1C" BorderThickness="0"
+                                Visibility="{Binding CurrentUser.IsDisabled, Converter={StaticResource InverseBooleanToVisibilityConverter}}" Margin="0,0,10,0"/>
+                        <Button Command="{Binding EnableUserCommand}" Content="Enable User" Width="110" Height="36" Background="#E8F5E9" Foreground="#166534" BorderThickness="0"
+                                Visibility="{Binding CurrentUser.IsDisabled, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,10,0"/>
+                        <Button Command="{Binding DeleteUserCommand}" Content="Delete User" Width="100" Height="36" Background="#FFE0E0" Foreground="#B91C1C" BorderThickness="0"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

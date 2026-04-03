@@ -11,8 +11,12 @@ namespace TSVmsDesktop.Controls
         internal const int WS_VISIBLE    = 0x10000000;
         internal const int WS_CLIPCHILDREN = 0x02000000;
         internal const int WS_CLIPSIBLINGS = 0x04000000;
+        private const int BLACK_BRUSH = 4;
 
         private const int WM_WINDOWPOSCHANGING = 0x0046;
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_MOUSELEAVE = 0x02A3;
+        private const int TME_LEAVE = 0x00000002;
 
         // Custom WNDCLASS name — d3d11videosink requires a subclassable window.
         // The built-in "static" class causes d3d11videosink to fall back to creating
@@ -20,6 +24,11 @@ namespace TSVmsDesktop.Controls
         private const string WndClassName = "TSVmsVideoCanvas";
 
         private static int _classRegistered = 0; // 0 = unregistered, 1 = registered
+        private bool _mouseTracking;
+
+        public event EventHandler? NativeMouseEnter;
+        public event EventHandler? NativeMouseMove;
+        public event EventHandler? NativeMouseLeave;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct WINDOWPOS
@@ -73,7 +82,7 @@ namespace TSVmsDesktop.Controls
                 hInstance     = GetModuleHandle(null),
                 hIcon         = IntPtr.Zero,
                 hCursor       = IntPtr.Zero,
-                hbrBackground = IntPtr.Zero,
+                hbrBackground = GetStockObject(BLACK_BRUSH),
                 lpszMenuName  = null,
                 lpszClassName = WndClassName,
                 hIconSm       = IntPtr.Zero,
@@ -119,6 +128,7 @@ namespace TSVmsDesktop.Controls
 
         protected override void DestroyWindowCore(HandleRef hwnd)
         {
+            _mouseTracking = false;
             DestroyWindow(hwnd.Handle);
         }
 
@@ -136,6 +146,22 @@ namespace TSVmsDesktop.Controls
 
                 if (changed)
                     Marshal.StructureToPtr(pos, lParam, false);
+            }
+            else if (msg == WM_MOUSEMOVE)
+            {
+                if (!_mouseTracking)
+                {
+                    TrackMouseEventForLeave(hwnd);
+                    _mouseTracking = true;
+                    NativeMouseEnter?.Invoke(this, EventArgs.Empty);
+                }
+
+                NativeMouseMove?.Invoke(this, EventArgs.Empty);
+            }
+            else if (msg == WM_MOUSELEAVE)
+            {
+                _mouseTracking = false;
+                NativeMouseLeave?.Invoke(this, EventArgs.Empty);
             }
 
             return base.WndProc(hwnd, msg, wParam, lParam, ref handled);
@@ -182,5 +208,33 @@ namespace TSVmsDesktop.Controls
 
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
         private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern IntPtr GetStockObject(int fnObject);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TRACKMOUSEEVENT
+        {
+            public uint cbSize;
+            public uint dwFlags;
+            public IntPtr hwndTrack;
+            public uint dwHoverTime;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+        private static void TrackMouseEventForLeave(IntPtr hwnd)
+        {
+            var tme = new TRACKMOUSEEVENT
+            {
+                cbSize = (uint)Marshal.SizeOf<TRACKMOUSEEVENT>(),
+                dwFlags = TME_LEAVE,
+                hwndTrack = hwnd,
+                dwHoverTime = 0
+            };
+
+            TrackMouseEvent(ref tme);
+        }
     }
 }

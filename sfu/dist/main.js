@@ -76,6 +76,15 @@ app.post('/rooms/:roomID/transports/webrtc', async (req, res) => {
         res.status(500).send(e.message);
     }
 });
+app.post('/rooms/:roomID/transports', async (req, res) => {
+    try {
+        const transportInfo = await msMgr.createWebRtcTransport(req.params.roomID);
+        res.json(transportInfo);
+    }
+    catch (e) {
+        res.status(500).send(e.message);
+    }
+});
 app.post('/rooms/:roomID/transports/:transportID/connect', async (req, res) => {
     try {
         await msMgr.connectWebRtcTransport(req.params.transportID, req.body.dtlsParameters);

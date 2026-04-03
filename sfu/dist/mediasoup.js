@@ -51,12 +51,12 @@ export class MediasoupManager {
                 rtcMaxPort: 49999,
                 workerBin,
             });
-            // Create WebRtcServer per worker
-            // AFTER — UDP only, avoids DTLS-over-TCP issues with WebView2:
+            // Create WebRtcServer per worker.
+            // Force TCP for the WebRTC path so browsers do not depend on UDP availability.
             const webRtcServer = await worker.createWebRtcServer({
                 listenInfos: [
                     {
-                        protocol: 'udp',
+                        protocol: 'tcp',
                         ip: '0.0.0.0',
                         announcedAddress: localIp,
                         portRange: { min: 40000, max: 49999 }
@@ -164,9 +164,9 @@ export class MediasoupManager {
             throw new Error('WebRtcServer not found for this router');
         const transport = await router.createWebRtcTransport({
             webRtcServer,
-            enableUdp: true,
-            enableTcp: false, // disable TCP entirely
-            preferUdp: true,
+            enableUdp: false,
+            enableTcp: true,
+            preferTcp: true,
             initialAvailableOutgoingBitrate: 1000000,
             appData: { roomID }
         });
