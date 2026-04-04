@@ -80,6 +80,7 @@ func (m *MockMediaRepo) ListProfiles(ctx context.Context, tenantID, cameraID uui
 // MockCameraRepo
 type MockCameraRepo struct {
 	GetByIDFunc func(ctx context.Context, id uuid.UUID) (*data.Camera, error)
+	UpdateFunc  func(ctx context.Context, c *data.Camera) error
 	// Add other methods of Repository interface as stubs
 }
 
@@ -90,7 +91,12 @@ func (m *MockCameraRepo) GetByID(ctx context.Context, id uuid.UUID) (*data.Camer
 	}
 	return nil, nil
 }
-func (m *MockCameraRepo) Update(ctx context.Context, c *data.Camera) error { return nil }
+func (m *MockCameraRepo) Update(ctx context.Context, c *data.Camera) error {
+	if m.UpdateFunc != nil {
+		return m.UpdateFunc(ctx, c)
+	}
+	return nil
+}
 func (m *MockCameraRepo) SetStatus(ctx context.Context, id, tenantID uuid.UUID, enabled bool) error {
 	return nil
 }

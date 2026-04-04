@@ -78,10 +78,14 @@ namespace TSVmsDesktop.ViewModels
             var mediaInfo = await _mediaService.GetMediaInfoAsync(cam.Id);
             var selection = mediaInfo?.Selection;
 
-            CurrentRtspUrl =
-                !string.IsNullOrWhiteSpace(selection?.MainRtsp) ? selection.MainRtsp :
-                !string.IsNullOrWhiteSpace(selection?.SubRtsp) ? selection.SubRtsp :
-                cam.RtspUrl ?? cam.EffectiveRtspUrl ?? "";
+            CurrentRtspUrl = cam.RtspUrl ?? cam.EffectiveRtspUrl ?? "";
+            if (string.IsNullOrWhiteSpace(CurrentRtspUrl))
+            {
+                CurrentRtspUrl =
+                    !string.IsNullOrWhiteSpace(selection?.MainRtsp) ? selection.MainRtsp :
+                    !string.IsNullOrWhiteSpace(selection?.SubRtsp) ? selection.SubRtsp :
+                    "";
+            }
 
             MainRtspUrl = !string.IsNullOrWhiteSpace(selection?.MainRtsp)
                 ? selection.MainRtsp
@@ -258,6 +262,7 @@ namespace TSVmsDesktop.ViewModels
                 Profiles.Clear();
                 SelectedMainProfile = new MediaProfile();
                 SelectedSubProfile = new MediaProfile();
+                int profileIndex = 0;
                 foreach (var p in list)
                 {
                     if (selection != null)
@@ -265,8 +270,24 @@ namespace TSVmsDesktop.ViewModels
                         if (p.Token == selection.MainProfileToken) p.TypeDisplay = "MAIN";
                         else if (p.Token == selection.SubProfileToken) p.TypeDisplay = "SUB";
                         else p.TypeDisplay = "—";
+
+                        // Keep the grid in sync with the saved RTSP URLs even when
+                        // the backend cache still holds the original discovery URL.
+                        if (!string.IsNullOrWhiteSpace(selection.MainRtsp) &&
+                            (p.Token == selection.MainProfileToken ||
+                             (string.IsNullOrWhiteSpace(selection.MainProfileToken) && profileIndex == 0)))
+                        {
+                            p.RtspUrl = selection.MainRtsp;
+                        }
+                        if (!string.IsNullOrWhiteSpace(selection.SubRtsp) &&
+                            (p.Token == selection.SubProfileToken ||
+                             (string.IsNullOrWhiteSpace(selection.SubProfileToken) && profileIndex == 1)))
+                        {
+                            p.RtspUrl = selection.SubRtsp;
+                        }
                     }
                     Profiles.Add(p);
+                    profileIndex++;
                 }
 
                 if (selection != null)
@@ -278,13 +299,6 @@ namespace TSVmsDesktop.ViewModels
                     if (!string.IsNullOrWhiteSpace(selection.SubRtsp))
                         SubRtspUrl = selection.SubRtsp;
                 }
-
-                if (!string.IsNullOrWhiteSpace(MainRtspUrl))
-                    CurrentRtspUrl = MainRtspUrl;
-                else if (!string.IsNullOrWhiteSpace(SubRtspUrl))
-                    CurrentRtspUrl = SubRtspUrl;
-                else if (string.IsNullOrWhiteSpace(CurrentRtspUrl))
-                    CurrentRtspUrl = Camera?.RtspUrl ?? "";
 
                 if (string.IsNullOrWhiteSpace(MainRtspUrl))
                     MainRtspUrl = CurrentRtspUrl;
@@ -323,15 +337,19 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
+            bool currentChanged = !string.Equals(currentRtspUrl, CurrentRtspUrl, StringComparison.OrdinalIgnoreCase);
             bool mainChanged = !string.Equals(mainRtspUrl, MainRtspUrl, StringComparison.OrdinalIgnoreCase);
             bool subChanged = !string.Equals(subRtspUrl, SubRtspUrl, StringComparison.OrdinalIgnoreCase);
-            string baseRtspUrl = mainChanged && !string.IsNullOrWhiteSpace(mainRtspUrl)
-                ? mainRtspUrl
-                : (subChanged && !string.IsNullOrWhiteSpace(subRtspUrl)
-                    ? subRtspUrl
-                    : (!string.IsNullOrWhiteSpace(mainRtspUrl)
-                        ? mainRtspUrl
-                        : (!string.IsNullOrWhiteSpace(subRtspUrl) ? subRtspUrl : currentRtspUrl)));
+
+            string baseRtspUrl = currentChanged && !string.IsNullOrWhiteSpace(currentRtspUrl)
+                ? currentRtspUrl
+                : (mainChanged && !string.IsNullOrWhiteSpace(mainRtspUrl)
+                    ? mainRtspUrl
+                    : (subChanged && !string.IsNullOrWhiteSpace(subRtspUrl)
+                        ? subRtspUrl
+                        : (!string.IsNullOrWhiteSpace(mainRtspUrl)
+                            ? mainRtspUrl
+                            : (!string.IsNullOrWhiteSpace(currentRtspUrl) ? currentRtspUrl : subRtspUrl))));
 
             if (string.IsNullOrWhiteSpace(mainRtspUrl))
                 mainRtspUrl = !string.IsNullOrWhiteSpace(MainRtspUrl) ? MainRtspUrl : baseRtspUrl;
@@ -395,14 +413,11 @@ namespace TSVmsDesktop.ViewModels
                 var refreshed = await _camService.GetCameraAsync(_cameraId);
                 Camera = refreshed ?? updated;
                 HealthRtspUrl = Camera.EffectiveRtspUrl;
-                CurrentRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : baseRtspUrl;
-                MainRtspUrl = mainRtspUrl;
+                CurrentRtspUrl = baseRtspUrl;
+                MainRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : baseRtspUrl;
                 SubRtspUrl = subRtspUrl;
 
                 await FetchProfiles();
-                CurrentRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : baseRtspUrl;
-                MainRtspUrl = mainRtspUrl;
-                SubRtspUrl = subRtspUrl;
                 await ValidateRtsp();
 
                 MessageBox.Show("RTSP settings updated successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);

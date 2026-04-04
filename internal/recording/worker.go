@@ -48,6 +48,8 @@ type RecorderWorker struct {
 	currentDir        string // Path to the current run's storage directory
 	lastSegmentEndTS  time.Time
 	lastFinalizedScan time.Time
+	recordingSourceIx int
+	sourceBaseRTSP    string
 	Keyring           *crypto.Keyring
 	mu                sync.RWMutex
 }
@@ -56,14 +58,15 @@ const finalizedBackfillInterval = 1 * time.Minute
 
 func NewRecorderWorker(cfg *Config, cam CameraConfig, store ArchiveIndex, keyring *crypto.Keyring) *RecorderWorker {
 	return &RecorderWorker{
-		CameraID:     cam.ID,
-		Camera:       cam,
-		Config:       cfg,
-		Store:        store,
-		Keyring:      keyring,
-		State:        StateStopped,
-		knownFiles:   make(map[string]struct{}),
-		lastDataTime: time.Now(),
+		CameraID:       cam.ID,
+		Camera:         cam,
+		Config:         cfg,
+		Store:          store,
+		Keyring:        keyring,
+		State:          StateStopped,
+		knownFiles:     make(map[string]struct{}),
+		lastDataTime:   time.Now(),
+		sourceBaseRTSP: cam.RtspURL,
 	}
 }
 
@@ -114,6 +117,7 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 				return
 			}
 			w.markError(runID, err)
+			w.advanceRecordingSource()
 			if !w.waitBackoff(ctx, runID) {
 				return
 			}
@@ -176,6 +180,7 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 				}
 				w.mu.Unlock()
 				w.markError(runID, err)
+				w.advanceRecordingSource()
 
 				if !w.waitBackoff(ctx, runID) {
 					return
@@ -207,6 +212,24 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 	w.lastSegmentEndTS = time.Time{} // Reset on new run
 	w.lastFinalizedScan = time.Time{}
 	w.mu.Unlock()
+
+	source, sourceIdx, err := w.selectRecordingSource(ctx)
+	if err != nil {
+		return err
+	}
+
+	w.mu.Lock()
+	w.Camera.RtspURL = source.RTSPURL
+	if source.Codec != "" {
+		w.Camera.Codec = source.Codec
+	}
+	w.mu.Unlock()
+
+	if sourceIdx == 0 {
+		log.Printf("[EVENT] recording.source.selected camera_id=%s source=main profile_token=%s host=%s codec=%s rtsp_url=%s", w.CameraID, source.ProfileToken, extractRTSPHost(source.RTSPURL), w.cameraCodec(), source.RTSPURL)
+	} else {
+		log.Printf("[WARNING] recording.source.fallback camera_id=%s source=sub profile_token=%s host=%s codec=%s rtsp_url=%s", w.CameraID, source.ProfileToken, extractRTSPHost(source.RTSPURL), w.cameraCodec(), source.RTSPURL)
+	}
 
 	// Fetch Credentials if available
 	if w.Store != nil && w.Keyring != nil {
@@ -672,11 +695,53 @@ func (w *RecorderWorker) markFinalizedScan() {
 }
 
 func (w *RecorderWorker) cameraCodec() string {
-	c := strings.ToLower(strings.TrimSpace(w.Camera.Codec))
-	if c == "" {
-		return "h265"
+	if c := normalizeCodec(w.Camera.Codec); c != "" {
+		return c
 	}
-	return c
+	if c := inferCodecFromRTSPURL(w.Camera.RtspURL); c != "" {
+		return c
+	}
+	return "h265"
+}
+
+func (w *RecorderWorker) selectRecordingSource(ctx context.Context) (RecordingSource, int, error) {
+	sources := w.loadRecordingSources(ctx)
+	if len(sources) == 0 {
+		return RecordingSource{}, 0, fmt.Errorf("no recording source available for %s", w.CameraID)
+	}
+
+	w.mu.RLock()
+	idx := w.recordingSourceIx
+	w.mu.RUnlock()
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(sources) {
+		idx = len(sources) - 1
+	}
+	return sources[idx], idx, nil
+}
+
+func (w *RecorderWorker) loadRecordingSources(ctx context.Context) []RecordingSource {
+	if s, ok := w.Store.(*PostgresStore); ok && s != nil {
+		if sources, err := s.LoadCameraRecordingSources(ctx, w.CameraID, w.Camera.RtspURL); err == nil && len(sources) > 0 {
+			return sources
+		}
+	}
+
+	w.mu.RLock()
+	rtspURL := strings.TrimSpace(w.sourceBaseRTSP)
+	w.mu.RUnlock()
+	if rtspURL == "" {
+		return nil
+	}
+	return []RecordingSource{{RTSPURL: rtspURL, Codec: inferCodecFromRTSPURL(rtspURL)}}
+}
+
+func (w *RecorderWorker) advanceRecordingSource() {
+	w.mu.Lock()
+	w.recordingSourceIx++
+	w.mu.Unlock()
 }
 
 func (w *RecorderWorker) cameraSegmentFormat() string {
@@ -732,18 +797,17 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 		"latency="+fmt.Sprintf("%d", latency),
 		"timeout=10000000",     // 10s timeout for generic RTSP operations
 		"tcp-timeout=10000000", // 10s timeout for TCP connections
-		"!",
 	)
 
 	switch w.cameraCodec() {
 	case "h264":
 		base = append(base,
-			"rtph264depay",
+			"!", "rtph264depay",
 			"!", "h264parse", "config-interval=-1",
 		)
 	default:
 		base = append(base,
-			"rtph265depay",
+			"!", "rtph265depay",
 			"!", "h265parse", "config-interval=-1",
 		)
 	}

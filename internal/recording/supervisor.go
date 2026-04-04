@@ -237,6 +237,7 @@ func (s *RecordingArchiverService) ensureWorkerLocked(cam CameraConfig) *Recorde
 	w.Camera = cam
 	w.Config = s.config
 	w.Store = s.store
+	w.sourceBaseRTSP = cam.RtspURL
 	return w
 }
 

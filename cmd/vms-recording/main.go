@@ -26,6 +26,23 @@ func mergeCameraConfigs(base, extra []recording.CameraConfig) []recording.Camera
 	}
 	for _, cam := range extra {
 		if cam.ID != "" {
+			if existing, ok := m[cam.ID]; ok {
+				if cam.RtspURL != "" {
+					existing.RtspURL = cam.RtspURL
+				}
+				if cam.Codec != "" {
+					existing.Codec = cam.Codec
+				}
+				if cam.SegmentFormat != "" {
+					existing.SegmentFormat = cam.SegmentFormat
+				}
+				if cam.RTSPTransport != "" {
+					existing.RTSPTransport = cam.RTSPTransport
+				}
+				existing.Enabled = cam.Enabled
+				m[cam.ID] = existing
+				continue
+			}
 			m[cam.ID] = cam
 		}
 	}
@@ -116,9 +133,9 @@ func main() {
 	health.Start()
 
 	internalAPI := &recording.InternalAPI{
-		ServiceKey:    os.Getenv("TS_VMS_SERVICE_KEY"),
-		RecordingArchiver:    supervisor,
-		ScheduleStore: store,
+		ServiceKey:        os.Getenv("TS_VMS_SERVICE_KEY"),
+		RecordingArchiver: supervisor,
+		ScheduleStore:     store,
 	}
 	go http.ListenAndServe(":8087", internalAPI.ServeMux())
 

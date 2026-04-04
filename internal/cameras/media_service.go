@@ -98,6 +98,9 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 		return nil, fmt.Errorf("unauthorized")
 	}
 
+	// Fetch existing selection to preserve manual overrides if they exist
+	existingSel, _ := s.MediaRepo.GetSelection(ctx, tenantID, cameraID)
+
 	// Construct XAddr
 	// Phase 2.1 Camera struct has IPAddress (net.IP) and Port.
 	// We use the port if it's defined, otherwise default to 80 for ONVIF.
@@ -226,7 +229,36 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 		SubSupported:     selRes.SubSupported,
 		SubIsSameAsMain:  selRes.SubIsSameAsMain,
 	}
+
+	// Preserve manual overrides if they exist
+	if s.isManualSelection(existingSel) {
+		log.Printf("[INFO] Preserving manual RTSP overrides for camera %s during discovery", cameraID)
+		dbSel.MainProfileToken = "" // Force manual mode
+		dbSel.SubProfileToken = ""
+		if strings.TrimSpace(existingSel.MainRTSP) != "" {
+			dbSel.MainRTSP = existingSel.MainRTSP
+		}
+		if strings.TrimSpace(existingSel.SubRTSP) != "" {
+			dbSel.SubRTSP = existingSel.SubRTSP
+		}
+	}
+
+	if existingSel != nil {
+		dbSel.ID = existingSel.ID
+	}
+
 	s.MediaRepo.UpsertSelection(ctx, dbSel)
+
+	baseRTSP := selRes.MainRTSP
+	if strings.TrimSpace(baseRTSP) == "" {
+		baseRTSP = selRes.SubRTSP
+	}
+	if baseRTSP != "" {
+		cam.RtspUrl = baseRTSP
+		if err := s.CameraRepo.Update(ctx, cam); err != nil {
+			return nil, err
+		}
+	}
 
 	// 5. Trigger Validation
 	s.Validator.Enqueue(media.ValidationJob{
@@ -309,6 +341,17 @@ func (s *MediaService) UpdateManualStreamUrls(ctx context.Context, tenantID, cam
 
 	if err := s.MediaRepo.UpsertSelection(ctx, sel); err != nil {
 		return nil, err
+	}
+
+	baseRTSP := sel.MainRTSP
+	if strings.TrimSpace(baseRTSP) == "" {
+		baseRTSP = sel.SubRTSP
+	}
+	if baseRTSP != "" {
+		cam.RtspUrl = baseRTSP
+		if err := s.CameraRepo.Update(ctx, cam); err != nil {
+			return nil, err
+		}
 	}
 
 	if sel.MainRTSP != "" {

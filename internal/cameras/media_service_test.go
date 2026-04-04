@@ -128,10 +128,11 @@ func TestUpdateManualStreamUrls(t *testing.T) {
 	tenantID := uuid.New()
 	cameraID := uuid.New()
 	mockCamRepo.GetByIDFunc = func(ctx context.Context, id uuid.UUID) (*data.Camera, error) {
-		return &data.Camera{ID: cameraID, TenantID: tenantID}, nil
+		return &data.Camera{ID: cameraID, TenantID: tenantID, RtspUrl: "rtsp://old.example/stream"}, nil
 	}
 
 	var saved *data.CameraStreamSelection
+	var updated *data.Camera
 	mockMediaRepo.GetSelectionFunc = func(ctx context.Context, t, c uuid.UUID) (*data.CameraStreamSelection, error) {
 		return &data.CameraStreamSelection{
 			ID:               uuid.New(),
@@ -144,6 +145,11 @@ func TestUpdateManualStreamUrls(t *testing.T) {
 	mockMediaRepo.UpsertSelectionFunc = func(ctx context.Context, s *data.CameraStreamSelection) error {
 		copySel := *s
 		saved = &copySel
+		return nil
+	}
+	mockCamRepo.UpdateFunc = func(ctx context.Context, c *data.Camera) error {
+		copyCam := *c
+		updated = &copyCam
 		return nil
 	}
 
@@ -160,6 +166,12 @@ func TestUpdateManualStreamUrls(t *testing.T) {
 	}
 	if saved.SubRTSP != "rtsp://10.0.0.1/sub" {
 		t.Fatalf("unexpected sub rtsp: %s", saved.SubRTSP)
+	}
+	if updated == nil {
+		t.Fatal("expected camera update to be called")
+	}
+	if updated.RtspUrl != "rtsp://10.0.0.1/main" {
+		t.Fatalf("unexpected updated camera rtsp: %s", updated.RtspUrl)
 	}
 	if sel.MainProfileToken != "" || sel.SubProfileToken != "" {
 		t.Fatalf("expected manual update to clear profile tokens")

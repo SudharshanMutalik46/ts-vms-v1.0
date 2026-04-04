@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -42,7 +43,7 @@ namespace TSVmsDesktop.Models
     }
 
     // --- Phase 2.4: Media ---
-    public class MediaProfile
+    public partial class MediaProfile : ObservableObject
     {
         [JsonPropertyName("profile_token")] public string Token { get; set; } = "";
         [JsonPropertyName("profile_name")] public string Name { get; set; } = "";
@@ -52,7 +53,10 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("height")] public int Height { get; set; }
         [JsonPropertyName("fps")] public double Framerate { get; set; }
         [JsonPropertyName("bitrate_kbps")] public int Bitrate { get; set; }
-        [JsonPropertyName("rtsp_url_sanitized")] public string RtspUrl { get; set; } = "";
+
+        [ObservableProperty]
+        [JsonPropertyName("rtsp_url_sanitized")] 
+        private string _rtspUrl = "";
 
         [JsonIgnore]
         public string Resolution => $"{Width}x{Height}";

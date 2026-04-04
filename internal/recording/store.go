@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/crypto"
 	"github.com/technosupport/ts-vms/internal/data"
+	"github.com/technosupport/ts-vms/internal/media"
 )
 
 var ErrDBUnavailable = errors.New("recording database unavailable")
@@ -19,7 +21,6 @@ var ErrDBUnavailable = errors.New("recording database unavailable")
 type PostgresStore struct {
 	DB *sql.DB
 }
-
 
 func NewPostgresStore(db *sql.DB) *PostgresStore {
 	return &PostgresStore{DB: db}
@@ -64,12 +65,79 @@ func (s *PostgresStore) LoadSchedules(ctx context.Context) ([]ScheduleConfig, er
 
 func recordingRTSPURL(raw, ip string, port int) string {
 	if raw != "" {
-		return raw
+		return media.SanitizeRTSPURL(raw)
 	}
 	if ip == "" {
 		return ""
 	}
 	return ""
+}
+
+type RecordingSource struct {
+	ProfileToken string
+	RTSPURL      string
+	Codec        string
+}
+
+func (s *PostgresStore) LoadCameraRecordingSources(ctx context.Context, cameraID, rawURL string) ([]RecordingSource, error) {
+	fallbackURL := media.SanitizeRTSPURL(strings.TrimSpace(rawURL))
+	fallbackCodec := inferCodecFromRTSPURL(fallbackURL)
+
+	if !s.Available() {
+		if fallbackURL == "" {
+			return nil, nil
+		}
+		return []RecordingSource{{RTSPURL: fallbackURL, Codec: fallbackCodec}}, nil
+	}
+
+	var mainCodec, subCodec, mainRTSP, subRTSP string
+	var mainToken, subToken string
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(s.main_profile_token, ''),
+			COALESCE(s.sub_profile_token, ''),
+			COALESCE(s.main_rtsp_url_sanitized, ''),
+			COALESCE(s.sub_rtsp_url_sanitized, ''),
+			COALESCE(mp.video_codec, ''),
+			COALESCE(sp.video_codec, '')
+		FROM camera_stream_selections s
+		LEFT JOIN camera_media_profiles mp ON s.camera_id = mp.camera_id AND s.main_profile_token = mp.profile_token
+		LEFT JOIN camera_media_profiles sp ON s.camera_id = sp.camera_id AND s.sub_profile_token = sp.profile_token
+		WHERE s.camera_id = $1
+		LIMIT 1`, cameraID).Scan(&mainToken, &subToken, &mainRTSP, &subRTSP, &mainCodec, &subCodec)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return []RecordingSource{{RTSPURL: fallbackURL, Codec: fallbackCodec}}, err
+	}
+
+	out := make([]RecordingSource, 0, 3)
+	add := func(profileToken, rtspURL, codec string) {
+		rtspURL = media.SanitizeRTSPURL(strings.TrimSpace(rtspURL))
+		codec = normalizeCodec(codec)
+		if rtspURL == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing.RTSPURL == rtspURL {
+				return
+			}
+		}
+		out = append(out, RecordingSource{ProfileToken: strings.TrimSpace(profileToken), RTSPURL: rtspURL, Codec: codec})
+	}
+
+	add(mainToken, mainRTSP, mainCodec)
+	add(subToken, subRTSP, subCodec)
+	if len(out) == 0 && fallbackURL != "" {
+		out = append(out, RecordingSource{RTSPURL: fallbackURL, Codec: fallbackCodec})
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) LoadCameraRecordingSource(ctx context.Context, cameraID, rawURL string) (string, string, error) {
+	sources, err := s.LoadCameraRecordingSources(ctx, cameraID, rawURL)
+	if len(sources) == 0 {
+		return "", "", err
+	}
+	return sources[0].RTSPURL, sources[0].Codec, err
 }
 
 func (s *PostgresStore) LoadEnabledCameras(ctx context.Context) ([]CameraConfig, error) {
@@ -98,6 +166,12 @@ func (s *PostgresStore) LoadEnabledCameras(ctx context.Context) ([]CameraConfig,
 		cam.Enabled = true
 		if cam.ID == "" || cam.RtspURL == "" {
 			continue
+		}
+		if sources, err := s.LoadCameraRecordingSources(ctx, cam.ID, cam.RtspURL); err == nil && len(sources) > 0 {
+			cam.RtspURL = sources[0].RTSPURL
+			if sources[0].Codec != "" {
+				cam.Codec = sources[0].Codec
+			}
 		}
 		out = append(out, cam)
 	}
@@ -186,7 +260,6 @@ func (s *PostgresStore) SaveSchedule(ctx context.Context, tenantID, siteID strin
 	return err
 }
 
-
 func (s *PostgresStore) AuditRecoveryEvent(ctx context.Context, path, state, detail string) error {
 	if !s.Available() {
 		return ErrDBUnavailable
@@ -196,7 +269,6 @@ func (s *PostgresStore) AuditRecoveryEvent(ctx context.Context, path, state, det
 		VALUES ($1,$2,$3,NOW())`, path, state, detail)
 	return err
 }
-
 
 func (s *PostgresStore) CreateExportJob(ctx context.Context, job *ExportJob, requestedBy string) error {
 	if !s.Available() {

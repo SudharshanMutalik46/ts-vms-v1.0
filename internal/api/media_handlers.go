@@ -25,17 +25,11 @@ func getTenantID(r *http.Request) (uuid.UUID, error) {
 	if !ok {
 		return uuid.Nil, fmt.Errorf("no auth context")
 	}
-	// ac.TenantID is likely string if lint complained.
 	return uuid.Parse(ac.TenantID)
 }
 
 // GET /api/v1/cameras/{id}/media-profiles
 func (h *MediaHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
-	// RBAC: camera.media.read
-	// (Middleware handles token, we assume context has Claims)
-	// Just need to ensure permission.
-	// Actually, we should check `RequirePermission("camera.media.read")` middleware in Routes.
-
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
@@ -54,7 +48,9 @@ func (h *MediaHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to get profiles", http.StatusInternalServerError)
 		return
 	}
-	// Ensure non-nil slice so JSON is [] not null
+	if sel, _, err := h.Service.GetSelection(r.Context(), tenantID, cameraID); err == nil && sel != nil {
+		overlaySelectionRTSPURLs(profiles, sel)
+	}
 	if profiles == nil {
 		profiles = []*data.CameraMediaProfile{}
 	}
@@ -65,8 +61,6 @@ func (h *MediaHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/cameras/{id}:select-media-profiles
 func (h *MediaHandler) SelectProfiles(w http.ResponseWriter, r *http.Request) {
-	// RBAC: camera.media.select
-
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
@@ -79,8 +73,6 @@ func (h *MediaHandler) SelectProfiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	// Body optional (policy override), ignored for now as per plan
 
 	selection, err := h.Service.SelectMediaProfiles(r.Context(), tenantID, cameraID)
 	if err != nil {
@@ -133,8 +125,6 @@ func (h *MediaHandler) UpdateSelectionUrls(w http.ResponseWriter, r *http.Reques
 
 // GET /api/v1/cameras/{id}/media-selection
 func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
-	// RBAC: camera.media.read
-
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {
@@ -179,7 +169,7 @@ func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
 				"main_supported":          selection.MainSupported,
 				"main_codec":              codecByToken[selection.MainProfileToken],
 				"sub_profile_token":       selection.SubProfileToken,
-				"sub_rtsp_url_sanitized":  selection.SubRTSP,
+				"sub_rtsp_url_sanitized":   selection.SubRTSP,
 				"sub_supported":           selection.SubSupported,
 				"sub_codec":               codecByToken[selection.SubProfileToken],
 			}
@@ -190,10 +180,45 @@ func (h *MediaHandler) GetSelection(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func overlaySelectionRTSPURLs(profiles []*data.CameraMediaProfile, sel *data.CameraStreamSelection) {
+	if len(profiles) == 0 || sel == nil {
+		return
+	}
+
+	if strings.TrimSpace(sel.MainProfileToken) != "" {
+		for _, profile := range profiles {
+			if profile != nil && profile.ProfileToken == sel.MainProfileToken && strings.TrimSpace(sel.MainRTSP) != "" {
+				profile.RTSPURLSanitized = sel.MainRTSP
+			}
+		}
+	}
+	if strings.TrimSpace(sel.SubProfileToken) != "" {
+		for _, profile := range profiles {
+			if profile != nil && profile.ProfileToken == sel.SubProfileToken && strings.TrimSpace(sel.SubRTSP) != "" {
+				profile.RTSPURLSanitized = sel.SubRTSP
+			}
+		}
+	}
+
+	if strings.TrimSpace(sel.MainProfileToken) == "" && strings.TrimSpace(sel.MainRTSP) != "" {
+		applyURLByIndex(profiles, 0, sel.MainRTSP)
+	}
+	if strings.TrimSpace(sel.SubProfileToken) == "" && strings.TrimSpace(sel.SubRTSP) != "" {
+		applyURLByIndex(profiles, 1, sel.SubRTSP)
+	}
+}
+
+func applyURLByIndex(profiles []*data.CameraMediaProfile, idx int, url string) {
+	if idx < 0 || idx >= len(profiles) {
+		return
+	}
+	if profile := profiles[idx]; profile != nil {
+		profile.RTSPURLSanitized = url
+	}
+}
+
 // POST /api/v1/cameras/{id}:validate-rtsp
 func (h *MediaHandler) ValidateRTSP(w http.ResponseWriter, r *http.Request) {
-	// RBAC: camera.media.validate
-
 	idStr := r.PathValue("id")
 	cameraID, err := uuid.Parse(idStr)
 	if err != nil {

@@ -58,10 +58,21 @@ func (api *InternalAPI) syncCameraHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	codec := ""
+	rtspURL := strings.TrimSpace(req.RtspURL)
+	if api.ScheduleStore != nil {
+		if resolvedURL, resolvedCodec, err := api.ScheduleStore.LoadCameraRecordingSource(r.Context(), camID, req.RtspURL); err == nil {
+			if resolvedURL != "" {
+				rtspURL = resolvedURL
+			}
+			codec = resolvedCodec
+		}
+	}
 	api.RecordingArchiver.UpsertCamera(CameraConfig{
 		ID:      camID,
-		RtspURL: strings.TrimSpace(req.RtspURL),
+		RtspURL: rtspURL,
 		Enabled: req.Enabled,
+		Codec:   codec,
 	})
 	action := "STOP"
 	if req.Enabled {
