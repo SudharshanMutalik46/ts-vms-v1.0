@@ -22,6 +22,7 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private bool _isLoggedIn = false;
         [ObservableProperty] private string _windowTitle = "TS-VMS Enterprise v1.0";
         [ObservableProperty] private bool _isKioskMode = false;
+        [ObservableProperty] private bool _isSidebarCollapsed = false;
         // Default to "Startup" so LiveView is hidden initially
         [ObservableProperty] private string _currentPage = "Startup";
 
@@ -142,14 +143,17 @@ namespace TSVmsDesktop.ViewModels
         public void ToggleKioskMode() => IsKioskMode = !IsKioskMode;
 
         [RelayCommand]
-        public void NavigateToLive()
+        public void ToggleSidebar() => IsSidebarCollapsed = !IsSidebarCollapsed;
+
+        [RelayCommand]
+        public async Task NavigateToLive()
         {
             if (!IsLoggedIn) return;
 
-            DeactivatePlaybackIfNeeded();
+            DeactivateAllEngines();
             CurrentView = LiveVM;
             CurrentPage = "Live";
-            _ = LiveVM.ActivateAsync();
+            await LiveVM.ActivateAsync();
         }
 
         [RelayCommand]

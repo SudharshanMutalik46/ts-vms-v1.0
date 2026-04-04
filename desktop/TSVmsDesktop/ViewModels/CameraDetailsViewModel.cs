@@ -3,12 +3,15 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using System.Windows;
+using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 using TSVmsDesktop.Models;
 using TSVmsDesktop.Services;
+using TSVmsDesktop.Views;
 
 namespace TSVmsDesktop.ViewModels
 {
@@ -66,6 +69,8 @@ namespace TSVmsDesktop.ViewModels
             CredPassword = "";
             Profiles.Clear();
             RtspValidationResult = "";
+            SelectedMainProfile = new MediaProfile();
+            SelectedSubProfile = new MediaProfile();
 
             HealthIpAddress = cam.IpAddress;
             HealthPort = cam.Port > 0 ? cam.Port.ToString() : "554";
@@ -106,6 +111,35 @@ namespace TSVmsDesktop.ViewModels
                 RtspValidationResult = $"Error: {ex.Message}";
                 MessageBox.Show($"Server Error while saving: {ex.Message}\nCheck api_debug_log.txt for details.", "Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        [RelayCommand]
+        public async Task OpenRtspEditor()
+        {
+            if (Camera == null)
+                return;
+
+            if (Profiles.Count == 0)
+            {
+                await FetchProfiles();
+            }
+
+            var dialog = new RtspEditorWindow(
+                Camera.RtspUrl ?? "",
+                Camera.Port > 0 ? Camera.Port : 554,
+                CredUsername,
+                CredPassword,
+                Profiles,
+                SelectedMainProfile?.Token ?? "",
+                SelectedSubProfile?.Token ?? "")
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            await ApplyRtspEditorResult(dialog);
         }
 
         [RelayCommand]
@@ -209,6 +243,8 @@ namespace TSVmsDesktop.ViewModels
                 var selection = info?.Selection;
 
                 Profiles.Clear();
+                SelectedMainProfile = new MediaProfile();
+                SelectedSubProfile = new MediaProfile();
                 foreach (var p in list)
                 {
                     if (selection != null)
@@ -218,6 +254,12 @@ namespace TSVmsDesktop.ViewModels
                         else p.TypeDisplay = "—";
                     }
                     Profiles.Add(p);
+                }
+
+                if (selection != null)
+                {
+                    SelectedMainProfile = Profiles.FirstOrDefault(p => p.Token == selection.MainProfileToken) ?? new MediaProfile();
+                    SelectedSubProfile = Profiles.FirstOrDefault(p => p.Token == selection.SubProfileToken) ?? new MediaProfile();
                 }
 
                 if (Profiles.Count == 0 && (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded", StringComparison.OrdinalIgnoreCase)))
@@ -235,6 +277,66 @@ namespace TSVmsDesktop.ViewModels
                 RtspValidationResult = IsAuthError(ex)
                     ? "Camera media access is not available for this account."
                     : "Unable to load profiles. Click Refresh Profiles to try again.";
+            }
+        }
+
+        private async Task ApplyRtspEditorResult(RtspEditorWindow dialog)
+        {
+            string rtspUrl = dialog.RtspUrl.Trim();
+            if (string.IsNullOrWhiteSpace(rtspUrl) || !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("Please enter a valid RTSP URL.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var updated = new CameraModel
+            {
+                Id = Camera.Id,
+                Name = Camera.Name,
+                IpAddress = Camera.IpAddress,
+                SiteId = Camera.SiteId,
+                Port = dialog.Port > 0 ? dialog.Port : Camera.Port,
+                RtspUrl = rtspUrl,
+                IsEnabled = Camera.IsEnabled,
+                Model = Camera.Model,
+                Thumbnail = Camera.Thumbnail,
+                Capabilities = Camera.Capabilities
+            };
+
+            try
+            {
+                bool cameraSaved = await _camService.UpdateCameraAsync(updated);
+                if (!cameraSaved)
+                {
+                    MessageBox.Show("Failed to update camera RTSP URL.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                bool credSaved = await _credService.UpdateCredentialsAsync(_cameraId, dialog.Username, dialog.Password);
+                if (!credSaved)
+                {
+                    MessageBox.Show("RTSP URL updated, but credentials could not be saved.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+
+                string mainToken = dialog.SelectedMainProfile?.Token ?? "";
+                string subToken = dialog.SelectedSubProfile?.Token ?? "";
+                if (!string.IsNullOrWhiteSpace(mainToken) || !string.IsNullOrWhiteSpace(subToken))
+                {
+                    await _mediaService.SelectProfilesAsync(_cameraId, mainToken, subToken);
+                }
+
+                var refreshed = await _camService.GetCameraAsync(_cameraId);
+                Camera = refreshed ?? updated;
+                HealthRtspUrl = Camera.EffectiveRtspUrl;
+
+                await FetchProfiles();
+                await ValidateRtsp();
+
+                MessageBox.Show("RTSP settings updated successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to update RTSP settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

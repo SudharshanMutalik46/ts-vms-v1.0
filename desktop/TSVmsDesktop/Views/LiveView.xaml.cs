@@ -139,7 +139,7 @@ namespace TSVmsDesktop.Views
 
         private async void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            if (this.DataContext is LiveViewModel vm)
+            if (this.DataContext is LiveViewModel vm && !vm.IsActive)
             {
                 await vm.ActivateAsync();
             }
@@ -673,15 +673,21 @@ namespace TSVmsDesktop.Views
                 {
                     slot.IsPipelineStarting = true;
 
+                    // Give the WPF surface a moment to finish settling before the
+                    // first RTSP start. Manual reconnect already benefits from a
+                    // similar pause; this makes the initial start follow the same
+                    // path instead of racing the window creation.
+                    await Task.Delay(350);
+
                     // Wait for Win32 handle.
-                    int retries = 50;
+                    int retries = 200;
                     while (canvas.Handle == IntPtr.Zero && retries-- > 0)
                         await Task.Delay(10);
 
                     if (canvas.Handle == IntPtr.Zero) return;
 
                     // Wait for non-zero layout size without blocking the dispatcher.
-                    retries = 100;
+                    retries = 200;
                     while ((canvas.ActualWidth < 2 || canvas.ActualHeight < 2) && retries-- > 0)
                         await Task.Delay(10);
 
@@ -702,11 +708,10 @@ namespace TSVmsDesktop.Views
                         return;
                     }
 
-                    // Pick URL based on active tier (VideoCanvas is only shown for Rtsp)
+                    // Start on the current RTSP URL. The view model keeps this on the
+                    // sub-stream first and switches to main only if the sub-stream fails.
                     string urlToPlay = slot.RtspUrl;
-
-                    if (string.IsNullOrEmpty(urlToPlay)) urlToPlay = slot.RtspUrl; // ultimate fallback
-                    if (string.IsNullOrEmpty(urlToPlay)) return;
+                    if (string.IsNullOrWhiteSpace(urlToPlay)) return;
 
                     VideoService.Log(
                         $"[TS-VMS] StartVideo tier={slot.ActiveTier} cam={slot.CameraName} url={urlToPlay}");

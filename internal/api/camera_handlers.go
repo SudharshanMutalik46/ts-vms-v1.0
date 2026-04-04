@@ -213,14 +213,15 @@ func (h *CameraHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name      *string `json:"name"`
+		IPAddress *string `json:"ip_address"`
+		Port      *int    `json:"port"`
+		RtspUrl   *string `json:"rtsp_url"`
+		IsEnabled *bool   `json:"is_enabled"`
+		Tags      []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid JSON")
-		return
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		respondError(w, http.StatusBadRequest, "Camera name is required")
 		return
 	}
 
@@ -230,10 +231,77 @@ func (h *CameraHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cam.Name = strings.TrimSpace(req.Name)
+	changed := false
+	syncRecorder := false
+
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			respondError(w, http.StatusBadRequest, "Camera name is required")
+			return
+		}
+		cam.Name = name
+		changed = true
+	}
+
+	if req.IPAddress != nil {
+		ip := net.ParseIP(strings.TrimSpace(*req.IPAddress))
+		if ip == nil {
+			respondError(w, http.StatusBadRequest, "Invalid IP")
+			return
+		}
+		cam.IPAddress = ip
+		changed = true
+		syncRecorder = true
+	}
+
+	if req.Port != nil {
+		if *req.Port <= 0 {
+			respondError(w, http.StatusBadRequest, "Invalid port")
+			return
+		}
+		cam.Port = *req.Port
+		changed = true
+		syncRecorder = true
+	}
+
+	if req.RtspUrl != nil {
+		rtsp := strings.TrimSpace(*req.RtspUrl)
+		if rtsp == "" {
+			respondError(w, http.StatusBadRequest, "RTSP URL is required")
+			return
+		}
+		cam.RtspUrl = rtsp
+		changed = true
+		syncRecorder = true
+	}
+
+	if req.IsEnabled != nil {
+		cam.IsEnabled = *req.IsEnabled
+		changed = true
+		syncRecorder = true
+	}
+
+	if req.Tags != nil {
+		cam.Tags = req.Tags
+		changed = true
+	}
+
+	if !changed {
+		respondError(w, http.StatusBadRequest, "No updatable fields provided")
+		return
+	}
+
 	if err := h.Service.UpdateCamera(r.Context(), cam); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if syncRecorder && cam.IsEnabled {
+		if err := h.syncRecorder(r.Context(), cam); err != nil {
+			respondError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 	}
 
 	respondJSON(w, http.StatusOK, cam)

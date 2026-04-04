@@ -140,6 +140,8 @@ namespace TSVmsDesktop.ViewModels
         private bool _isActive;
         private bool _isPollingStarted;
 
+        public bool IsActive => _isActive;
+
         private readonly ConcurrentDictionary<string, CameraMediaInfo?> _mediaInfoCache = new();
         private readonly ConcurrentDictionary<string, string> _mainStreamCache = new();
         private readonly ConcurrentDictionary<string, string> _subStreamCache = new();
@@ -216,6 +218,9 @@ namespace TSVmsDesktop.ViewModels
 
         public async Task ActivateAsync()
         {
+            if (_isActive)
+                return;
+
             _isActive = true;
 
             _mainStreamCache.Clear();
@@ -256,12 +261,35 @@ namespace TSVmsDesktop.ViewModels
             FullScreenRtspUrl = string.Empty;
             SelectedCameraName = string.Empty;
 
+            var activeHandles = CameraGrid
+                .Where(slot => slot.PipelineHandle != IntPtr.Zero)
+                .Select(slot => slot.PipelineHandle)
+                .ToList();
+
             foreach (var slot in CameraGrid)
             {
+                slot.PipelineHandle = IntPtr.Zero;
+                slot.WindowHandle = IntPtr.Zero;
                 slot.IsConnected = false;
                 slot.IsAudioPlaying = false;
                 slot.IsReconnectInProgress = false;
                 slot.TransientStatusText = "";
+            }
+
+            if (activeHandles.Count > 0)
+            {
+                var videoService = _videoService;
+                _ = Task.Run(() =>
+                {
+                    foreach (var handle in activeHandles)
+                    {
+                        try
+                        {
+                            videoService.StopStream(handle);
+                        }
+                        catch { }
+                    }
+                });
             }
 
             NotifyLiveStateChanged();
@@ -388,9 +416,10 @@ namespace TSVmsDesktop.ViewModels
                         slot.IsWebRtcStarted = false;
                     }
 
-                    // Only fetch credentials/session if not already resolved during slot creation.
-                    if (string.IsNullOrEmpty(slot.RtspUrl))
-                        await FetchCredentialsForSlot(slot);
+                    // Resolve the stream URL and credentials before the first start.
+                    // Start on the sub-stream first; the main stream is only used
+                    // if the sub-stream actually fails.
+                    await FetchCredentialsForSlot(slot);
 
                     slot.IsConnected = true;
                     slot.CameraName = string.IsNullOrEmpty(slot.CameraName) ? "Live Stream" : slot.CameraName;
@@ -476,6 +505,16 @@ namespace TSVmsDesktop.ViewModels
             string user = Uri.EscapeDataString(username ?? "");
             string pass = Uri.EscapeDataString(password ?? "");
             return $"rtsp://{user}:{pass}@{url.Substring(7)}";
+        }
+
+        private static bool IsLikelySubStreamUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+
+            return url.Contains("sub", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("stream=1", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("dev=1", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("channel=1_stream=1", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<string> ResolvePreferredSubUrlAsync(CameraModel cam, string username, string password)
@@ -597,7 +636,9 @@ namespace TSVmsDesktop.ViewModels
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
             slot.RtspUrl = slot.RtspRetriedWithMain && !string.IsNullOrWhiteSpace(resolvedMain)
                 ? resolvedMain
-                : resolvedSub;
+                : (!string.IsNullOrWhiteSpace(resolvedMain) && IsLikelySubStreamUrl(resolvedSub)
+                    ? resolvedMain
+                    : resolvedSub);
             slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
             slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
             slot.PreferredFallbackTier = StreamTier.Rtsp;
@@ -801,19 +842,33 @@ namespace TSVmsDesktop.ViewModels
                         BackendStatus = cam.Status ?? "Offline",
                         IsConnected = false,
                         HasAudioCapability = cam.Capabilities?.HasAudio ?? false,
+                        Username = cam.Username ?? "",
+                        Password = cam.Password ?? "",
                         CameraVM = new CameraViewModel(_recordingService) { CameraId = cam.Id }
                     };
                     UpdateIp(slot, cam);
-                    await FetchCredentialsForSlot(slot);
-                    WarmMainStreamCache(slot);
                     CameraGrid.Add(slot);
                     _ = slot.CameraVM.PollRecordingStatusAsync();
                     needsConnectionRefresh = true;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await FetchCredentialsForSlot(slot);
+                            WarmMainStreamCache(slot);
+                            if (slot.CameraVM != null)
+                                _ = slot.CameraVM.PollRecordingStatusAsync();
+                        }
+                        catch { }
+                    });
                 }
                 else
                 {
                     if (existing.CameraName != cam.Name) existing.CameraName = cam.Name;
                     if (existing.OverlayText != cam.Name) existing.OverlayText = cam.Name;
+                    if (!string.IsNullOrWhiteSpace(cam.Username)) existing.Username = cam.Username;
+                    if (!string.IsNullOrWhiteSpace(cam.Password)) existing.Password = cam.Password;
                     
                     if (existing.BackendStatus != cam.Status) 
                     {
@@ -830,18 +885,8 @@ namespace TSVmsDesktop.ViewModels
                         }
                     }
 
-                    string resolvedSub = await ResolvePreferredSubUrlAsync(cam, existing.Username, existing.Password);
-                    if (!string.IsNullOrWhiteSpace(resolvedSub) &&
-                        !existing.RtspRetriedWithMain &&
-                        existing.RtspUrl != resolvedSub)
-                    {
-                        existing.RtspUrl = resolvedSub;
-                        _subStreamCache[cam.Id] = resolvedSub;
-                    }
-
                     existing.HasAudioCapability = cam.Capabilities?.HasAudio ?? false;
                     UpdateIp(existing, cam);
-                    WarmMainStreamCache(existing);
                     if (!WebRtcEnabled && existing.ActiveTier == StreamTier.WebRtc)
                     {
                         existing.ActiveTier = StreamTier.Rtsp;
@@ -849,6 +894,31 @@ namespace TSVmsDesktop.ViewModels
                         needsConnectionRefresh = true;
                     }
                     if (existing.CameraVM != null) _ = existing.CameraVM.PollRecordingStatusAsync();
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var resolvedSub = await ResolvePreferredSubUrlAsync(cam, existing.Username, existing.Password);
+                            string nextUrl = existing.RtspRetriedWithMain &&
+                                             !string.IsNullOrWhiteSpace(existing.MainRtspUrl)
+                                ? existing.MainRtspUrl
+                                : resolvedSub;
+
+                            if (!string.IsNullOrWhiteSpace(nextUrl) &&
+                                !existing.RtspRetriedWithMain &&
+                                existing.RtspUrl != nextUrl)
+                            {
+                                existing.RtspUrl = nextUrl;
+                                if (existing.RtspRetriedWithMain)
+                                    _mainStreamCache[cam.Id] = nextUrl;
+                                else
+                                    _subStreamCache[cam.Id] = nextUrl;
+                            }
+                            WarmMainStreamCache(existing);
+                        }
+                        catch { }
+                    });
                 }
             }
 
@@ -862,8 +932,7 @@ namespace TSVmsDesktop.ViewModels
             NotifyLiveStateChanged();
             if (_isActive)
             {
-                if (needsConnectionRefresh || CameraGrid.Any(s => s.IsConnected == false && !string.IsNullOrWhiteSpace(s.Id) &&
-                    string.Equals(s.BackendStatus, "Online", StringComparison.OrdinalIgnoreCase)))
+                if (needsConnectionRefresh || CameraGrid.Any(s => s.IsConnected == false && !string.IsNullOrWhiteSpace(s.Id)))
                 {
                     await ConnectAll();
                 }
@@ -881,7 +950,7 @@ namespace TSVmsDesktop.ViewModels
              catch { }
         }
 
-        private async Task<string> GetMainStreamUrlAsync(CameraSlot slot)
+        public async Task<string> GetMainStreamUrlAsync(CameraSlot slot)
         {
             if (_mainStreamCache.TryGetValue(slot.Id, out var cached) && !string.IsNullOrWhiteSpace(cached))
                 return cached;

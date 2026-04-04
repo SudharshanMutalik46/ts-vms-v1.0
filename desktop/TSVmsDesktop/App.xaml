@@ -57,11 +57,42 @@
 
         <DropShadowEffect x:Key="SidebarShadow" Color="Black" Opacity="0.1" BlurRadius="4" ShadowDepth="2"/>
 
+        <ControlTemplate x:Key="SidebarButtonTemplate" TargetType="Button">
+            <Border Background="{TemplateBinding Background}" CornerRadius="25">
+                <Grid Margin="{TemplateBinding Padding}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="22"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Viewbox Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Path Data="{TemplateBinding Tag}"
+                              Stroke="{TemplateBinding Foreground}"
+                              Fill="{TemplateBinding Foreground}"
+                              StrokeThickness="1.8"
+                              Stretch="Uniform"/>
+                    </Viewbox>
+                    <ContentPresenter Grid.Column="1" Margin="12,0,24,0" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </ControlTemplate>
+
         <ControlTemplate x:Key="SidebarActiveButtonTemplate" TargetType="Button">
             <Border Background="{TemplateBinding Background}" CornerRadius="25">
                 <Grid Margin="{TemplateBinding Padding}">
-                    <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                    <TextBlock Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" 
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="22"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Viewbox Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Path Data="{TemplateBinding Tag}"
+                              Stroke="{TemplateBinding Foreground}"
+                              Fill="{TemplateBinding Foreground}"
+                              StrokeThickness="1.8"
+                              Stretch="Uniform"/>
+                    </Viewbox>
+                    <ContentPresenter Grid.Column="1" Margin="12,0,10,0" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center"
                                FontSize="22" FontWeight="Bold" Margin="0,-4,0,0"/>
                 </Grid>
             </Border>
@@ -85,18 +116,10 @@
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Padding" Value="25,12"/>
             <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="25">
-                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Template" Value="{StaticResource SidebarButtonTemplate}"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#1AFFFFFF"/>

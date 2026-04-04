@@ -189,12 +189,30 @@
                                 <TextBlock Text="Camera Password" Margin="0,0,0,6" FontWeight="SemiBold" Foreground="#334155"/>
                                 <TextBox Text="{Binding CredPassword}" Style="{StaticResource ModernInputStyle}" Height="40" Margin="0,0,0,20"/>
 
-                                <Button Command="{Binding SaveCredentialsCommand}"
-                                        Content="Save Credentials"
-                                        Style="{StaticResource PillButtonStyle}"
-                                        Width="170"
-                                        Height="40"
-                                        HorizontalAlignment="Left"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Command="{Binding SaveCredentialsCommand}"
+                                            Content="Save Credentials"
+                                            Style="{StaticResource PillButtonStyle}"
+                                            Width="170"
+                                            Height="40"
+                                            HorizontalAlignment="Left"/>
+
+                                    <Button Command="{Binding OpenRtspEditorCommand}"
+                                            Content="Update RTSP"
+                                            Margin="12,0,0,0"
+                                            Style="{StaticResource OutlineButtonStyle}"
+                                            Foreground="#475569"
+                                            BorderBrush="#CBD5E1"
+                                            Width="140"
+                                            Height="40"
+                                            HorizontalAlignment="Left"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Update the RTSP URL, credentials, and main/sub media profiles in one place."
+                                           FontSize="11"
+                                           Foreground="#94A3B8"
+                                           Margin="2,10,0,0"
+                                           TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
 

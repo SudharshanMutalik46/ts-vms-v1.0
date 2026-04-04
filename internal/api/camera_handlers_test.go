@@ -29,6 +29,7 @@ func (m *MockLicense) GetLimits(tenantID uuid.UUID) license.LicenseLimits {
 
 // Mock Repo
 type HMockRepo struct {
+	lastUpdated *data.Camera
 }
 
 func (m *HMockRepo) Create(ctx context.Context, c *data.Camera) error { c.ID = uuid.New(); return nil }
@@ -38,9 +39,13 @@ func (m *HMockRepo) GetByID(ctx context.Context, id uuid.UUID) (*data.Camera, er
 	if ac, ok := middleware.GetAuthContext(ctx); ok {
 		tid = uuid.MustParse(ac.TenantID)
 	}
-	return &data.Camera{ID: id, TenantID: tid, Name: "Handler Cam", IsEnabled: true}, nil
+	return &data.Camera{ID: id, TenantID: tid, Name: "Handler Cam", RtspUrl: "rtsp://old.example/stream", Port: 554, IsEnabled: true}, nil
 }
-func (m *HMockRepo) Update(ctx context.Context, c *data.Camera) error             { return nil }
+func (m *HMockRepo) Update(ctx context.Context, c *data.Camera) error {
+	copyCam := *c
+	m.lastUpdated = &copyCam
+	return nil
+}
 func (m *HMockRepo) SetStatus(ctx context.Context, id, t uuid.UUID, e bool) error { return nil }
 func (m *HMockRepo) SoftDelete(ctx context.Context, id, t uuid.UUID) error        { return nil }
 func (m *HMockRepo) CountAll(ctx context.Context, t uuid.UUID) (int, error)       { return 0, nil }
@@ -140,6 +145,34 @@ func TestHandler_DisableCamera(t *testing.T) {
 	h.Disable(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected 200, got %d", rr.Code)
+	}
+}
+
+func TestHandler_UpdateCamera_RtspUrl(t *testing.T) {
+	repo := &HMockRepo{}
+	svc := cameras.NewService(repo, &MockLicense{}, &MockAuditor{})
+	h := api.NewCameraHandler(svc)
+
+	camID := uuid.New().String()
+	body := `{"name":"Handler Cam","ip_address":"192.168.1.46","port":554,"rtsp_url":"rtsp://192.168.1.46:554/ch01.264","is_enabled":true}`
+	req := httptest.NewRequest("PUT", "/api/v1/cameras/"+camID, bytes.NewBufferString(body))
+	req.SetPathValue("id", camID)
+	req = withAuth(req)
+
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+	if repo.lastUpdated == nil {
+		t.Fatal("expected repo.Update to be called")
+	}
+	if repo.lastUpdated.RtspUrl != "rtsp://192.168.1.46:554/ch01.264" {
+		t.Fatalf("expected rtsp url to be updated, got %q", repo.lastUpdated.RtspUrl)
+	}
+	if repo.lastUpdated.Port != 554 {
+		t.Fatalf("expected port to be updated, got %d", repo.lastUpdated.Port)
 	}
 }
 
