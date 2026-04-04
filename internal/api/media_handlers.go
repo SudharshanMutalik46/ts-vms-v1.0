@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/technosupport/ts-vms/internal/cameras"
@@ -84,6 +85,45 @@ func (h *MediaHandler) SelectProfiles(w http.ResponseWriter, r *http.Request) {
 	selection, err := h.Service.SelectMediaProfiles(r.Context(), tenantID, cameraID)
 	if err != nil {
 		http.Error(w, "selection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(selection)
+}
+
+// PUT /api/v1/cameras/{id}/media-selection
+func (h *MediaHandler) UpdateSelectionUrls(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	cameraID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid camera id", http.StatusBadRequest)
+		return
+	}
+
+	tenantID, err := getTenantID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		MainRTSP string `json:"main_rtsp_url_sanitized"`
+		SubRTSP  string `json:"sub_rtsp_url_sanitized"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.MainRTSP) == "" && strings.TrimSpace(req.SubRTSP) == "" {
+		http.Error(w, "main or sub rtsp url is required", http.StatusBadRequest)
+		return
+	}
+
+	selection, err := h.Service.UpdateManualStreamUrls(r.Context(), tenantID, cameraID, req.MainRTSP, req.SubRTSP)
+	if err != nil {
+		http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

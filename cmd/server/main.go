@@ -412,6 +412,7 @@ func main() {
 	// Media (Phase 2.4)
 	mux.Handle("GET /api/v1/cameras/{id}/media-profiles", Protect(http.HandlerFunc(mediaHandler.ListProfiles)))
 	mux.Handle("POST /api/v1/cameras/{id}/select-media-profiles", Protect(http.HandlerFunc(mediaHandler.SelectProfiles)))
+	mux.Handle("PUT /api/v1/cameras/{id}/media-selection", Protect(http.HandlerFunc(mediaHandler.UpdateSelectionUrls)))
 	mux.Handle("GET /api/v1/cameras/{id}/media-selection", Protect(http.HandlerFunc(mediaHandler.GetSelection)))
 	mux.Handle("POST /api/v1/cameras/{id}/validate-rtsp", Protect(http.HandlerFunc(mediaHandler.ValidateRTSP)))
 

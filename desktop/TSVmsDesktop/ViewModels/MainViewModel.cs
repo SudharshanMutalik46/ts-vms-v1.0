@@ -129,6 +129,11 @@ namespace TSVmsDesktop.ViewModels
             DeactivatePlaybackIfNeeded();
         }
 
+        public async Task RefreshLiveCameraAsync(string cameraId)
+        {
+            await LiveVM.RefreshCameraAsync(cameraId);
+        }
+
         // --- NAVIGATION COMMANDS ---
         
         [RelayCommand]

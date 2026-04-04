@@ -297,11 +297,19 @@ func (h *CameraHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var warning string
 	if syncRecorder && cam.IsEnabled {
 		if err := h.syncRecorder(r.Context(), cam); err != nil {
-			respondError(w, http.StatusBadGateway, err.Error())
-			return
+			warning = err.Error()
 		}
+	}
+
+	if warning != "" {
+		respondJSON(w, http.StatusOK, map[string]any{
+			"camera":  cam,
+			"warning": warning,
+		})
+		return
 	}
 
 	respondJSON(w, http.StatusOK, cam)

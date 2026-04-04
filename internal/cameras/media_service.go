@@ -267,6 +267,80 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	return dbSel, nil
 }
 
+func (s *MediaService) UpdateManualStreamUrls(ctx context.Context, tenantID, cameraID uuid.UUID, mainRTSP, subRTSP string) (*data.CameraStreamSelection, error) {
+	mainRTSP = media.SanitizeRTSPURL(strings.TrimSpace(mainRTSP))
+	subRTSP = media.SanitizeRTSPURL(strings.TrimSpace(subRTSP))
+
+	cam, err := s.CameraRepo.GetByID(ctx, cameraID)
+	if err != nil {
+		return nil, err
+	}
+	if cam.TenantID.String() != tenantID.String() {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	existing, err := s.MediaRepo.GetSelection(ctx, tenantID, cameraID)
+	if err != nil {
+		return nil, err
+	}
+
+	sel := &data.CameraStreamSelection{
+		TenantID:         tenantID,
+		CameraID:         cameraID,
+		MainProfileToken: "",
+		MainRTSP:         mainRTSP,
+		MainSupported:    strings.TrimSpace(mainRTSP) != "",
+		SubProfileToken:  "",
+		SubRTSP:          subRTSP,
+		SubSupported:     strings.TrimSpace(subRTSP) != "",
+		SubIsSameAsMain:  false,
+	}
+
+	if existing != nil {
+		sel.ID = existing.ID
+		if strings.TrimSpace(sel.SubRTSP) == "" && strings.TrimSpace(sel.MainRTSP) != "" {
+			sel.SubIsSameAsMain = true
+			sel.SubRTSP = sel.MainRTSP
+			sel.SubSupported = sel.MainSupported
+		} else {
+			sel.SubIsSameAsMain = strings.EqualFold(strings.TrimSpace(sel.MainRTSP), strings.TrimSpace(sel.SubRTSP))
+		}
+	}
+
+	if err := s.MediaRepo.UpsertSelection(ctx, sel); err != nil {
+		return nil, err
+	}
+
+	if sel.MainRTSP != "" {
+		s.Validator.Enqueue(media.ValidationJob{
+			TenantID: tenantID,
+			CameraID: cameraID,
+			Variant:  "main",
+			RTSPURL:  sel.MainRTSP,
+		})
+	}
+	if sel.SubRTSP != "" && !sel.SubIsSameAsMain {
+		s.Validator.Enqueue(media.ValidationJob{
+			TenantID: tenantID,
+			CameraID: cameraID,
+			Variant:  "sub",
+			RTSPURL:  sel.SubRTSP,
+		})
+	}
+
+	s.Auditor.WriteEvent(ctx, audit.AuditEvent{
+		EventID:    uuid.New(),
+		Action:     "camera.media.manual_update",
+		TenantID:   tenantID,
+		TargetID:   cameraID.String(),
+		TargetType: "camera",
+		Result:     "success",
+		Metadata:   toMeta(map[string]any{"main_rtsp_url_sanitized": sel.MainRTSP, "sub_rtsp_url_sanitized": sel.SubRTSP}),
+	})
+
+	return sel, nil
+}
+
 func (s *MediaService) GetProfiles(ctx context.Context, tenantID, cameraID uuid.UUID) ([]*data.CameraMediaProfile, error) {
 	return s.MediaRepo.ListProfiles(ctx, tenantID, cameraID)
 }
@@ -286,7 +360,7 @@ func (s *MediaService) GetSelection(ctx context.Context, tenantID, cameraID uuid
 		}
 	}
 
-	if sel != nil && s.selectionNeedsRefresh(ctx, sel) {
+	if sel != nil && !s.isManualSelection(sel) && s.selectionNeedsRefresh(ctx, sel) {
 		log.Printf("[WARN] RTSP selection probe failed for camera %s; refreshing media selection", cameraID)
 		if refreshed, refreshErr := s.SelectMediaProfiles(ctx, tenantID, cameraID); refreshErr == nil && refreshed != nil {
 			sel = refreshed
@@ -297,6 +371,16 @@ func (s *MediaService) GetSelection(ctx context.Context, tenantID, cameraID uuid
 
 	val, err := s.MediaRepo.GetValidationResults(ctx, tenantID, cameraID)
 	return sel, val, err
+}
+
+func (s *MediaService) isManualSelection(sel *data.CameraStreamSelection) bool {
+	if sel == nil {
+		return false
+	}
+
+	return strings.TrimSpace(sel.MainProfileToken) == "" &&
+		strings.TrimSpace(sel.SubProfileToken) == "" &&
+		(strings.TrimSpace(sel.MainRTSP) != "" || strings.TrimSpace(sel.SubRTSP) != "")
 }
 
 func (s *MediaService) selectionNeedsRefresh(ctx context.Context, sel *data.CameraStreamSelection) bool {

@@ -61,7 +61,7 @@
                                FontSize="24"
                                FontWeight="Bold"
                                Foreground="#1E293B"/>
-                    <TextBlock Text="Edit the stream URL, camera credentials, and main/sub profile mapping."
+                    <TextBlock Text="Edit the main and sub RTSP URLs plus camera credentials."
                                FontSize="12"
                                Foreground="#64748B"
                                Margin="0,6,0,0"/>
@@ -71,11 +71,27 @@
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <TextBlock Text="RTSP Stream URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
-                        <TextBox x:Name="TxtRtspUrl"
+                        <TextBlock Text="Current / Old RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                        <TextBox x:Name="TxtCurrentRtspUrl"
                                  Style="{StaticResource DialogFieldStyle}"
                                  Text="rtsp://"/>
-                        <TextBlock Text="Use the full RTSP URL, including the path required by the camera."
+                        <TextBlock Text="This is the camera base RTSP URL used for fallback and credentials."
+                                   Style="{StaticResource DialogHintStyle}"
+                                   Margin="0,0,0,10"/>
+
+                        <TextBlock Text="Main Stream RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                        <TextBox x:Name="TxtMainRtspUrl"
+                                 Style="{StaticResource DialogFieldStyle}"
+                                 Text="rtsp://"/>
+                        <TextBlock Text="Use this for full-screen and primary playback."
+                                   Style="{StaticResource DialogHintStyle}"
+                                   Margin="0,0,0,10"/>
+
+                        <TextBlock Text="Sub Stream RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBox x:Name="TxtSubRtspUrl"
+                                 Style="{StaticResource DialogFieldStyle}"
+                                 Text="rtsp://"/>
+                        <TextBlock Text="Use this for the tiled live view grid."
                                    Style="{StaticResource DialogHintStyle}"
                                    Margin="0,0,0,10"/>
 
@@ -106,25 +122,6 @@
                                              BorderBrush="#CBD5E1"
                                              BorderThickness="1"
                                              Margin="0,0,0,0"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="18" Margin="0,0,0,18">
-                            <StackPanel>
-                                <TextBlock Text="Main / Sub Stream Profiles" FontSize="16" FontWeight="Bold" Foreground="#0F172A"/>
-                                <TextBlock Text="Pick the media profiles to use for main and sub stream selection."
-                                           Style="{StaticResource DialogHintStyle}"
-                                           Margin="0,4,0,14"/>
-
-                                <TextBlock Text="Main Stream" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
-                                <ComboBox x:Name="CmbMainProfile"
-                                          Style="{StaticResource DialogComboStyle}"
-                                          DisplayMemberPath="Name"/>
-
-                                <TextBlock Text="Sub Stream" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
-                                <ComboBox x:Name="CmbSubProfile"
-                                          Style="{StaticResource DialogComboStyle}"
-                                          DisplayMemberPath="Name"/>
                             </StackPanel>
                         </Border>
 

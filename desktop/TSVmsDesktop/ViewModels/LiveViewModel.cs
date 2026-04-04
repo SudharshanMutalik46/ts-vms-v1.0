@@ -145,6 +145,7 @@ namespace TSVmsDesktop.ViewModels
         private readonly ConcurrentDictionary<string, CameraMediaInfo?> _mediaInfoCache = new();
         private readonly ConcurrentDictionary<string, string> _mainStreamCache = new();
         private readonly ConcurrentDictionary<string, string> _subStreamCache = new();
+        private readonly ConcurrentDictionary<string, (string Main, string Sub)> _manualRtspOverrides = new();
 
         private static StreamTier? ParseTier(string? tier) =>
             tier?.Trim().ToLowerInvariant() switch
@@ -260,6 +261,9 @@ namespace TSVmsDesktop.ViewModels
             FullScreenUrl = string.Empty;
             FullScreenRtspUrl = string.Empty;
             SelectedCameraName = string.Empty;
+            FullScreenWindowHandle = IntPtr.Zero;
+            FullScreenFallbackUrl = string.Empty;
+            FullScreenRetriedWithFallback = false;
 
             var activeHandles = CameraGrid
                 .Where(slot => slot.PipelineHandle != IntPtr.Zero)
@@ -322,6 +326,9 @@ namespace TSVmsDesktop.ViewModels
         private bool _isFullScreen = false;
         [ObservableProperty] private string _selectedCameraName = "";
         [ObservableProperty] private bool _isSyncing = false;
+        public IntPtr FullScreenWindowHandle { get; set; } = IntPtr.Zero;
+        public string FullScreenFallbackUrl { get; set; } = "";
+        public bool FullScreenRetriedWithFallback { get; set; } = false;
 
         [ObservableProperty] [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))] private int _currentPage = 0;
         [ObservableProperty] [NotifyPropertyChangedFor(nameof(CurrentPageDisplay))] private int _totalPages = 1;
@@ -387,15 +394,10 @@ namespace TSVmsDesktop.ViewModels
             IsSyncing = true;
             try
             {
-                // Aggressively re-interrogate ONVIF for all cameras to resolve "Confusion"
-                foreach (var cam in _cameraService.AllCameras)
-                {
-                    _ = _mediaService.SelectProfilesAsync(cam.Id, "", "");
-                }
-
+                await _cameraService.LoadCamerasAsync();
                 await _cameraService.LoadHealthAsync();
+                InvalidateAllStreamCaches();
                 await RefreshGrid();
-                await Task.Delay(800);
             }
             finally { IsSyncing = false; }
         }
@@ -520,12 +522,19 @@ namespace TSVmsDesktop.ViewModels
         private async Task<string> ResolvePreferredSubUrlAsync(CameraModel cam, string username, string password)
         {
             if (cam == null) return "";
-            var info = await GetMediaInfoCachedAsync(cam.Id);
             string url = "";
 
+            if (_manualRtspOverrides.TryGetValue(cam.Id, out var manualSub) && !string.IsNullOrWhiteSpace(manualSub.Sub))
+                return InjectCredentialsIfMissing(System.Net.WebUtility.HtmlDecode(manualSub.Sub), username, password);
+
+            var info = await GetMediaInfoCachedAsync(cam.Id);
+
             if (!string.IsNullOrWhiteSpace(info?.Selection?.SubRtsp)) url = info.Selection.SubRtsp;
+            else if (!string.IsNullOrWhiteSpace(info?.Selection?.MainRtsp)) url = info.Selection.MainRtsp;
             else if (!string.IsNullOrWhiteSpace(cam.RtspUrl)) url = cam.RtspUrl;
-            else url = cam.EffectiveRtspUrl; 
+
+            if (string.IsNullOrWhiteSpace(url))
+                url = cam.EffectiveRtspUrl;
 
             // Unescape XML entities like &amp; commonly returned by ONVIF
             url = System.Net.WebUtility.HtmlDecode(url ?? "");
@@ -536,13 +545,19 @@ namespace TSVmsDesktop.ViewModels
         private async Task<string> ResolvePreferredMainUrlAsync(CameraModel cam, string username, string password)
         {
             if (cam == null) return "";
-            var info = await GetMediaInfoCachedAsync(cam.Id);
             string url = "";
+
+            if (_manualRtspOverrides.TryGetValue(cam.Id, out var manualMain) && !string.IsNullOrWhiteSpace(manualMain.Main))
+                return InjectCredentialsIfMissing(System.Net.WebUtility.HtmlDecode(manualMain.Main), username, password);
+
+            var info = await GetMediaInfoCachedAsync(cam.Id);
 
             if (!string.IsNullOrWhiteSpace(info?.Selection?.MainRtsp)) url = info.Selection.MainRtsp;
             else if (!string.IsNullOrWhiteSpace(info?.Selection?.SubRtsp)) url = info.Selection.SubRtsp;
             else if (!string.IsNullOrWhiteSpace(cam.RtspUrl)) url = cam.RtspUrl;
-            else url = cam.EffectiveRtspUrl;
+
+            if (string.IsNullOrWhiteSpace(url))
+                url = cam.EffectiveRtspUrl;
 
             // Unescape XML entities
             url = System.Net.WebUtility.HtmlDecode(url ?? "");
@@ -570,6 +585,20 @@ namespace TSVmsDesktop.ViewModels
             _mediaInfoCache.TryRemove(cameraId, out _);
             _mainStreamCache.TryRemove(cameraId, out _);
             _subStreamCache.TryRemove(cameraId, out _);
+        }
+
+        private void InvalidateAllStreamCaches()
+        {
+            _mediaInfoCache.Clear();
+            _mainStreamCache.Clear();
+            _subStreamCache.Clear();
+        }
+
+        public Task RefreshCameraAsync(string cameraId)
+        {
+            InvalidateStreamCaches(cameraId);
+            RequestRefresh();
+            return Task.CompletedTask;
         }
 
         public async Task FetchCredentialsForSlot(CameraSlot slot)
@@ -627,24 +656,26 @@ namespace TSVmsDesktop.ViewModels
             string resolvedMain = await ResolvePreferredMainUrlAsync(cam, slot.Username, slot.Password);
             slot.MainRtspUrl = resolvedMain;
 
-            // --- Always resolve RTSP as the final fallback tier ---
-            // If we already promoted this slot to the main stream because the
-            // sub stream failed, keep that decision intact.  getFreshContext()
-            // calls back into this method during restart, so unconditionally
-            // reapplying the sub URL would undo the retry and resurrect the
-            // bad stream path.
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
             slot.RtspUrl = slot.RtspRetriedWithMain && !string.IsNullOrWhiteSpace(resolvedMain)
                 ? resolvedMain
-                : (!string.IsNullOrWhiteSpace(resolvedMain) && IsLikelySubStreamUrl(resolvedSub)
-                    ? resolvedMain
-                    : resolvedSub);
+                : resolvedSub;
             slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
             slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
             slot.PreferredFallbackTier = StreamTier.Rtsp;
 
+            var cachedInfo = await GetMediaInfoCachedAsync(cam.Id);
+            bool hasManualSelection =
+                cachedInfo?.Selection != null &&
+                string.IsNullOrWhiteSpace(cachedInfo.Selection.MainProfileToken) &&
+                string.IsNullOrWhiteSpace(cachedInfo.Selection.SubProfileToken) &&
+                (!string.IsNullOrWhiteSpace(cachedInfo.Selection.MainRtsp) ||
+                 !string.IsNullOrWhiteSpace(cachedInfo.Selection.SubRtsp));
+
             // Autonomous Interrogation fallback
-            if (string.IsNullOrWhiteSpace(slot.PreferredCodec))
+            if (string.IsNullOrWhiteSpace(slot.PreferredCodec) &&
+                !_manualRtspOverrides.ContainsKey(cam.Id) &&
+                !hasManualSelection)
             {
                 var mediaService = _serviceProvider.GetService<MediaService>();
                 if (mediaService != null)
@@ -965,6 +996,49 @@ namespace TSVmsDesktop.ViewModels
             return mainUrl;
         }
 
+        public void ApplyManualRtspOverride(string cameraId, string mainRtspUrl, string subRtspUrl)
+        {
+            if (string.IsNullOrWhiteSpace(cameraId))
+                return;
+
+            var main = string.IsNullOrWhiteSpace(mainRtspUrl) ? "" : mainRtspUrl;
+            var sub = string.IsNullOrWhiteSpace(subRtspUrl) ? "" : subRtspUrl;
+            if (string.IsNullOrWhiteSpace(main) && !string.IsNullOrWhiteSpace(sub))
+                main = sub;
+            if (string.IsNullOrWhiteSpace(sub) && !string.IsNullOrWhiteSpace(main))
+                sub = main;
+
+            _manualRtspOverrides[cameraId] = (main, sub);
+
+            var slot = CameraGrid.FirstOrDefault(s => string.Equals(s.Id, cameraId, StringComparison.OrdinalIgnoreCase));
+            if (slot == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(main))
+            {
+                slot.MainRtspUrl = main;
+                _mainStreamCache[cameraId] = main;
+            }
+
+            if (!string.IsNullOrWhiteSpace(sub))
+            {
+                slot.RtspUrl = sub;
+                _subStreamCache[cameraId] = sub;
+            }
+
+            if (IsFullScreen && string.Equals(SelectedCameraName, slot.CameraName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(main))
+                {
+                    FullScreenUrl = main;
+                    FullScreenRtspUrl = main;
+                    FullScreenFallbackUrl = !string.IsNullOrWhiteSpace(sub) ? sub : main;
+                }
+            }
+
+            NotifyLiveStateChanged();
+        }
+
         private void WarmMainStreamCache(CameraSlot slot)
         {
             if (slot == null || string.IsNullOrWhiteSpace(slot.Id))
@@ -993,12 +1067,16 @@ namespace TSVmsDesktop.ViewModels
             var subUrl = slot.RtspUrl;
 
             _subStreamCache[slot.Id] = subUrl;
-            string mainUrl = await GetMainStreamUrlAsync(slot);
+            string mainUrl = !string.IsNullOrWhiteSpace(slot.MainRtspUrl)
+                ? slot.MainRtspUrl
+                : await GetMainStreamUrlAsync(slot);
             if (string.IsNullOrWhiteSpace(mainUrl))
                 mainUrl = subUrl;
 
             FullScreenUrl = mainUrl;
             FullScreenRtspUrl = mainUrl;
+            FullScreenFallbackUrl = subUrl;
+            FullScreenRetriedWithFallback = false;
             FullScreenHasAudio = slot.HasAudioCapability;
 
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
@@ -1015,6 +1093,9 @@ namespace TSVmsDesktop.ViewModels
             IsFullScreen = false;
             FullScreenUrl = string.Empty;
             FullScreenRtspUrl = string.Empty;
+            FullScreenWindowHandle = IntPtr.Zero;
+            FullScreenFallbackUrl = string.Empty;
+            FullScreenRetriedWithFallback = false;
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
             mainVm.IsKioskMode = false;
             UpdateAudioStates();
@@ -1213,6 +1294,23 @@ namespace TSVmsDesktop.ViewModels
 
         private void OnStreamError(IntPtr windowHandle, string message)
         {
+            if (IsFullScreen &&
+                FullScreenWindowHandle != IntPtr.Zero &&
+                windowHandle == FullScreenWindowHandle &&
+                (IsRtspSetupError(message) || IsRtspStallError(message)))
+            {
+                if (!FullScreenRetriedWithFallback &&
+                    !string.IsNullOrWhiteSpace(FullScreenFallbackUrl) &&
+                    !string.Equals(FullScreenUrl, FullScreenFallbackUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    VideoService.Log("[TS-VMS] Full-screen RTSP failed; retrying once with fallback stream.");
+                    FullScreenRetriedWithFallback = true;
+                    FullScreenUrl = FullScreenFallbackUrl;
+                    FullScreenRtspUrl = FullScreenFallbackUrl;
+                    return;
+                }
+            }
+
             var slot = CameraGrid.FirstOrDefault(s => s.WindowHandle == windowHandle);
             if (slot == null) return;
 

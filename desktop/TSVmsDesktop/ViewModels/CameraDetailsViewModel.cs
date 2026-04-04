@@ -29,6 +29,9 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private ObservableCollection<MediaProfile> _profiles = new();
         [ObservableProperty] private MediaProfile _selectedMainProfile = new();
         [ObservableProperty] private MediaProfile _selectedSubProfile = new();
+        [ObservableProperty] private string _currentRtspUrl = "";
+        [ObservableProperty] private string _mainRtspUrl = "";
+        [ObservableProperty] private string _subRtspUrl = "";
         [ObservableProperty] private string _rtspValidationResult = "";
         [ObservableProperty] private string _editableCameraName = "";
         [ObservableProperty] private bool _isEditingName;
@@ -71,6 +74,22 @@ namespace TSVmsDesktop.ViewModels
             RtspValidationResult = "";
             SelectedMainProfile = new MediaProfile();
             SelectedSubProfile = new MediaProfile();
+
+            var mediaInfo = await _mediaService.GetMediaInfoAsync(cam.Id);
+            var selection = mediaInfo?.Selection;
+
+            CurrentRtspUrl =
+                !string.IsNullOrWhiteSpace(selection?.MainRtsp) ? selection.MainRtsp :
+                !string.IsNullOrWhiteSpace(selection?.SubRtsp) ? selection.SubRtsp :
+                cam.RtspUrl ?? cam.EffectiveRtspUrl ?? "";
+
+            MainRtspUrl = !string.IsNullOrWhiteSpace(selection?.MainRtsp)
+                ? selection.MainRtsp
+                : CurrentRtspUrl;
+
+            SubRtspUrl = !string.IsNullOrWhiteSpace(selection?.SubRtsp)
+                ? selection.SubRtsp
+                : DeriveSubStreamUrl(CurrentRtspUrl);
 
             HealthIpAddress = cam.IpAddress;
             HealthPort = cam.Port > 0 ? cam.Port.ToString() : "554";
@@ -119,19 +138,13 @@ namespace TSVmsDesktop.ViewModels
             if (Camera == null)
                 return;
 
-            if (Profiles.Count == 0)
-            {
-                await FetchProfiles();
-            }
-
             var dialog = new RtspEditorWindow(
-                Camera.RtspUrl ?? "",
+                CurrentRtspUrl,
+                MainRtspUrl,
+                SubRtspUrl,
                 Camera.Port > 0 ? Camera.Port : 554,
                 CredUsername,
-                CredPassword,
-                Profiles,
-                SelectedMainProfile?.Token ?? "",
-                SelectedSubProfile?.Token ?? "")
+                CredPassword)
             {
                 Owner = Application.Current.MainWindow
             };
@@ -260,7 +273,23 @@ namespace TSVmsDesktop.ViewModels
                 {
                     SelectedMainProfile = Profiles.FirstOrDefault(p => p.Token == selection.MainProfileToken) ?? new MediaProfile();
                     SelectedSubProfile = Profiles.FirstOrDefault(p => p.Token == selection.SubProfileToken) ?? new MediaProfile();
+                    if (!string.IsNullOrWhiteSpace(selection.MainRtsp))
+                        MainRtspUrl = selection.MainRtsp;
+                    if (!string.IsNullOrWhiteSpace(selection.SubRtsp))
+                        SubRtspUrl = selection.SubRtsp;
                 }
+
+                if (!string.IsNullOrWhiteSpace(MainRtspUrl))
+                    CurrentRtspUrl = MainRtspUrl;
+                else if (!string.IsNullOrWhiteSpace(SubRtspUrl))
+                    CurrentRtspUrl = SubRtspUrl;
+                else if (string.IsNullOrWhiteSpace(CurrentRtspUrl))
+                    CurrentRtspUrl = Camera?.RtspUrl ?? "";
+
+                if (string.IsNullOrWhiteSpace(MainRtspUrl))
+                    MainRtspUrl = CurrentRtspUrl;
+                if (string.IsNullOrWhiteSpace(SubRtspUrl))
+                    SubRtspUrl = DeriveSubStreamUrl(CurrentRtspUrl);
 
                 if (Profiles.Count == 0 && (string.IsNullOrWhiteSpace(RtspValidationResult) || RtspValidationResult.Contains("Loaded", StringComparison.OrdinalIgnoreCase)))
                 {
@@ -282,8 +311,42 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task ApplyRtspEditorResult(RtspEditorWindow dialog)
         {
-            string rtspUrl = dialog.RtspUrl.Trim();
-            if (string.IsNullOrWhiteSpace(rtspUrl) || !rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            string currentRtspUrl = dialog.CurrentRtspUrl.Trim();
+            string mainRtspUrl = dialog.MainRtspUrl.Trim();
+            string subRtspUrl = dialog.SubRtspUrl.Trim();
+
+            if (string.IsNullOrWhiteSpace(currentRtspUrl) &&
+                string.IsNullOrWhiteSpace(mainRtspUrl) &&
+                string.IsNullOrWhiteSpace(subRtspUrl))
+            {
+                MessageBox.Show("Please enter at least one RTSP URL.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            bool mainChanged = !string.Equals(mainRtspUrl, MainRtspUrl, StringComparison.OrdinalIgnoreCase);
+            bool subChanged = !string.Equals(subRtspUrl, SubRtspUrl, StringComparison.OrdinalIgnoreCase);
+            string baseRtspUrl = mainChanged && !string.IsNullOrWhiteSpace(mainRtspUrl)
+                ? mainRtspUrl
+                : (subChanged && !string.IsNullOrWhiteSpace(subRtspUrl)
+                    ? subRtspUrl
+                    : (!string.IsNullOrWhiteSpace(mainRtspUrl)
+                        ? mainRtspUrl
+                        : (!string.IsNullOrWhiteSpace(subRtspUrl) ? subRtspUrl : currentRtspUrl)));
+
+            if (string.IsNullOrWhiteSpace(mainRtspUrl))
+                mainRtspUrl = !string.IsNullOrWhiteSpace(MainRtspUrl) ? MainRtspUrl : baseRtspUrl;
+            if (string.IsNullOrWhiteSpace(subRtspUrl))
+                subRtspUrl = !string.IsNullOrWhiteSpace(SubRtspUrl) ? SubRtspUrl : baseRtspUrl;
+
+            if (!string.IsNullOrWhiteSpace(currentRtspUrl) &&
+                !currentRtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("Please enter a valid current RTSP URL.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string primaryRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : subRtspUrl;
+            if (!primaryRtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
             {
                 MessageBox.Show("Please enter a valid RTSP URL.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -296,7 +359,7 @@ namespace TSVmsDesktop.ViewModels
                 IpAddress = Camera.IpAddress,
                 SiteId = Camera.SiteId,
                 Port = dialog.Port > 0 ? dialog.Port : Camera.Port,
-                RtspUrl = rtspUrl,
+                RtspUrl = baseRtspUrl,
                 IsEnabled = Camera.IsEnabled,
                 Model = Camera.Model,
                 Thumbnail = Camera.Thumbnail,
@@ -318,18 +381,28 @@ namespace TSVmsDesktop.ViewModels
                     MessageBox.Show("RTSP URL updated, but credentials could not be saved.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
 
-                string mainToken = dialog.SelectedMainProfile?.Token ?? "";
-                string subToken = dialog.SelectedSubProfile?.Token ?? "";
-                if (!string.IsNullOrWhiteSpace(mainToken) || !string.IsNullOrWhiteSpace(subToken))
+                bool mediaSaved = await _mediaService.UpdateManualStreamUrlsAsync(_cameraId, mainRtspUrl, subRtspUrl);
+                if (!mediaSaved)
                 {
-                    await _mediaService.SelectProfilesAsync(_cameraId, mainToken, subToken);
+                    MessageBox.Show("RTSP URL saved for the camera, but main/sub stream URLs could not be updated.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
                 }
+                _mainViewModel.LiveVM.ApplyManualRtspOverride(_cameraId, mainRtspUrl, subRtspUrl);
+
+                await _camService.LoadCamerasAsync();
+                await _mainViewModel.RefreshLiveCameraAsync(_cameraId);
 
                 var refreshed = await _camService.GetCameraAsync(_cameraId);
                 Camera = refreshed ?? updated;
                 HealthRtspUrl = Camera.EffectiveRtspUrl;
+                CurrentRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : baseRtspUrl;
+                MainRtspUrl = mainRtspUrl;
+                SubRtspUrl = subRtspUrl;
 
                 await FetchProfiles();
+                CurrentRtspUrl = !string.IsNullOrWhiteSpace(mainRtspUrl) ? mainRtspUrl : baseRtspUrl;
+                MainRtspUrl = mainRtspUrl;
+                SubRtspUrl = subRtspUrl;
                 await ValidateRtsp();
 
                 MessageBox.Show("RTSP settings updated successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -338,6 +411,29 @@ namespace TSVmsDesktop.ViewModels
             {
                 MessageBox.Show($"Failed to update RTSP settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private static string DeriveSubStreamUrl(string? baseUrl)
+        {
+            var url = baseUrl?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(url))
+                return "";
+
+            if (url.Contains("_sub", StringComparison.OrdinalIgnoreCase))
+                return url;
+
+            int queryIdx = url.IndexOf('?');
+            string query = queryIdx >= 0 ? url[queryIdx..] : "";
+            string path = queryIdx >= 0 ? url[..queryIdx] : url;
+
+            int dotIdx = path.LastIndexOf('.');
+            int slashIdx = path.LastIndexOf('/');
+            if (dotIdx > slashIdx)
+            {
+                return path.Insert(dotIdx, "_sub") + query;
+            }
+
+            return path + "_sub" + query;
         }
 
         [RelayCommand]

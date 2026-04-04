@@ -1046,6 +1046,7 @@ namespace TSVmsDesktop.Views
 
                 videoService = App.Current.Services.GetRequiredService<VideoService>();
                 var targetHandle = canvas.Handle;
+                vm.FullScreenWindowHandle = targetHandle;
                 var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 readyHandler = handle =>
                 {
@@ -1142,6 +1143,10 @@ namespace TSVmsDesktop.Views
                 var videoService = app.Services.GetRequiredService<VideoService>();
                 videoService.StopStream(_fullScreenPipeline);
                 _fullScreenPipeline = IntPtr.Zero;
+                if (DataContext is LiveViewModel vm)
+                {
+                    vm.FullScreenWindowHandle = IntPtr.Zero;
+                }
                 
                 VideoService.Log("[TS-VMS] Full Screen Stream Stopped.");
             }

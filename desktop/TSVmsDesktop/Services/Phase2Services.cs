@@ -66,6 +66,15 @@ namespace TSVmsDesktop.Services
         {
             return await _api.GetAsync<CameraMediaInfo>($"/api/v1/cameras/{camId}/media-selection");
         }
+
+        public async Task<bool> UpdateManualStreamUrlsAsync(string camId, string mainRtspUrl, string subRtspUrl)
+        {
+            return await _api.PutAsync($"/api/v1/cameras/{camId}/media-selection", new
+            {
+                main_rtsp_url_sanitized = mainRtspUrl,
+                sub_rtsp_url_sanitized = subRtspUrl
+            });
+        }
     }
 
     public class CredentialService
