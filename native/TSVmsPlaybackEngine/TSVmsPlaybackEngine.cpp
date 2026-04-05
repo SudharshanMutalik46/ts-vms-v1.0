@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <gst/video/videooverlay.h>
 #include <gst/video/video.h>
+#include <gst/tag/tag.h>
 
 #include <string>
 #include <mutex>
@@ -10,6 +11,8 @@
 #include <memory>
 #include <vector>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 
 namespace {
 
@@ -92,6 +95,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(_mutex);
         _rotationDegrees = NormalizeDegrees(degrees);
+        _manualRotationOverride = true;
 
         if (_videoFlip)
         {
@@ -114,6 +118,32 @@ public:
     {
         std::lock_guard<std::mutex> lock(_mutex);
         return _currentRate;
+    }
+
+    static GstPadProbeReturn OnVideoCapsProbe(GstPad* /*pad*/, GstPadProbeInfo* info, gpointer userData)
+    {
+        auto* self = static_cast<PlaybackEngine*>(userData);
+        if (!self || !info || !(info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM))
+            return GST_PAD_PROBE_OK;
+
+        GstEvent* ev = GST_PAD_PROBE_INFO_EVENT(info);
+        if (!ev || GST_EVENT_TYPE(ev) != GST_EVENT_CAPS)
+            return GST_PAD_PROBE_OK;
+
+        GstCaps* caps = nullptr;
+        gst_event_parse_caps(ev, &caps);
+        if (!caps)
+            return GST_PAD_PROBE_OK;
+
+        GstVideoInfo vinfo;
+        if (!gst_video_info_from_caps(&vinfo, caps))
+            return GST_PAD_PROBE_OK;
+
+        std::lock_guard<std::mutex> lock(self->_mutex);
+        self->_sourceWidth = GST_VIDEO_INFO_WIDTH(&vinfo);
+        self->_sourceHeight = GST_VIDEO_INFO_HEIGHT(&vinfo);
+        self->ApplyCropToFillLocked();
+        return GST_PAD_PROBE_OK;
     }
 
     int Initialize(HWND hwnd)
@@ -207,6 +237,12 @@ public:
             _lastPos = 0.0;
         }
 
+        // Allow the next loaded item to re-apply any stream-provided orientation.
+        _manualRotationOverride = false;
+        _rotationDegrees = 0;
+        _sourceWidth = 0;
+        _sourceHeight = 0;
+
         std::string uri = FilePathToUri(path);
 
         gst_element_set_state(_pipeline, GST_STATE_NULL);
@@ -263,6 +299,12 @@ public:
             
             firstPath = _playlistPaths[startIndex];
         }
+
+        // Allow the next loaded item to re-apply any stream-provided orientation.
+        _manualRotationOverride = false;
+        _rotationDegrees = 0;
+        _sourceWidth = 0;
+        _sourceHeight = 0;
 
         std::string uri = FilePathToUri(firstPath.c_str());
 
@@ -743,6 +785,7 @@ private:
 
         GstElement* d3d11dl = gst_element_factory_make("d3d11download", "tsvms_d3d11dl");
         GstElement* convert = gst_element_factory_make("videoconvert", "tsvms_convert");
+        _videoCrop = gst_element_factory_make("videocrop", "tsvms_video_crop");
         _videoFlip = gst_element_factory_make("videoflip", "tsvms_video_flip");
         _videoScale = gst_element_factory_make("videoscale", "tsvms_video_scale");
         _scaleCapsFilter = gst_element_factory_make("capsfilter", "tsvms_scale_caps");
@@ -754,10 +797,11 @@ private:
         if (!videoSink)
             videoSink = gst_element_factory_make("d3dvideosink", "video-sink");
 
-        if (!convert || !_videoFlip || !_videoScale || !_scaleCapsFilter || !videoSink)
+        if (!convert || !_videoCrop || !_videoFlip || !_videoScale || !_scaleCapsFilter || !videoSink)
         {
             if (d3d11dl) gst_object_unref(d3d11dl);
             if (convert) gst_object_unref(convert);
+            if (_videoCrop) { gst_object_unref(_videoCrop); _videoCrop = nullptr; }
             if (_videoFlip) { gst_object_unref(_videoFlip); _videoFlip = nullptr; }
             if (_videoScale) { gst_object_unref(_videoScale); _videoScale = nullptr; }
             if (_scaleCapsFilter) { gst_object_unref(_scaleCapsFilter); _scaleCapsFilter = nullptr; }
@@ -767,42 +811,45 @@ private:
         }
 
         g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
-        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "force-aspect-ratio"))
-        {
-            g_object_set(G_OBJECT(videoSink), "force-aspect-ratio", FALSE, nullptr);
-        }
-        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "add-borders"))
-        {
-            g_object_set(G_OBJECT(videoSink), "add-borders", FALSE, nullptr);
-        }
-        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "redraw-on-update"))
-        {
-            g_object_set(G_OBJECT(videoSink), "redraw-on-update", TRUE, nullptr);
-        }
+        _videoSink = videoSink;
+        gst_object_ref(_videoSink);
+        ApplySinkDisplayModeLocked(_videoSink);
         
         if (d3d11dl)
         {
-            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-            if (!gst_element_link_many(d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr))
+            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            if (!gst_element_link_many(d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr))
             {
-                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
                 gst_object_unref(d3d11dl);
                 d3d11dl = nullptr;
+                if (_videoSink)
+                {
+                    gst_object_unref(_videoSink);
+                    _videoSink = nullptr;
+                }
     
-                gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-                gst_element_link_many(convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_bin_add_many(GST_BIN(bin), convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_element_link_many(convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
             }
         }
         else
         {
-            gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-            gst_element_link_many(convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            gst_bin_add_many(GST_BIN(bin), convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            gst_element_link_many(convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
         }
 
         GstElement* firstElem = d3d11dl ? d3d11dl : convert;
         GstPad* sinkPad = gst_element_get_static_pad(firstElem, "sink");
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
+
+        GstPad* cropProbePad = gst_element_get_static_pad(convert, "src");
+        if (cropProbePad)
+        {
+            gst_pad_add_probe(cropProbePad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &PlaybackEngine::OnVideoCapsProbe, this, nullptr);
+            gst_object_unref(cropProbePad);
+        }
 
         ApplyWindowCapsLocked();
         
@@ -844,6 +891,15 @@ private:
             gst_object_unref(_pipeline);
             _pipeline = nullptr;
         }
+        if (_videoSink)
+        {
+            gst_object_unref(_videoSink);
+            _videoSink = nullptr;
+        }
+        if (_videoCrop)
+        {
+            _videoCrop = nullptr;
+        }
         _videoFlip = nullptr;
         _videoScale = nullptr;
         _scaleCapsFilter = nullptr;
@@ -864,22 +920,10 @@ private:
                 GstElement* sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
                 if (sink && GST_IS_VIDEO_OVERLAY(sink))
                 {
+                    self->ApplySinkDisplayModeLocked(sink);
                     GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(sink);
                     gst_video_overlay_set_window_handle(overlay, hwndValue);
                     gst_video_overlay_handle_events(overlay, TRUE);
-
-                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "force-aspect-ratio"))
-                    {
-                        g_object_set(G_OBJECT(sink), "force-aspect-ratio", FALSE, nullptr);
-                    }
-                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "add-borders"))
-                    {
-                        g_object_set(G_OBJECT(sink), "add-borders", FALSE, nullptr);
-                    }
-                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "redraw-on-update"))
-                    {
-                        g_object_set(G_OBJECT(sink), "redraw-on-update", TRUE, nullptr);
-                    }
                     if (self->_clientWidth > 0 && self->_clientHeight > 0)
                     {
                         gst_video_overlay_set_render_rectangle(overlay, 0, 0, self->_clientWidth, self->_clientHeight);
@@ -910,6 +954,17 @@ private:
             }
             if (dbg) g_free(dbg);
         }
+        else if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_TAG)
+        {
+            GstTagList* tags = nullptr;
+            gst_message_parse_tag(message, &tags);
+            if (tags)
+            {
+                std::lock_guard<std::mutex> lock(self->_mutex);
+                self->ApplyOrientationFromTagsLocked(tags);
+                gst_tag_list_unref(tags);
+            }
+        }
 
         return GST_BUS_PASS;
     }
@@ -933,11 +988,29 @@ private:
 
     void ApplyRenderRectangleUnlocked()
     {
-        if (!_pipeline || _hwnd == nullptr || _clientWidth <= 0 || _clientHeight <= 0)
+        if (_hwnd == nullptr || _clientWidth <= 0 || _clientHeight <= 0)
             return;
 
-        GstElement* sink = nullptr;
-        g_object_get(G_OBJECT(_pipeline), "video-sink", &sink, nullptr);
+        GstElement* sink = _videoSink;
+        if (!sink)
+            return;
+
+        ApplyCropToFillLocked();
+        ApplySinkDisplayModeLocked(sink);
+
+        if (GST_IS_VIDEO_OVERLAY(sink))
+        {
+            gst_video_overlay_set_render_rectangle(
+                GST_VIDEO_OVERLAY(sink),
+                0,
+                0,
+                _clientWidth,
+                _clientHeight);
+        }
+    }
+
+    void ApplySinkDisplayModeLocked(GstElement* sink)
+    {
         if (!sink)
             return;
 
@@ -955,18 +1028,43 @@ private:
         {
             g_object_set(G_OBJECT(sink), "redraw-on-update", TRUE, nullptr);
         }
+    }
 
-        if (GST_IS_VIDEO_OVERLAY(sink))
+    void ApplyCropToFillLocked()
+    {
+        if (!_videoCrop || _clientWidth <= 0 || _clientHeight <= 0 || _sourceWidth <= 0 || _sourceHeight <= 0)
+            return;
+
+        const double targetAspect = static_cast<double>(_clientWidth) / static_cast<double>(_clientHeight);
+        const double sourceAspect = static_cast<double>(_sourceWidth) / static_cast<double>(_sourceHeight);
+
+        int left = 0;
+        int right = 0;
+        int top = 0;
+        int bottom = 0;
+
+        if (sourceAspect > targetAspect)
         {
-            gst_video_overlay_set_render_rectangle(
-                GST_VIDEO_OVERLAY(sink),
-                0,
-                0,
-                _clientWidth,
-                _clientHeight);
+            const int croppedWidth = static_cast<int>(std::round(static_cast<double>(_sourceHeight) * targetAspect));
+            const int crop = std::max(0, _sourceWidth - croppedWidth);
+            left = crop / 2;
+            right = crop - left;
+        }
+        else if (sourceAspect < targetAspect)
+        {
+            const int croppedHeight = static_cast<int>(std::round(static_cast<double>(_sourceWidth) / targetAspect));
+            const int crop = std::max(0, _sourceHeight - croppedHeight);
+            top = crop / 2;
+            bottom = crop - top;
         }
 
-        gst_object_unref(sink);
+        g_object_set(
+            G_OBJECT(_videoCrop),
+            "left", left,
+            "right", right,
+            "top", top,
+            "bottom", bottom,
+            nullptr);
     }
 
     void ApplyWindowCapsLocked()
@@ -991,6 +1089,48 @@ private:
         ApplyRenderRectangleUnlocked();
     }
 
+    void ApplyOrientationFromTagsLocked(GstTagList* tags)
+    {
+        if (_manualRotationOverride || !tags)
+            return;
+
+        gchar* orientation = nullptr;
+        if (!gst_tag_list_get_string(tags, "image-orientation", &orientation) || !orientation)
+        {
+            if (!gst_tag_list_get_string(tags, "video-orientation", &orientation) || !orientation)
+                return;
+        }
+
+        std::string value = orientation;
+        g_free(orientation);
+
+        std::transform(value.begin(), value.end(), value.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+        int degrees = 0;
+        if (value.find("rotate-180") != std::string::npos)
+            degrees = 180;
+        else if (value.find("rotate-270") != std::string::npos)
+            degrees = 270;
+        else if (value.find("rotate-90") != std::string::npos)
+            degrees = 90;
+        else
+            return;
+
+        if (degrees == _rotationDegrees)
+            return;
+
+        _rotationDegrees = degrees;
+        if (_videoFlip)
+        {
+            g_object_set(
+                G_OBJECT(_videoFlip),
+                "method",
+                RotationToFlipMethod(_rotationDegrees),
+                nullptr);
+        }
+    }
+
 private:
     std::mutex _mutex;
     std::mutex _errorMutex;
@@ -1003,11 +1143,16 @@ private:
     std::wstring _lastPath;
     bool _mediaLoaded = false;
     GstElement* _videoFlip = nullptr;
+    GstElement* _videoCrop = nullptr;
     GstElement* _videoScale = nullptr;
     GstElement* _scaleCapsFilter = nullptr;
+    GstElement* _videoSink = nullptr;
     int _rotationDegrees = 0;
+    bool _manualRotationOverride = false;
     int _clientWidth = 0;
     int _clientHeight = 0;
+    int _sourceWidth = 0;
+    int _sourceHeight = 0;
     std::atomic<bool> _eosReached { false };
     std::vector<std::wstring> _playlistPaths;
 
