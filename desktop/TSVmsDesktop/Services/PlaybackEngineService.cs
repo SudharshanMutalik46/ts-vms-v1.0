@@ -31,6 +31,15 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public void SetHostSize(int width, int height)
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_set_window_size(_engine, Math.Max(1, width), Math.Max(1, height)));
+            }
+        }
+
         public void Load(string mediaPath)
         {
             lock (_sync)

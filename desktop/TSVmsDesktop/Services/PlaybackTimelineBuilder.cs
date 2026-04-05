@@ -9,12 +9,18 @@ namespace TSVmsDesktop.Services
     {
         public PlaybackSessionModel Build(string cameraId, DateTime fromUtc, DateTime toUtc, IReadOnlyList<RecordingSegment> rawSegments)
         {
+            var normalizedFromUtc = ToUtcInstant(fromUtc);
+            var normalizedToUtc = ToUtcInstant(toUtc);
+
             var segments = Normalize(rawSegments)
-                .Where(s => s.EndTs > fromUtc && s.StartTs < toUtc && (s.IsFinalized || s.HealthState == "finalized"))
+                .Select(NormalizeSegment)
+                .Where(s => ToUtcInstant(s.EndTs) > normalizedFromUtc &&
+                            ToUtcInstant(s.StartTs) < normalizedToUtc &&
+                            (s.IsFinalized || s.HealthState == "finalized"))
                 .Select(s => new PlaybackSessionSegment
                 {
                     Segment = s,
-                    WindowOffsetSeconds = Math.Max(0, (s.StartTs - fromUtc).TotalSeconds)
+                    WindowOffsetSeconds = Math.Max(0, (ToUtcInstant(s.StartTs) - normalizedFromUtc).TotalSeconds)
                 })
                 .ToList();
 
@@ -22,26 +28,28 @@ namespace TSVmsDesktop.Services
             for (int i = 0; i < segments.Count; i++)
             {
                 var item = segments[i];
-                var clippedStart = item.Segment.StartTs < fromUtc ? fromUtc : item.Segment.StartTs;
-                var clippedEnd = item.Segment.EndTs > toUtc ? toUtc : item.Segment.EndTs;
+                var segmentStartUtc = ToUtcInstant(item.Segment.StartTs);
+                var segmentEndUtc = ToUtcInstant(item.Segment.EndTs);
+                var clippedStart = segmentStartUtc < normalizedFromUtc ? normalizedFromUtc : segmentStartUtc;
+                var clippedEnd = segmentEndUtc > normalizedToUtc ? normalizedToUtc : segmentEndUtc;
 
                 blocks.Add(new PlaybackTimelineBlock
                 {
-                    StartOffsetSeconds = Math.Max(0, (clippedStart - fromUtc).TotalSeconds),
-                    EndOffsetSeconds = Math.Max(0, (clippedEnd - fromUtc).TotalSeconds),
-                    Label = item.Segment.StartTs.ToLocalTime().ToString("HH:mm:ss"),
-                    HasGapBefore = i > 0 && item.Segment.StartTs > segments[i - 1].Segment.EndTs.AddSeconds(1)
+                    StartOffsetSeconds = Math.Max(0, (clippedStart - normalizedFromUtc).TotalSeconds),
+                    EndOffsetSeconds = Math.Max(0, (clippedEnd - normalizedFromUtc).TotalSeconds),
+                    Label = segmentStartUtc.ToLocalTime().ToString("HH:mm:ss"),
+                    HasGapBefore = i > 0 && segmentStartUtc > ToUtcInstant(segments[i - 1].Segment.EndTs).AddSeconds(1)
                 });
             }
 
             return new PlaybackSessionModel
             {
                 CameraId = cameraId,
-                WindowStartUtc = fromUtc,
-                WindowEndUtc = toUtc,
+                WindowStartUtc = normalizedFromUtc,
+                WindowEndUtc = normalizedToUtc,
                 Segments = segments,
                 TimelineBlocks = blocks,
-                TotalWindowSeconds = Math.Max(1, (toUtc - fromUtc).TotalSeconds)
+                TotalWindowSeconds = Math.Max(1, (normalizedToUtc - normalizedFromUtc).TotalSeconds)
             };
         }
 
@@ -76,6 +84,35 @@ namespace TSVmsDesktop.Services
             }
 
             return result;
+        }
+
+        private static RecordingSegment NormalizeSegment(RecordingSegment source)
+        {
+            return new RecordingSegment
+            {
+                Id = source.Id,
+                CameraId = source.CameraId,
+                StartTs = ToUtcInstant(source.StartTs),
+                EndTs = ToUtcInstant(source.EndTs),
+                DurationMs = source.DurationMs,
+                Path = source.Path,
+                SizeBytes = source.SizeBytes,
+                IsProtected = source.IsProtected,
+                Container = source.Container,
+                ChecksumSha256 = source.ChecksumSha256,
+                HealthState = source.HealthState,
+                IsFinalized = source.IsFinalized
+            };
+        }
+
+        private static DateTime ToUtcInstant(DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc => value,
+                DateTimeKind.Local => value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime()
+            };
         }
     }
 }

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -10,7 +12,9 @@ import (
 )
 
 type RecordingAPI struct {
-	DB recording.IMetadataDB
+	DB                recording.IMetadataDB
+	SegmentRefresher  func(ctx context.Context, cameraID string) error
+	SegmentDiskLoader func(ctx context.Context, cameraID string, from, to time.Time) ([]recording.ArchiveSegment, error)
 }
 
 // Ensure caller has valid JWT claims.
@@ -22,11 +26,28 @@ func checkRBAC(r *http.Request, requiredPermission string) bool {
 	return ac.HasPermission(requiredPermission) || ac.HasRole("admin")
 }
 
+func checkAnyRBAC(r *http.Request, requiredPermissions ...string) bool {
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		return false
+	}
+	if ac.HasRole("admin") {
+		return true
+	}
+	for _, perm := range requiredPermissions {
+		if ac.HasPermission(perm) {
+			return true
+		}
+	}
+	return false
+}
+
 func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Request) {
-	if !checkRBAC(r, "recording.view") {
+	if !checkAnyRBAC(r, "recording.view", "video.view") {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	started := time.Now()
 
 	camID := r.PathValue("id")
 	if camID == "" {
@@ -46,12 +67,44 @@ func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Reques
 		to = time.Now()
 	}
 
+	if camID == "" {
+		http.Error(w, "camera_id is required", http.StatusBadRequest)
+		return
+	}
+	log.Printf("[recording.segments] start camera_id=%s from=%s to=%s", camID, from.Format(time.RFC3339), to.Format(time.RFC3339))
+
 	segments, err := api.DB.GetSegments(r.Context(), camID, from, to)
 	if err != nil {
+		log.Printf("[recording.segments] db_error camera_id=%s err=%v elapsed=%s", camID, err, time.Since(started))
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	log.Printf("[recording.segments] db_result camera_id=%s count=%d elapsed=%s", camID, len(segments), time.Since(started))
 
+	if len(segments) == 0 && api.SegmentRefresher != nil {
+		refreshStarted := time.Now()
+		refreshCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		if err := api.SegmentRefresher(refreshCtx, camID); err != nil {
+			log.Printf("[WARNING] recording.segment.refresh failed camera_id=%s: %v", camID, err)
+		} else if refreshed, refreshErr := api.DB.GetSegments(r.Context(), camID, from, to); refreshErr == nil {
+			segments = refreshed
+			log.Printf("[recording.segments] refresh_result camera_id=%s count=%d elapsed=%s", camID, len(segments), time.Since(refreshStarted))
+		}
+	}
+
+	if len(segments) == 0 && api.SegmentDiskLoader != nil {
+		diskStarted := time.Now()
+		if diskSegments, err := api.SegmentDiskLoader(r.Context(), camID, from, to); err != nil {
+			log.Printf("[WARNING] recording.segment.disk_load failed camera_id=%s: %v", camID, err)
+		} else {
+			segments = diskSegments
+			log.Printf("[recording.segments] disk_result camera_id=%s count=%d elapsed=%s", camID, len(segments), time.Since(diskStarted))
+		}
+	}
+
+	log.Printf("[recording.segments] done camera_id=%s final_count=%d total_elapsed=%s", camID, len(segments), time.Since(started))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(segments)
 }

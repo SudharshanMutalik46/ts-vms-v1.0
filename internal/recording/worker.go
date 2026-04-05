@@ -49,12 +49,16 @@ type RecorderWorker struct {
 	lastSegmentEndTS  time.Time
 	lastFinalizedScan time.Time
 	recordingSourceIx int
+	currentSourceIdx  int
 	sourceBaseRTSP    string
+	codecRetryUsed    bool
+	startupAt         time.Time
 	Keyring           *crypto.Keyring
 	mu                sync.RWMutex
 }
 
 const finalizedBackfillInterval = 1 * time.Minute
+const startupCodecRetryWindow = 20 * time.Second
 
 func NewRecorderWorker(cfg *Config, cam CameraConfig, store ArchiveIndex, keyring *crypto.Keyring) *RecorderWorker {
 	return &RecorderWorker{
@@ -91,6 +95,8 @@ func (w *RecorderWorker) Start(ctx context.Context) {
 	w.State = StateStarting
 	w.lastErr = ""
 	w.lastDataTime = time.Now()
+	w.codecRetryUsed = false
+	w.currentSourceIdx = -1
 	w.runID++
 	runID := w.runID
 	w.mu.Unlock()
@@ -110,11 +116,18 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 	}()
 
 	for {
+		var ticker *time.Ticker
+		var errCh chan error
+		var cmd *exec.Cmd
+		var syncInterval time.Duration
 		if err := w.startPipeline(ctx, runID); err != nil {
 			w.cleanupEmptyRunDir()
 			if ctx.Err() != nil || w.isIntentionalStop(runID) {
 				w.markStopped(runID)
 				return
+			}
+			if w.retryStartupWithAlternateCodec(ctx, runID) {
+				goto RESTART
 			}
 			w.markError(runID, err)
 			w.advanceRecordingSource()
@@ -125,8 +138,8 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 		}
 		w.markRecording(runID)
 
-		errCh := make(chan error, 1)
-		cmd := w.currentCmd()
+		errCh = make(chan error, 1)
+		cmd = w.currentCmd()
 		go func(cmd *exec.Cmd) {
 			if cmd == nil {
 				errCh <- fmt.Errorf("recording process missing")
@@ -135,7 +148,11 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 			errCh <- cmd.Wait()
 		}(cmd)
 
-		ticker := time.NewTicker(time.Duration(w.Config.Global.SegmentDurationSec) * time.Second)
+		syncInterval = time.Duration(w.Config.Global.SegmentDurationSec) * time.Second
+		if syncInterval > 15*time.Second {
+			syncInterval = 15 * time.Second
+		}
+		ticker = time.NewTicker(syncInterval)
 
 		for {
 			select {
@@ -178,7 +195,14 @@ func (w *RecorderWorker) loop(ctx context.Context, runID uint64) {
 				if err == nil {
 					err = fmt.Errorf("recording pipeline exited unexpectedly")
 				}
+				startupAt := w.startupAt
+				allowCodecRetry := !w.codecRetryUsed && time.Since(startupAt) <= startupCodecRetryWindow
 				w.mu.Unlock()
+
+				if allowCodecRetry && w.retryStartupWithAlternateCodec(ctx, runID) {
+					goto RESTART
+				}
+
 				w.markError(runID, err)
 				w.advanceRecordingSource()
 
@@ -211,7 +235,21 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 	w.knownFiles = make(map[string]struct{})
 	w.lastSegmentEndTS = time.Time{} // Reset on new run
 	w.lastFinalizedScan = time.Time{}
+	w.startupAt = time.Now()
 	w.mu.Unlock()
+
+	if w.Store != nil {
+		if lastEnd, err := w.Store.GetLatestSegmentEnd(ctx, w.CameraID); err == nil && !lastEnd.IsZero() {
+			now := time.Now()
+			if lastEnd.After(now) {
+				lastEnd = now
+			}
+			w.mu.Lock()
+			w.lastSegmentEndTS = lastEnd
+			w.mu.Unlock()
+			log.Printf("[EVENT] recording.worker.continuity_seeded camera_id=%s last_end=%s", w.CameraID, lastEnd.Format(time.RFC3339Nano))
+		}
+	}
 
 	source, sourceIdx, err := w.selectRecordingSource(ctx)
 	if err != nil {
@@ -219,10 +257,17 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 	}
 
 	w.mu.Lock()
-	w.Camera.RtspURL = source.RTSPURL
-	if source.Codec != "" {
+	if w.currentSourceIdx != sourceIdx {
+		w.codecRetryUsed = false
+	}
+	w.currentSourceIdx = sourceIdx
+	if normalizeCodec(w.Camera.PreferredRecordingCodec) != "" && normalizeCodec(w.Camera.Codec) == "" {
+		w.Camera.Codec = w.Camera.PreferredRecordingCodec
+	}
+	if normalizeCodec(w.Camera.Codec) == "" {
 		w.Camera.Codec = source.Codec
 	}
+	w.Camera.RtspURL = source.RTSPURL
 	w.mu.Unlock()
 
 	if sourceIdx == 0 {
@@ -247,6 +292,7 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 
 	pattern := filepath.Join(runDir, "segment_%05d"+w.segmentExt()+".tmp")
 	args := w.gstRecorderArgs(gstPath(pattern))
+	log.Printf("[DEBUG] gst.launch camera_id=%s cmd=%s", w.CameraID, redactGstLaunchCmd(w.Config.Global.GstLaunchPath, args))
 	cmd := exec.CommandContext(ctx, w.Config.Global.GstLaunchPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -275,8 +321,8 @@ func (w *RecorderWorker) syncSegments(ctx context.Context, forceBackfill bool) e
 	}
 
 	segmentDuration := time.Duration(w.Config.Global.SegmentDurationSec) * time.Second
-	settleDelay := 30 * time.Second
-	activeTmpWindow := 2 * time.Minute
+	settleDelay := 10 * time.Second
+	activeTmpWindow := 90 * time.Second
 	if d := 2 * segmentDuration; d > activeTmpWindow {
 		activeTmpWindow = d
 	}
@@ -343,6 +389,7 @@ func (w *RecorderWorker) syncSegments(ctx context.Context, forceBackfill bool) e
 				return err
 			}
 		}
+		w.maybePersistWorkingCodec(ctx)
 
 		w.knownFiles[finalPath] = struct{}{}
 
@@ -698,10 +745,78 @@ func (w *RecorderWorker) cameraCodec() string {
 	if c := normalizeCodec(w.Camera.Codec); c != "" {
 		return c
 	}
+	if c := normalizeCodec(w.Camera.PreferredRecordingCodec); c != "" {
+		return c
+	}
 	if c := inferCodecFromRTSPURL(w.Camera.RtspURL); c != "" {
 		return c
 	}
 	return "h265"
+}
+
+func alternateCodec(codec string) string {
+	switch normalizeCodec(codec) {
+	case "h264":
+		return "h265"
+	case "h265":
+		return "h264"
+	default:
+		return ""
+	}
+}
+
+func (w *RecorderWorker) retryStartupWithAlternateCodec(ctx context.Context, runID uint64) bool {
+	w.mu.Lock()
+	startupAt := w.startupAt
+	current := w.cameraCodec()
+	if w.codecRetryUsed || startupAt.IsZero() || time.Since(startupAt) > startupCodecRetryWindow {
+		w.mu.Unlock()
+		return false
+	}
+	alt := alternateCodec(current)
+	if alt == "" {
+		w.mu.Unlock()
+		return false
+	}
+	w.codecRetryUsed = true
+	w.Camera.Codec = alt
+	w.mu.Unlock()
+
+	log.Printf("[WARNING] recording.codec.fallback camera_id=%s from=%s to=%s", w.CameraID, current, alt)
+	w.stopProcess()
+	w.clearProcessHandle(runID)
+	w.cleanupEmptyRunDir()
+	if !w.waitBackoff(ctx, runID) {
+		return false
+	}
+	return true
+}
+
+func (w *RecorderWorker) persistWorkingCodec(ctx context.Context) {
+	codec := normalizeCodec(w.cameraCodec())
+	if codec == "" {
+		return
+	}
+	if s, ok := w.Store.(*PostgresStore); ok && s != nil {
+		if err := s.UpdatePreferredRecordingCodec(ctx, w.CameraID, codec); err != nil {
+			log.Printf("[WARNING] failed to persist preferred codec for %s: %v", w.CameraID, err)
+			return
+		}
+	}
+	w.mu.Lock()
+	w.Camera.PreferredRecordingCodec = codec
+	w.mu.Unlock()
+}
+
+func (w *RecorderWorker) maybePersistWorkingCodec(ctx context.Context) {
+	w.mu.RLock()
+	codec := normalizeCodec(w.Camera.Codec)
+	persisted := normalizeCodec(w.Camera.PreferredRecordingCodec)
+	w.mu.RUnlock()
+	if codec == "" || codec == persisted {
+		return
+	}
+	w.persistWorkingCodec(ctx)
 }
 
 func (w *RecorderWorker) selectRecordingSource(ctx context.Context) (RecordingSource, int, error) {
@@ -832,6 +947,22 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 	}
 
 	return base
+}
+
+func redactGstLaunchCmd(bin string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	if strings.TrimSpace(bin) != "" {
+		parts = append(parts, bin)
+	}
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "user-pw="):
+			parts = append(parts, "user-pw=REDACTED")
+		default:
+			parts = append(parts, arg)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (w *RecorderWorker) Status() map[string]any {

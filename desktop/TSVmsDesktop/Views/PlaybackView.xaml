@@ -99,7 +99,6 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Style="{StaticResource PlaybackTileStyle}">
@@ -127,6 +126,11 @@
 
             <Border Grid.Row="2" Background="Black" CornerRadius="14" BorderBrush="#CBD5E1" BorderThickness="1" MinHeight="280">
                 <Grid ClipToBounds="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
                     <controls:PlaybackVideoHost x:Name="PlaybackHost" MinWidth="64" MinHeight="64" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
                     <Border Background="#99000000"
@@ -141,38 +145,45 @@
                             <TextBlock Text="{Binding PlayerOverlaySubtitle}" Foreground="#E2E8F0" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
+
+                    <Border Grid.Row="1"
+                            Background="#F8FAFC"
+                            BorderBrush="#E2E8F0"
+                            BorderThickness="1,1,1,0"
+                            CornerRadius="0,0,14,14"
+                            Padding="10,8"
+                            VerticalAlignment="Bottom">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <WrapPanel VerticalAlignment="Center">
+                                <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
+                                <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
+                                <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
+                                <Button Content="Prev" Command="{Binding PrevRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
+                                <Button Content="Next" Command="{Binding NextRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,12,0"/>
+                                <Button Content="0.5x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="0.5" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="1x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="2x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="2" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                                <Button Content="4x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="4" IsEnabled="{Binding HasMediaLoaded}"/>
+                            </WrapPanel>
+
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding CurrentWallClockText}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Right"/>
+                                <TextBlock Text="{Binding WindowSummaryText}" Foreground="#64748B" FontSize="12" HorizontalAlignment="Right" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Border>
 
             <Border Grid.Row="3" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
-                <Border.Effect>
-                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
-                </Border.Effect>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <WrapPanel VerticalAlignment="Center">
-                        <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                        <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                        <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                        <Button Content="Prev" Command="{Binding PrevRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                        <Button Content="Next" Command="{Binding NextRecordingBlockCommand}" IsEnabled="{Binding HasSegments}"/>
-                    </WrapPanel>
-
-                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding CurrentWallClockText}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Right"/>
-                        <TextBlock Text="{Binding WindowSummaryText}" Foreground="#64748B" FontSize="12" HorizontalAlignment="Right" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border Grid.Row="4" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
                 </Border.Effect>
@@ -255,7 +266,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Grid.Row="5" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
+            <Border Grid.Row="4" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
                 </Border.Effect>
@@ -267,6 +278,19 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0">
+                        <TextBlock Text="Recording day" FontWeight="SemiBold" Foreground="#0F172A"/>
+                        <DatePicker Margin="0,8,0,0"
+                                    Width="220"
+                                    SelectedDate="{Binding SelectedDayLocal, Mode=TwoWay}"
+                                    SelectedDateFormat="Short"
+                                    HorizontalAlignment="Left"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="15m" Command="{Binding Preset15mCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
+                            <Button Content="1h" Command="{Binding Preset1hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
+                            <Button Content="6h" Command="{Binding Preset6hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
+                            <Button Content="24h" Command="{Binding Preset24hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}"/>
+                        </WrapPanel>
+
                         <TextBlock Text="Jump to exact time" FontWeight="SemiBold" Foreground="#0F172A"/>
                         <WrapPanel Margin="0,8,0,0">
                             <TextBox Width="220"

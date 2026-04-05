@@ -60,6 +60,60 @@ namespace TSVmsDesktop.Models
         public RecordingSegment[] Segments { get; set; } = Array.Empty<RecordingSegment>();
     }
 
+    public class RecordingWorkerStatus
+    {
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("last_error")]
+        public string LastError { get; set; } = string.Empty;
+
+        [JsonPropertyName("last_heartbeat")]
+        public DateTime LastHeartbeat { get; set; }
+
+        [JsonPropertyName("license_held")]
+        public bool LicenseHeld { get; set; }
+
+        [JsonPropertyName("paused")]
+        public bool Paused { get; set; }
+
+        [JsonPropertyName("retries")]
+        public int Retries { get; set; }
+
+        [JsonPropertyName("running")]
+        public bool Running { get; set; }
+
+        [JsonPropertyName("state")]
+        public string State { get; set; } = string.Empty;
+    }
+
+    public class RecordingStatusSchedule
+    {
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = string.Empty;
+
+        [JsonPropertyName("days")]
+        public string[]? Days { get; set; }
+
+        [JsonPropertyName("start_time")]
+        public string StartTime { get; set; } = string.Empty;
+
+        [JsonPropertyName("end_time")]
+        public string EndTime { get; set; } = string.Empty;
+    }
+
+    public class RecordingStatusResponse
+    {
+        [JsonPropertyName("schedules")]
+        public RecordingStatusSchedule[] Schedules { get; set; } = Array.Empty<RecordingStatusSchedule>();
+
+        [JsonPropertyName("workers")]
+        public RecordingWorkerStatus[] Workers { get; set; } = Array.Empty<RecordingWorkerStatus>();
+    }
+
     public class RecordingSchedule
     {
         [JsonPropertyName("id")]

@@ -25,13 +25,24 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="native\win-x64\TSVmsPlaybackEngine.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Update="Assets\webrtc_player.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="CopyPlaybackEngineToOutputRoot" AfterTargets="Build">
+    <PropertyGroup>
+      <NativePlaybackEngineDll>$(MSBuildProjectDirectory)\..\..\native\TSVmsPlaybackEngine\build\$(Configuration)\TSVmsPlaybackEngine.dll</NativePlaybackEngineDll>
+    </PropertyGroup>
+    <Copy
+      SourceFiles="$(NativePlaybackEngineDll)"
+      DestinationFiles="$(MSBuildProjectDirectory)\native\win-x64\TSVmsPlaybackEngine.dll"
+      SkipUnchangedFiles="true" />
+    <Copy
+      SourceFiles="$(NativePlaybackEngineDll)"
+      DestinationFiles="$(TargetDir)TSVmsPlaybackEngine.dll"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 
 </Project>

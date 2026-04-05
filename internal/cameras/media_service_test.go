@@ -35,6 +35,9 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 
 	// SUT
 	svc := NewMediaService(mockMediaRepo, mockCamRepo, mockCreds, mockAuditor)
+	svc.RTSPCodecProbe = func(ctx context.Context, rtspURL string) (string, error) {
+		return "H264", nil
+	}
 
 	// Inject Mock Factory
 	svc.ClientFactory = func(x, u, p string) (OnvifClient, error) {
@@ -114,6 +117,63 @@ func TestSelectMediaProfiles_Orchestration(t *testing.T) {
 	// Verify Audit Event?
 	if len(mockAuditor.Events) == 0 {
 		t.Error("Expected audit event")
+	}
+}
+
+func TestSelectMediaProfiles_UsesProbedCodecForUnknown(t *testing.T) {
+	mockCamRepo := &MockCameraRepo{}
+	mockMediaRepo := &MockMediaRepo{}
+	mockCreds := &MockCredentialProvider{}
+	mockAuditor := &MockAuditor{}
+
+	svc := NewMediaService(mockMediaRepo, mockCamRepo, mockCreds, mockAuditor)
+	svc.RTSPCodecProbe = func(ctx context.Context, rtspURL string) (string, error) {
+		return "H265", nil
+	}
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+	cameraID := uuid.New()
+
+	mockCamRepo.GetByIDFunc = func(ctx context.Context, id uuid.UUID) (*data.Camera, error) {
+		return &data.Camera{
+			ID:        cameraID,
+			TenantID:  tenantID,
+			IPAddress: net.ParseIP("192.168.1.100"),
+		}, nil
+	}
+
+	mockCreds.GetFunc = func(ctx context.Context, t, c uuid.UUID, r bool) (*CredentialOutput, bool, error) {
+		return &CredentialOutput{
+			Exists: true,
+			Data:   &CredentialInput{Username: "admin", Password: "password"},
+		}, true, nil
+	}
+
+	var seenCodec string
+	mockMediaRepo.UpsertProfileFunc = func(ctx context.Context, p *data.CameraMediaProfile) error {
+		seenCodec = p.VideoCodec
+		return nil
+	}
+	mockMediaRepo.UpsertSelectionFunc = func(ctx context.Context, s *data.CameraStreamSelection) error {
+		return nil
+	}
+
+	svc.ClientFactory = func(x, u, p string) (OnvifClient, error) {
+		return &MockOnvifClient{
+			Profiles: []onvif.MediaProfile{
+				{Token: "t1", Name: "Main"},
+			},
+			StreamURI: "rtsp://camera/channel=1_stream=0.sdp",
+		}, nil
+	}
+
+	_, err := svc.SelectMediaProfiles(ctx, tenantID, cameraID)
+	if err != nil {
+		t.Fatalf("SelectMediaProfiles failed: %v", err)
+	}
+	if seenCodec != "H265" {
+		t.Fatalf("expected probed codec H265 to fill unknown codec, got %q", seenCodec)
 	}
 }
 

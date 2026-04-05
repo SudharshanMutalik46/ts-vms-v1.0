@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -36,6 +37,7 @@ namespace TSVmsDesktop.ViewModels
         private bool _hostAttached = false;
 
         private readonly SemaphoreSlim _nativeOpGate = new(1, 1);
+        private const string PlaybackDebugLogPath = @"C:\Users\sudha\Desktop\api_debug_log.txt";
 
         private double _desiredPlaybackRate = 1.0;
         
@@ -252,6 +254,21 @@ namespace TSVmsDesktop.ViewModels
         public void AttachVideoHost(IntPtr hwnd)
         {
             _ = AttachVideoHostAsync(hwnd);
+        }
+
+        public async Task UpdateVideoHostSizeAsync(int width, int height)
+        {
+            if (!_hostAttached)
+                return;
+
+            try
+            {
+                await RunNativeAsync(() => _playbackEngineService.SetHostSize(width, height));
+            }
+            catch
+            {
+                // Ignore resize races during layout churn.
+            }
         }
 
         public void Deactivate()
@@ -705,17 +722,23 @@ namespace TSVmsDesktop.ViewModels
                 QueryToUtc = toUtc.ToString("o");
 
                 SegmentsApiUri = $"api/v1/recording/cameras/{cameraId}/segments?from={QueryFromUtc}&to={QueryToUtc}";
+                LogPlaybackDebug(
+                    $"LOAD_START camera={cameraId} day={SelectedDayLocal:yyyy-MM-dd} " +
+                    $"window={startLocal:yyyy-MM-dd HH:mm:ss}->{endLocal:yyyy-MM-dd HH:mm:ss} " +
+                    $"utc={QueryFromUtc}->{QueryToUtc} uri={SegmentsApiUri}");
                 List<RecordingSegment> rawSegments;
                 try
                 {
                     rawSegments = await _recordingService.GetSegmentsAsync(cameraId, fromUtc, toUtc);
                     HttpStatusText = "200 OK";
                     ApiRowCount = rawSegments.Count.ToString();
+                    LogPlaybackDebug($"LOAD_RESPONSE camera={cameraId} status=200 segments={rawSegments.Count}");
                 }
                 catch (Exception ex)
                 {
                     HttpStatusText = "ERROR";
                     ApiRowCount = "0";
+                    LogPlaybackDebug($"LOAD_ERROR camera={cameraId} exception={ex}");
                     StatusMessage = $"Segments API failed: {ex.Message}";
                     ShowPlayerOverlay = true;
                     PlayerOverlayTitle = "No Recording Available";
@@ -744,9 +767,10 @@ namespace TSVmsDesktop.ViewModels
                     IsPlaying = false;
                     ShowPlayerOverlay = true;
                     PlayerOverlayTitle = "No Recording Available";
-                    PlayerOverlaySubtitle = "No footage exists in the selected day/time window.";
+                    PlayerOverlaySubtitle = "No footage exists in the selected day/time window. Pick another date from the calendar.";
                     StatusMessage = "No recording for selected window.";
                     CurrentWallClockText = "--:--:--";
+                    LogPlaybackDebug($"LOAD_EMPTY camera={cameraId} day={SelectedDayLocal:yyyy-MM-dd} no_segments");
                     return;
                 }
 
@@ -770,11 +794,15 @@ namespace TSVmsDesktop.ViewModels
                 UpdatePlayheadPx();
                 ShowPlayerOverlay = false;
                 StatusMessage = $"Loaded recording coverage for {startLocal:yyyy-MM-dd} ({_currentSession.Segments.Count} segments).";
+                LogPlaybackDebug(
+                    $"LOAD_DONE camera={cameraId} segments={_currentSession.Segments.Count} " +
+                    $"timelineSeconds={_currentSession.TotalWindowSeconds:0.##} selectedIndex={_currentSegmentIndex}");
             }
             catch (Exception ex)
             {
                 HttpStatusText = "EXCEPTION";
                 ApiRowCount = "0";
+                LogPlaybackDebug($"LOAD_EXCEPTION camera={cameraId} exception={ex}");
                 StatusMessage = $"Failed to load recording: {ex.Message}";
                 ShowPlayerOverlay = true;
                 PlayerOverlayTitle = "Playback Error";
@@ -823,6 +851,20 @@ namespace TSVmsDesktop.ViewModels
 
             var recorded = TimeSpan.FromSeconds(Math.Max(0, recordedSec));
             CoverageSummaryText = $"Coverage: {recorded:hh\\:mm\\:ss} recorded  |  Gaps: {gaps}";
+        }
+
+        private void LogPlaybackDebug(string message)
+        {
+            try
+            {
+                File.AppendAllText(
+                    PlaybackDebugLogPath,
+                    $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss.fff}] [Playback] {message}{Environment.NewLine}");
+            }
+            catch
+            {
+                // Debug logging must never break playback.
+            }
         }
 
         private void RebuildCoverageTimeline()
@@ -1224,6 +1266,15 @@ namespace TSVmsDesktop.ViewModels
                     else
                         _playbackEngineService.Load(segment.Path);
 
+                    // Give the native pipeline a chance to preroll and paint a frame
+                    // before we settle back into paused state.
+                    _playbackEngineService.Play();
+                });
+
+                await Task.Delay(120);
+
+                await RunNativeAsync(() =>
+                {
                     _playbackEngineService.Pause();
                 });
 
@@ -1336,8 +1387,8 @@ namespace TSVmsDesktop.ViewModels
                     _lastTransitionTime = DateTime.Now;
                 }
 
-                var seg = RecordingSegments[_currentSegmentIndex];
-                DateTime calculatedTime = seg.StartTs.AddSeconds(localSeconds);
+                var currentSegment = RecordingSegments[_currentSegmentIndex];
+                DateTime calculatedTime = currentSegment.StartTs.AddSeconds(localSeconds);
 
                 // Update UI - only if not in the middle of a transition jitter window
                 if ((DateTime.Now - _lastTransitionTime).TotalSeconds > 0.5)

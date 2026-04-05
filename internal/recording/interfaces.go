@@ -13,6 +13,7 @@ import (
 type ArchiveIndex interface {
 	Available() bool
 	GetSegments(ctx context.Context, cameraID string, from, to time.Time) ([]ArchiveSegment, error)
+	GetLatestSegmentEnd(ctx context.Context, cameraID string) (time.Time, error)
 	UpsertFinalizedSegment(ctx context.Context, seg *ArchiveSegment) error
 	MarkMissing(ctx context.Context, path string) error
 	MarkCorrupt(ctx context.Context, path, quarantinePath string) error

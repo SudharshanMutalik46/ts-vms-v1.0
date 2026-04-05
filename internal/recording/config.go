@@ -82,14 +82,15 @@ type Config struct {
 }
 
 type CameraConfig struct {
-	ID            string `yaml:"id" json:"id"`
-	RtspURL       string `yaml:"rtsp_url" json:"rtsp_url"`
-	Enabled       bool   `yaml:"enabled" json:"enabled"`
-	Codec         string `yaml:"codec" json:"codec,omitempty"`                   // h264 | h265
-	SegmentFormat string `yaml:"segment_format" json:"segment_format,omitempty"` // mp4 | mkv
-	RTSPTransport string `yaml:"rtsp_transport" json:"rtsp_transport,omitempty"` // tcp | udp
-	Username      string `yaml:"-" json:"-"`                                     // Decrypted internal use
-	Password      string `yaml:"-" json:"-"`                                     // Decrypted internal use
+	ID                      string `yaml:"id" json:"id"`
+	RtspURL                 string `yaml:"rtsp_url" json:"rtsp_url"`
+	Enabled                 bool   `yaml:"enabled" json:"enabled"`
+	Codec                   string `yaml:"codec" json:"codec,omitempty"` // current recording codec candidate
+	PreferredRecordingCodec string `yaml:"preferred_recording_codec" json:"preferred_recording_codec,omitempty"`
+	SegmentFormat           string `yaml:"segment_format" json:"segment_format,omitempty"` // mp4 | mkv
+	RTSPTransport           string `yaml:"rtsp_transport" json:"rtsp_transport,omitempty"` // tcp | udp
+	Username                string `yaml:"-" json:"-"`                                     // Decrypted internal use
+	Password                string `yaml:"-" json:"-"`                                     // Decrypted internal use
 }
 
 type ScheduleConfig struct {
@@ -164,9 +165,16 @@ func (c *Config) ApplyDefaults() {
 	}
 	for i := range c.Cameras {
 		c.Cameras[i].Codec = strings.ToLower(strings.TrimSpace(c.Cameras[i].Codec))
+		c.Cameras[i].PreferredRecordingCodec = strings.ToLower(strings.TrimSpace(c.Cameras[i].PreferredRecordingCodec))
 		c.Cameras[i].SegmentFormat = strings.ToLower(strings.TrimSpace(c.Cameras[i].SegmentFormat))
 		c.Cameras[i].RTSPTransport = strings.ToLower(strings.TrimSpace(c.Cameras[i].RTSPTransport))
 
+		if c.Cameras[i].PreferredRecordingCodec == "" {
+			c.Cameras[i].PreferredRecordingCodec = c.Cameras[i].Codec
+		}
+		if c.Cameras[i].Codec == "" {
+			c.Cameras[i].Codec = c.Cameras[i].PreferredRecordingCodec
+		}
 		if c.Cameras[i].Codec == "" {
 			c.Cameras[i].Codec = "h265"
 		}
@@ -196,6 +204,11 @@ func (c *Config) Validate() error {
 		case "", "h264", "h265":
 		default:
 			return fmt.Errorf("camera %s has unsupported codec %q", cam.ID, cam.Codec)
+		}
+		switch cam.PreferredRecordingCodec {
+		case "", "h264", "h265":
+		default:
+			return fmt.Errorf("camera %s has unsupported preferred_recording_codec %q", cam.ID, cam.PreferredRecordingCodec)
 		}
 		switch cam.SegmentFormat {
 		case "", "mp4", "mkv":

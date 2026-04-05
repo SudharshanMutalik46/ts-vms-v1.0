@@ -9,6 +9,7 @@
 #include <atomic>
 #include <memory>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -45,6 +46,23 @@ std::string FilePathToUri(const wchar_t* path)
     std::string result(uri);
     g_free(uri);
     return result;
+}
+
+bool GetClientSize(HWND hwnd, int& width, int& height)
+{
+    width = 0;
+    height = 0;
+
+    if (hwnd == nullptr)
+        return false;
+
+    RECT rc{};
+    if (!GetClientRect(hwnd, &rc))
+        return false;
+
+    width = rc.right - rc.left;
+    height = rc.bottom - rc.top;
+    return width > 0 && height > 0;
 }
 
 class PlaybackEngine {
@@ -117,6 +135,9 @@ public:
         std::lock_guard<std::mutex> lock(_mutex);
         _hwnd = hwnd;
         _overlayHwnd.store(reinterpret_cast<guintptr>(hwnd), std::memory_order_release);
+        UpdateClientSizeLocked(hwnd);
+        ApplyWindowCapsLocked();
+        ApplyRenderRectangleUnlocked();
 
         if (!_pipeline || hwnd == nullptr)
             return 1;
@@ -127,16 +148,42 @@ public:
         {
             if (GST_IS_VIDEO_OVERLAY(sink))
             {
+                auto* overlay = GST_VIDEO_OVERLAY(sink);
                 gst_video_overlay_set_window_handle(
-                    GST_VIDEO_OVERLAY(sink),
+                    overlay,
                     reinterpret_cast<guintptr>(hwnd));
-                gst_video_overlay_handle_events(GST_VIDEO_OVERLAY(sink), TRUE);
-                gst_video_overlay_expose(GST_VIDEO_OVERLAY(sink));
+                gst_video_overlay_handle_events(overlay, TRUE);
+
+                int width = 0;
+                int height = 0;
+                if (GetClientSize(hwnd, width, height))
+                {
+                    gst_video_overlay_set_render_rectangle(overlay, 0, 0, width, height);
+                }
+
+                gst_video_overlay_expose(overlay);
             }
 
             gst_object_unref(sink);
         }
 
+        return 1;
+    }
+
+    int SetWindowSize(int width, int height)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_hwnd != nullptr)
+        {
+            UpdateClientSizeLocked(_hwnd);
+        }
+        else
+        {
+            _clientWidth = width;
+            _clientHeight = height;
+        }
+        ApplyWindowCapsLocked();
+        ApplyRenderRectangleUnlocked();
         return 1;
     }
 
@@ -169,6 +216,7 @@ public:
         _lastPath = path ? path : L"";
         _mediaLoaded = !_lastPath.empty();
         _eosReached.store(false, std::memory_order_release);
+        ApplyWindowCapsLocked();
         return _mediaLoaded ? 1 : 0;
     }
 
@@ -225,6 +273,7 @@ public:
         _lastPath = firstPath;
         _mediaLoaded = true;
         _eosReached.store(false, std::memory_order_release);
+        ApplyWindowCapsLocked();
 
         return 1;
     }
@@ -689,41 +738,65 @@ public:
 private:
     GstElement* BuildVideoFilterBin()
     {
-        GstElement* bin = gst_bin_new("tsvms_video_filter_bin");
+        GstElement* bin = gst_bin_new("tsvms_video_sink_bin");
         if (!bin) return nullptr;
 
         GstElement* d3d11dl = gst_element_factory_make("d3d11download", "tsvms_d3d11dl");
         GstElement* convert = gst_element_factory_make("videoconvert", "tsvms_convert");
         _videoFlip = gst_element_factory_make("videoflip", "tsvms_video_flip");
+        _videoScale = gst_element_factory_make("videoscale", "tsvms_video_scale");
+        _scaleCapsFilter = gst_element_factory_make("capsfilter", "tsvms_scale_caps");
+        GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
+        if (!videoSink)
+            videoSink = gst_element_factory_make("glimagesink", "video-sink");
+        if (!videoSink)
+            videoSink = gst_element_factory_make("autovideosink", "video-sink");
+        if (!videoSink)
+            videoSink = gst_element_factory_make("d3dvideosink", "video-sink");
 
-        if (!convert || !_videoFlip)
+        if (!convert || !_videoFlip || !_videoScale || !_scaleCapsFilter || !videoSink)
         {
             if (d3d11dl) gst_object_unref(d3d11dl);
             if (convert) gst_object_unref(convert);
             if (_videoFlip) { gst_object_unref(_videoFlip); _videoFlip = nullptr; }
+            if (_videoScale) { gst_object_unref(_videoScale); _videoScale = nullptr; }
+            if (_scaleCapsFilter) { gst_object_unref(_scaleCapsFilter); _scaleCapsFilter = nullptr; }
+            if (videoSink) gst_object_unref(videoSink);
             gst_object_unref(bin);
             return nullptr;
         }
 
         g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "force-aspect-ratio"))
+        {
+            g_object_set(G_OBJECT(videoSink), "force-aspect-ratio", FALSE, nullptr);
+        }
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "add-borders"))
+        {
+            g_object_set(G_OBJECT(videoSink), "add-borders", FALSE, nullptr);
+        }
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "redraw-on-update"))
+        {
+            g_object_set(G_OBJECT(videoSink), "redraw-on-update", TRUE, nullptr);
+        }
         
         if (d3d11dl)
         {
-            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, nullptr);
-            if (!gst_element_link_many(d3d11dl, convert, _videoFlip, nullptr))
+            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            if (!gst_element_link_many(d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr))
             {
-                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, nullptr);
+                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
                 gst_object_unref(d3d11dl);
                 d3d11dl = nullptr;
     
-                gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, nullptr);
-                gst_element_link(convert, _videoFlip);
+                gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_element_link_many(convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
             }
         }
         else
         {
-            gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, nullptr);
-            gst_element_link(convert, _videoFlip);
+            gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            gst_element_link_many(convert, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
         }
 
         GstElement* firstElem = d3d11dl ? d3d11dl : convert;
@@ -731,9 +804,7 @@ private:
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
 
-        GstPad* srcPad = gst_element_get_static_pad(_videoFlip, "src");
-        gst_element_add_pad(bin, gst_ghost_pad_new("src", srcPad));
-        gst_object_unref(srcPad);
+        ApplyWindowCapsLocked();
         
         return bin;
     }
@@ -750,33 +821,11 @@ private:
             return;
         }
 
-        GstElement* filterBin = BuildVideoFilterBin();
-        if (filterBin)
+        GstElement* videoSinkBin = BuildVideoFilterBin();
+        if (videoSinkBin)
         {
-            g_object_set(G_OBJECT(_pipeline), "video-filter", filterBin, nullptr);
-        }
-
-        GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
-        if (!videoSink)
-            videoSink = gst_element_factory_make("glimagesink", "video-sink");
-        if (!videoSink)
-            videoSink = gst_element_factory_make("autovideosink", "video-sink");
-        if (!videoSink)
-            videoSink = gst_element_factory_make("d3dvideosink", "video-sink");
-            
-        if (videoSink)
-        {
-            if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "force-aspect-ratio"))
-            {
-                g_object_set(G_OBJECT(videoSink), "force-aspect-ratio", FALSE, nullptr);
-            }
-
-            if (g_object_class_find_property(G_OBJECT_GET_CLASS(videoSink), "sync"))
-            {
-                g_object_set(G_OBJECT(videoSink), "sync", TRUE, nullptr);
-            }
-
-            g_object_set(G_OBJECT(_pipeline), "video-sink", videoSink, nullptr);
+            g_object_set(G_OBJECT(_pipeline), "video-sink", videoSinkBin, nullptr);
+            ApplyWindowCapsLocked();
         }
 
         GstBus* bus = gst_element_get_bus(_pipeline);
@@ -796,6 +845,8 @@ private:
             _pipeline = nullptr;
         }
         _videoFlip = nullptr;
+        _videoScale = nullptr;
+        _scaleCapsFilter = nullptr;
     }
 
     static GstBusSyncReply BusSyncHandler(GstBus*, GstMessage* message, gpointer userData)
@@ -808,10 +859,34 @@ private:
             auto hwndValue = self->_overlayHwnd.load(std::memory_order_acquire);
             if (hwndValue != 0)
             {
-                GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(GST_MESSAGE_SRC(message));
-                gst_video_overlay_set_window_handle(overlay, hwndValue);
-                gst_video_overlay_handle_events(overlay, TRUE);
-                gst_video_overlay_expose(overlay);
+                std::lock_guard<std::mutex> lock(self->_mutex);
+                self->UpdateClientSizeLocked(reinterpret_cast<HWND>(hwndValue));
+                GstElement* sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
+                if (sink && GST_IS_VIDEO_OVERLAY(sink))
+                {
+                    GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(sink);
+                    gst_video_overlay_set_window_handle(overlay, hwndValue);
+                    gst_video_overlay_handle_events(overlay, TRUE);
+
+                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "force-aspect-ratio"))
+                    {
+                        g_object_set(G_OBJECT(sink), "force-aspect-ratio", FALSE, nullptr);
+                    }
+                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "add-borders"))
+                    {
+                        g_object_set(G_OBJECT(sink), "add-borders", FALSE, nullptr);
+                    }
+                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "redraw-on-update"))
+                    {
+                        g_object_set(G_OBJECT(sink), "redraw-on-update", TRUE, nullptr);
+                    }
+                    if (self->_clientWidth > 0 && self->_clientHeight > 0)
+                    {
+                        gst_video_overlay_set_render_rectangle(overlay, 0, 0, self->_clientWidth, self->_clientHeight);
+                    }
+
+                    gst_video_overlay_expose(overlay);
+                }
             }
             return GST_BUS_DROP;
         }
@@ -845,6 +920,77 @@ private:
         _lastError = message;
     }
 
+    void UpdateClientSizeLocked(HWND hwnd)
+    {
+        int width = 0;
+        int height = 0;
+        if (GetClientSize(hwnd, width, height))
+        {
+            _clientWidth = width;
+            _clientHeight = height;
+        }
+    }
+
+    void ApplyRenderRectangleUnlocked()
+    {
+        if (!_pipeline || _hwnd == nullptr || _clientWidth <= 0 || _clientHeight <= 0)
+            return;
+
+        GstElement* sink = nullptr;
+        g_object_get(G_OBJECT(_pipeline), "video-sink", &sink, nullptr);
+        if (!sink)
+            return;
+
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "force-aspect-ratio"))
+        {
+            g_object_set(G_OBJECT(sink), "force-aspect-ratio", FALSE, nullptr);
+        }
+
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "add-borders"))
+        {
+            g_object_set(G_OBJECT(sink), "add-borders", FALSE, nullptr);
+        }
+
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "redraw-on-update"))
+        {
+            g_object_set(G_OBJECT(sink), "redraw-on-update", TRUE, nullptr);
+        }
+
+        if (GST_IS_VIDEO_OVERLAY(sink))
+        {
+            gst_video_overlay_set_render_rectangle(
+                GST_VIDEO_OVERLAY(sink),
+                0,
+                0,
+                _clientWidth,
+                _clientHeight);
+        }
+
+        gst_object_unref(sink);
+    }
+
+    void ApplyWindowCapsLocked()
+    {
+        if (!_scaleCapsFilter || _clientWidth <= 0 || _clientHeight <= 0)
+            return;
+        GstCaps* caps = gst_caps_new_simple(
+            "video/x-raw",
+            "width", G_TYPE_INT, _clientWidth,
+            "height", G_TYPE_INT, _clientHeight,
+            "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1,
+            nullptr);
+
+        g_object_set(G_OBJECT(_scaleCapsFilter), "caps", caps, nullptr);
+        gst_caps_unref(caps);
+
+        if (_pipeline)
+        {
+            gst_element_send_event(_pipeline, gst_event_new_reconfigure());
+        }
+
+        ApplyRenderRectangleUnlocked();
+    }
+
 private:
     std::mutex _mutex;
     std::mutex _errorMutex;
@@ -857,7 +1003,11 @@ private:
     std::wstring _lastPath;
     bool _mediaLoaded = false;
     GstElement* _videoFlip = nullptr;
+    GstElement* _videoScale = nullptr;
+    GstElement* _scaleCapsFilter = nullptr;
     int _rotationDegrees = 0;
+    int _clientWidth = 0;
+    int _clientHeight = 0;
     std::atomic<bool> _eosReached { false };
     std::vector<std::wstring> _playlistPaths;
 
@@ -891,6 +1041,12 @@ TSVMS_PLAYBACK_API int tsplay_set_window_handle(void* engine, HWND hwnd)
 {
     if (!engine) return 0;
     return static_cast<PlaybackEngine*>(engine)->SetWindowHandle(hwnd);
+}
+
+TSVMS_PLAYBACK_API int tsplay_set_window_size(void* engine, int width, int height)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->SetWindowSize(width, height);
 }
 
 TSVMS_PLAYBACK_API int tsplay_set_media_path(void* engine, const wchar_t* path)

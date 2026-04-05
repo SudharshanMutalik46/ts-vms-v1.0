@@ -186,7 +186,30 @@ func main() {
 
 	// Recording Components (Phase 5)
 	recordingStore := recording.NewPostgresStore(db)
-	recordingAPI := &api.RecordingAPI{DB: recordingStore}
+	var recordingCfg recording.Config
+	if recordingCfgBytes, err := os.ReadFile("config/recording.yaml"); err == nil {
+		if err := yaml.Unmarshal(recordingCfgBytes, &recordingCfg); err == nil {
+			recordingCfg.ApplyDefaults()
+		} else {
+			log.Printf("Warning: Failed to parse recording config for playback reconciliation: %v", err)
+		}
+	} else {
+		log.Printf("Warning: Failed to load recording config for playback reconciliation: %v", err)
+	}
+
+	var segmentRefresher func(context.Context, string) error
+	var segmentDiskLoader func(context.Context, string, time.Time, time.Time) ([]recording.ArchiveSegment, error)
+	if recordingCfg.Global.StorageRoot != "" {
+		recordingReconciler := recording.NewReconciler(&recordingCfg, recordingStore)
+		segmentRefresher = recordingReconciler.ReconcileCamera
+		segmentDiskLoader = recordingReconciler.LoadCameraSegments
+	}
+
+	recordingAPI := &api.RecordingAPI{
+		DB:                recordingStore,
+		SegmentRefresher:  segmentRefresher,
+		SegmentDiskLoader: segmentDiskLoader,
+	}
 
 	// Crypto Components (Phase 2.2)
 	keyring := crypto.NewKeyring()

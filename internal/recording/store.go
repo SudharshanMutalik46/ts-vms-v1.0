@@ -19,7 +19,9 @@ import (
 var ErrDBUnavailable = errors.New("recording database unavailable")
 
 type PostgresStore struct {
-	DB *sql.DB
+	DB                      *sql.DB
+	preferredCodecColKnown  bool
+	preferredCodecColExists bool
 }
 
 func NewPostgresStore(db *sql.DB) *PostgresStore {
@@ -109,10 +111,17 @@ func (s *PostgresStore) LoadCameraRecordingSources(ctx context.Context, cameraID
 		return []RecordingSource{{RTSPURL: fallbackURL, Codec: fallbackCodec}}, err
 	}
 
+	if mediaCodec, codecErr := s.loadPreferredMediaCodec(ctx, cameraID); codecErr == nil && mediaCodec != "" {
+		fallbackCodec = mediaCodec
+	}
+
 	out := make([]RecordingSource, 0, 3)
 	add := func(profileToken, rtspURL, codec string) {
 		rtspURL = media.SanitizeRTSPURL(strings.TrimSpace(rtspURL))
 		codec = normalizeCodec(codec)
+		if codec == "" {
+			codec = fallbackCodec
+		}
 		if rtspURL == "" {
 			return
 		}
@@ -130,6 +139,34 @@ func (s *PostgresStore) LoadCameraRecordingSources(ctx context.Context, cameraID
 		out = append(out, RecordingSource{RTSPURL: fallbackURL, Codec: fallbackCodec})
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) loadPreferredMediaCodec(ctx context.Context, cameraID string) (string, error) {
+	if !s.Available() {
+		return "", ErrDBUnavailable
+	}
+
+	var codec string
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(video_codec, '')
+		FROM camera_media_profiles
+		WHERE camera_id = $1 AND COALESCE(video_codec, '') <> ''
+		ORDER BY
+			CASE
+				WHEN profile_name ILIKE '%main%' THEN 0
+				WHEN profile_name ILIKE '%sub%' THEN 1
+				ELSE 2
+			END,
+			bitrate_kbps DESC,
+			updated_at DESC
+		LIMIT 1`, cameraID).Scan(&codec)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return normalizeCodec(codec), nil
 }
 
 func (s *PostgresStore) LoadCameraRecordingSource(ctx context.Context, cameraID, rawURL string) (string, string, error) {
@@ -167,15 +204,85 @@ func (s *PostgresStore) LoadEnabledCameras(ctx context.Context) ([]CameraConfig,
 		if cam.ID == "" || cam.RtspURL == "" {
 			continue
 		}
+		if preferredCodec, err := s.loadPreferredRecordingCodec(ctx, cam.ID); err == nil {
+			cam.PreferredRecordingCodec = preferredCodec
+		}
 		if sources, err := s.LoadCameraRecordingSources(ctx, cam.ID, cam.RtspURL); err == nil && len(sources) > 0 {
 			cam.RtspURL = sources[0].RTSPURL
-			if sources[0].Codec != "" {
+			if cam.PreferredRecordingCodec == "" && sources[0].Codec != "" {
 				cam.Codec = sources[0].Codec
 			}
+		}
+		if cam.Codec == "" {
+			cam.Codec = cam.PreferredRecordingCodec
 		}
 		out = append(out, cam)
 	}
 	return out, rows.Err()
+}
+
+func (s *PostgresStore) UpdatePreferredRecordingCodec(ctx context.Context, cameraID, codec string) error {
+	if !s.Available() {
+		return ErrDBUnavailable
+	}
+	exists, err := s.hasPreferredRecordingCodecColumn(ctx)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	_, err = s.DB.ExecContext(ctx, `
+		UPDATE cameras
+		SET preferred_recording_codec = NULLIF($2, ''), updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`, cameraID, normalizeCodec(codec))
+	return err
+}
+
+func (s *PostgresStore) loadPreferredRecordingCodec(ctx context.Context, cameraID string) (string, error) {
+	if !s.Available() {
+		return "", ErrDBUnavailable
+	}
+	exists, err := s.hasPreferredRecordingCodecColumn(ctx)
+	if err != nil || !exists {
+		return "", err
+	}
+
+	var codec string
+	err = s.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(preferred_recording_codec, '')
+		FROM cameras
+		WHERE id = $1 AND deleted_at IS NULL`, cameraID).Scan(&codec)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return normalizeCodec(codec), nil
+}
+
+func (s *PostgresStore) hasPreferredRecordingCodecColumn(ctx context.Context) (bool, error) {
+	if !s.Available() {
+		return false, ErrDBUnavailable
+	}
+	if s.preferredCodecColKnown {
+		return s.preferredCodecColExists, nil
+	}
+
+	var exists bool
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = 'cameras' AND column_name = 'preferred_recording_codec'
+		)`).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	s.preferredCodecColKnown = true
+	s.preferredCodecColExists = exists
+	return exists, nil
 }
 
 func (s *PostgresStore) GetCredentials(ctx context.Context, cameraID string) (*data.CameraCredential, error) {

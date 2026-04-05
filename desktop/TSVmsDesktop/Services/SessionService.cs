@@ -59,7 +59,7 @@ namespace TSVmsDesktop.Services
         public SessionService(ISecureStorageService storage)
         {
             _storage = storage;
-            // ...
+            Load();
         }
 
         // ... (existing methods)

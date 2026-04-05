@@ -13,18 +13,8 @@ global:
 
 
 cameras:
-  
 
-schedules:
-  - camera_id: "cam_01"
-    type: "24x7"
-  - camera_id: "cam_02"
-    type: "time_window"
-    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    start_time: "08:00"
-    end_time: "18:00"
-  - camera_id: "cam_03"
-    type: "event_triggered"
+schedules: []
 
 health_monitoring:
   enabled: true

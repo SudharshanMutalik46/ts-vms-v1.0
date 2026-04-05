@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,12 +39,13 @@ type OnvifClient interface {
 type OnvifClientFactory func(xaddr, username, password string) (OnvifClient, error)
 
 type MediaService struct {
-	MediaRepo     MediaRepository
-	CameraRepo    Repository
-	CredService   CredentialProvider
-	Validator     *media.Validator
-	Auditor       Auditor
-	ClientFactory OnvifClientFactory
+	MediaRepo      MediaRepository
+	CameraRepo     Repository
+	CredService    CredentialProvider
+	Validator      *media.Validator
+	Auditor        Auditor
+	ClientFactory  OnvifClientFactory
+	RTSPCodecProbe func(ctx context.Context, rtspURL string) (string, error)
 }
 
 func NewMediaService(mRepo MediaRepository, cRepo Repository, credSvc CredentialProvider, aud Auditor) *MediaService {
@@ -69,6 +71,9 @@ func NewMediaService(mRepo MediaRepository, cRepo Repository, credSvc Credential
 		CredService: credSvc,
 		Validator:   validator,
 		Auditor:     aud,
+		RTSPCodecProbe: func(ctx context.Context, rtspURL string) (string, error) {
+			return adapters.ProbeRTSPCodecWithTimeout(ctx, rtspURL, 2*time.Second)
+		},
 		ClientFactory: func(x, u, p string) (OnvifClient, error) {
 			return onvif.NewOnvifClient(x, u, p)
 		},
@@ -162,6 +167,25 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 				codec = media.CodecH265
 			} else if strings.Contains(enc, "JPEG") {
 				codec = media.CodecMJPEG
+			}
+		}
+
+		probeURL := sanitizedURI
+		if probeURL != "" && user != "" && !strings.Contains(probeURL, "@") {
+			probeURL = injectRTSPCredentials(probeURL, user, pass)
+		}
+		if s.RTSPCodecProbe != nil && probeURL != "" {
+			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			probedCodec, probeErr := s.RTSPCodecProbe(probeCtx, probeURL)
+			cancel()
+			if probeErr == nil {
+				if normalized := normalizeCodecLabel(probedCodec); normalized != media.CodecUnknown {
+					if codec == media.CodecUnknown {
+						codec = normalized
+					} else if codec != normalized {
+						log.Printf("[WARN] codec mismatch camera=%s token=%s rtsp_url=%s onvif=%s probed=%s", cameraID, op.Token, sanitizedURI, codec, normalized)
+					}
+				}
 			}
 		}
 
@@ -297,6 +321,33 @@ func (s *MediaService) SelectMediaProfiles(ctx context.Context, tenantID, camera
 	})
 
 	return dbSel, nil
+}
+
+func normalizeCodecLabel(v string) media.Codec {
+	switch strings.ToUpper(strings.TrimSpace(v)) {
+	case "H264", "AVC", "H.264", "VIDEO/H264", "X264":
+		return media.CodecH264
+	case "H265", "HEVC", "H.265", "VIDEO/H265", "X265":
+		return media.CodecH265
+	default:
+		return media.CodecUnknown
+	}
+}
+
+func injectRTSPCredentials(rawURL, user, pass string) string {
+	if strings.TrimSpace(rawURL) == "" || strings.TrimSpace(user) == "" {
+		return rawURL
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil || u == nil || u.Scheme == "" {
+		return rawURL
+	}
+	if u.User != nil {
+		return rawURL
+	}
+	u.User = url.UserPassword(user, pass)
+	return u.String()
 }
 
 func (s *MediaService) UpdateManualStreamUrls(ctx context.Context, tenantID, cameraID uuid.UUID, mainRTSP, subRTSP string) (*data.CameraStreamSelection, error) {

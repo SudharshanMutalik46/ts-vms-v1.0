@@ -45,7 +45,6 @@ func main() {
 	// IDs
 	tenantID := "00000000-0000-0000-0000-000000000001"
 	siteID := "00000000-0000-0000-0000-000000000001"
-	cameraID := "00000000-0000-0000-0000-000000000001"
 	userID := "00000000-0000-0000-0000-000000000001"
 	roleID := "00000000-0000-0000-0000-000000000001"
 
@@ -65,32 +64,6 @@ func main() {
 		ON CONFLICT (id) DO NOTHING`, siteID, tenantID)
 	if err != nil {
 		log.Fatalf("Site Insert Failed: %v", err)
-	}
-
-	// 1.2 Upsert Camera
-	_, err = db.Exec(`
-		INSERT INTO cameras (id, tenant_id, site_id, name, ip_address, port, is_enabled, manufacturer, model, serial_number, mac_address, created_at, updated_at)
-		VALUES ($1, $2, $3, 'Seeded Camera', '127.0.0.1', 8554, true, 'Generic', 'Virtual', 'SN12345', '00:00:00:00:00:00', NOW(), NOW())
-		ON CONFLICT (id) DO UPDATE SET 
-			ip_address = EXCLUDED.ip_address,
-			name = EXCLUDED.name,
-			manufacturer = EXCLUDED.manufacturer,
-			model = EXCLUDED.model,
-			serial_number = EXCLUDED.serial_number,
-			mac_address = EXCLUDED.mac_address,
-			updated_at = NOW()`, cameraID, tenantID, siteID)
-	// Note: We need to update the URL in Internal Logic?
-	// The DB schema for cameras uses `ip_address` and `port`.
-	// Control Plane constructs RTSP URL from IP/Port usually?
-	// Or does it allow custom URL?
-	// The `cameras` table in `seed-admin` used `ip_address` and `port`.
-	// The `ingest_manager` uses `rtsp_url`.
-	// Where does `vms-control` construct `rtsp_url`?
-	// `sfu_handlers` or `stream_manager`.
-	// If `vms-control` constructs it as `rtsp://<ip>:<port>/...`, I can't inject `mock://`.
-	// I need to check how `vms-control` determines the URL passed to `StartIngest`.
-	if err != nil {
-		log.Fatalf("Camera Insert Failed: %v", err)
 	}
 
 	// 2. Upsert User

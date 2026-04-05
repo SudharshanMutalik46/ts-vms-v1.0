@@ -19,8 +19,17 @@ namespace TSVmsDesktop.Services
         {
             try
             {
-                return await _api.GetAsync<Dictionary<string, string>>("/api/v1/recording/status")
-                       ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var status = await _api.GetAsync<RecordingStatusResponse>("/api/v1/recording/status");
+                if (status?.Workers == null || status.Workers.Length == 0)
+                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var worker in status.Workers)
+                {
+                    if (!string.IsNullOrWhiteSpace(worker?.CameraId))
+                        map[worker.CameraId] = worker.State ?? string.Empty;
+                }
+                return map;
             }
             catch
             {

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sort"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/technosupport/ts-vms/internal/control"
@@ -32,6 +33,11 @@ func mergeCameraConfigs(base, extra []recording.CameraConfig) []recording.Camera
 				}
 				if cam.Codec != "" {
 					existing.Codec = cam.Codec
+				} else if cam.PreferredRecordingCodec != "" && existing.Codec == "" {
+					existing.Codec = cam.PreferredRecordingCodec
+				}
+				if cam.PreferredRecordingCodec != "" {
+					existing.PreferredRecordingCodec = cam.PreferredRecordingCodec
 				}
 				if cam.SegmentFormat != "" {
 					existing.SegmentFormat = cam.SegmentFormat
@@ -131,6 +137,20 @@ func main() {
 
 	go supervisor.Run(ctx)
 	health.Start()
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := reconciler.SweepOrphanTmpFiles(ctx, 15*time.Minute); err != nil {
+					log.Printf("tmp recovery sweep failed: %v", err)
+				}
+			}
+		}
+	}()
 
 	internalAPI := &recording.InternalAPI{
 		ServiceKey:        os.Getenv("TS_VMS_SERVICE_KEY"),

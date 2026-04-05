@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Tasks;
 using TSVmsDesktop.Models;
@@ -62,6 +63,8 @@ namespace TSVmsDesktop.Services
             EnsureBaseUrl();
 
             string? tokenUsed = _session.AccessToken;
+            var started = Stopwatch.StartNew();
+            var absoluteUri = BuildAbsoluteUri(request.RequestUri?.ToString() ?? string.Empty);
 
             if (!string.IsNullOrEmpty(tokenUsed))
             {
@@ -71,6 +74,13 @@ namespace TSVmsDesktop.Services
             try
             {
                 var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                started.Stop();
+
+                if (request.RequestUri != null && request.RequestUri.OriginalString.Contains("/recording/", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ApiClient] {request.Method} {absoluteUri} -> {(int)response.StatusCode} in {started.ElapsedMilliseconds}ms");
+                }
 
                 if (response.StatusCode == HttpStatusCode.Conflict)
                 {
@@ -137,10 +147,22 @@ namespace TSVmsDesktop.Services
             }
             catch (TaskCanceledException)
             {
+                started.Stop();
+                if (request.RequestUri != null && request.RequestUri.OriginalString.Contains("/recording/", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ApiClient] TIMEOUT {request.Method} {absoluteUri} after {started.ElapsedMilliseconds}ms");
+                }
                 throw;
             }
             catch (Exception ex)
             {
+                started.Stop();
+                if (request.RequestUri != null && request.RequestUri.OriginalString.Contains("/recording/", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ApiClient] ERROR {request.Method} {absoluteUri} after {started.ElapsedMilliseconds}ms: {ex.Message}");
+                }
                 throw new Exception($"Network Error: {ex.Message}", ex);
             }
         }
@@ -238,7 +260,8 @@ namespace TSVmsDesktop.Services
                 return default;
             }
 
-            if (uri.Contains("media-profiles", StringComparison.OrdinalIgnoreCase))
+            if (uri.Contains("media-profiles", StringComparison.OrdinalIgnoreCase) ||
+                uri.Contains("/recording/", StringComparison.OrdinalIgnoreCase))
             {
                 string successMsg =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] GET {absoluteUri} SUCCESS. Raw JSON:\n{rawResponse}\n";

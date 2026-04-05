@@ -16,14 +16,16 @@ namespace TSVmsDesktop.Views
             Loaded += PlaybackView_Loaded;
             Unloaded += PlaybackView_Unloaded;
             PlaybackHost.HandleCreated += PlaybackHost_HandleCreated;
+            PlaybackHost.SizeChanged += PlaybackHost_SizeChanged;
         }
 
         private async void PlaybackView_Loaded(object sender, RoutedEventArgs e)
         {
             if (DataContext is PlaybackViewModel vm)
             {
-                var hwnd = await WaitForPlaybackHostHandleAsync();
+                var hwnd = await WaitForPlaybackHostReadyAsync();
                 await vm.AttachVideoHostAsync(hwnd);
+                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
                 await vm.InitializeAsync();
                 await vm.EnsureActivePlaybackAsync();
             }
@@ -33,8 +35,18 @@ namespace TSVmsDesktop.Views
         {
             if (DataContext is PlaybackViewModel vm)
             {
+                hwnd = await WaitForPlaybackHostReadyAsync();
                 await vm.AttachVideoHostAsync(hwnd);
+                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
                 await vm.EnsureActivePlaybackAsync();
+            }
+        }
+
+        private async void PlaybackHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (DataContext is PlaybackViewModel vm)
+            {
+                await vm.UpdateVideoHostSizeAsync((int)e.NewSize.Width, (int)e.NewSize.Height);
             }
         }
 
@@ -76,20 +88,27 @@ namespace TSVmsDesktop.Views
             }
         }
 
-        private async Task<IntPtr> WaitForPlaybackHostHandleAsync()
+        private async Task<IntPtr> WaitForPlaybackHostReadyAsync()
         {
-            if (PlaybackHost.WindowHandle != IntPtr.Zero)
+            if (IsPlaybackHostReady())
                 return PlaybackHost.WindowHandle;
 
             for (int i = 0; i < 80; i++)
             {
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                if (PlaybackHost.WindowHandle != IntPtr.Zero)
+                if (IsPlaybackHostReady())
                     return PlaybackHost.WindowHandle;
                 await Task.Delay(25);
             }
 
             return PlaybackHost.WindowHandle;
+        }
+
+        private bool IsPlaybackHostReady()
+        {
+            return PlaybackHost.WindowHandle != IntPtr.Zero &&
+                   PlaybackHost.ActualWidth >= 64 &&
+                   PlaybackHost.ActualHeight >= 64;
         }
     }
 }

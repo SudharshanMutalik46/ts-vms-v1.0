@@ -34,6 +34,22 @@ func requirePermission(r *http.Request, perm string) bool {
 	return ac.HasPermission(perm) || ac.HasRole("admin")
 }
 
+func requireAnyPermission(r *http.Request, perms ...string) bool {
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok {
+		return false
+	}
+	if ac.HasRole("admin") {
+		return true
+	}
+	for _, perm := range perms {
+		if ac.HasPermission(perm) {
+			return true
+		}
+	}
+	return false
+}
+
 func userIDFromContext(ctx context.Context) string {
 	ac, ok := middleware.GetAuthContext(ctx)
 	if !ok {
@@ -111,7 +127,7 @@ func (api *PublicRecordingAPI) HandleBulkAction(w http.ResponseWriter, r *http.R
 }
 
 func (api *PublicRecordingAPI) HandleStatus(w http.ResponseWriter, r *http.Request) {
-	if !requirePermission(r, "recording.view") {
+	if !requireAnyPermission(r, "recording.view", "video.view") {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -229,7 +245,7 @@ type IFrameEntry struct {
 }
 
 func (api *PublicRecordingAPI) HandleGetIFrameIndex(w http.ResponseWriter, r *http.Request) {
-	if !requirePermission(r, "recording.view") {
+	if !requireAnyPermission(r, "recording.view", "video.view") {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

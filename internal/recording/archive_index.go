@@ -54,6 +54,7 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 		)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,FALSE,TRUE,NOW(),NOW(),NOW())
 		ON CONFLICT (path) DO UPDATE SET
+			camera_id          = EXCLUDED.camera_id,
 			start_ts           = EXCLUDED.start_ts,
 			end_ts             = EXCLUDED.end_ts,
 			duration_ms        = EXCLUDED.duration_ms,
@@ -143,6 +144,31 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 	}
 
 	return out, rows.Err()
+}
+
+func (s *PostgresStore) GetLatestSegmentEnd(ctx context.Context, cameraID string) (time.Time, error) {
+	if !s.Available() {
+		return time.Time{}, ErrDBUnavailable
+	}
+
+	var endTS time.Time
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT end_ts
+		FROM recording_segments
+		WHERE camera_id = $1
+		  AND COALESCE(is_finalized, TRUE) = TRUE
+		  AND COALESCE(is_missing_on_disk, FALSE) = FALSE
+		  AND COALESCE(is_corrupt, FALSE) = FALSE
+		ORDER BY end_ts DESC
+		LIMIT 1
+	`, cameraID).Scan(&endTS)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return endTS, nil
 }
 
 func (s *PostgresStore) GetSegmentByPath(ctx context.Context, path string) (*ArchiveSegment, error) {

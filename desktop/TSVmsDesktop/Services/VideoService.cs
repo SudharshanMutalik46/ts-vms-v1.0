@@ -421,7 +421,7 @@ namespace TSVmsDesktop.Services
             string pipelineStr =
                 $"rtspsrc location=\"{authUrl}\" user-agent=\"{userAgent}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols={transport} timeout=10000000 tcp-timeout=10000000 name=rtspsrc_src " +
                 $"rtspsrc_src. ! application/x-rtp,media=video ! queue ! decodebin3 name=vdbin " +
-                $"vdbin. ! queue ! textoverlay text=\"{cameraName.Replace("\"", "\\\"")}\" valignment=top halignment=right font-desc=\"Sans Bold 10\" ! d3d11videosink name=mysink sync=false force-aspect-ratio=false " +
+                $"vdbin. ! queue ! textoverlay text=\"{cameraName.Replace("\"", "\\\"")}\" valignment=top halignment=right font-desc=\"Sans Bold 10\" ! d3d11videosink name=mysink sync=false force-aspect-ratio=false add-borders=false " +
                 audioPart +
                 "rtspsrc_src. ! application/x-rtp,media=application ! queue ! fakesink sync=false async=false";
 
