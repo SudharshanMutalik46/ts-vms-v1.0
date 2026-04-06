@@ -105,6 +105,7 @@ public:
                 RotationToFlipMethod(_rotationDegrees),
                 nullptr);
         }
+        ApplyCropToFillLocked();
 
         return 1;
     }
@@ -811,16 +812,20 @@ private:
         }
 
         g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
+        if (_videoScale && g_object_class_find_property(G_OBJECT_GET_CLASS(_videoScale), "add-borders"))
+        {
+            g_object_set(G_OBJECT(_videoScale), "add-borders", FALSE, nullptr);
+        }
         _videoSink = videoSink;
         gst_object_ref(_videoSink);
         ApplySinkDisplayModeLocked(_videoSink);
         
         if (d3d11dl)
         {
-            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-            if (!gst_element_link_many(d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr))
+            gst_bin_add_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            if (!gst_element_link_many(d3d11dl, convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr))
             {
-                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_bin_remove_many(GST_BIN(bin), d3d11dl, convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
                 gst_object_unref(d3d11dl);
                 d3d11dl = nullptr;
                 if (_videoSink)
@@ -829,14 +834,14 @@ private:
                     _videoSink = nullptr;
                 }
     
-                gst_bin_add_many(GST_BIN(bin), convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-                gst_element_link_many(convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+                gst_element_link_many(convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
             }
         }
         else
         {
-            gst_bin_add_many(GST_BIN(bin), convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
-            gst_element_link_many(convert, _videoCrop, _videoFlip, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            gst_bin_add_many(GST_BIN(bin), convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
+            gst_element_link_many(convert, _videoFlip, _videoCrop, _videoScale, _scaleCapsFilter, videoSink, nullptr);
         }
 
         GstElement* firstElem = d3d11dl ? d3d11dl : convert;
@@ -844,7 +849,7 @@ private:
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
 
-        GstPad* cropProbePad = gst_element_get_static_pad(convert, "src");
+        GstPad* cropProbePad = gst_element_get_static_pad(_videoFlip, "src");
         if (cropProbePad)
         {
             gst_pad_add_probe(cropProbePad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &PlaybackEngine::OnVideoCapsProbe, this, nullptr);
@@ -1032,32 +1037,13 @@ private:
 
     void ApplyCropToFillLocked()
     {
-        if (!_videoCrop || _clientWidth <= 0 || _clientHeight <= 0 || _sourceWidth <= 0 || _sourceHeight <= 0)
+        if (!_videoCrop || _clientWidth <= 0 || _clientHeight <= 0)
             return;
-
-        const double targetAspect = static_cast<double>(_clientWidth) / static_cast<double>(_clientHeight);
-        const double sourceAspect = static_cast<double>(_sourceWidth) / static_cast<double>(_sourceHeight);
 
         int left = 0;
         int right = 0;
         int top = 0;
         int bottom = 0;
-
-        if (sourceAspect > targetAspect)
-        {
-            const int croppedWidth = static_cast<int>(std::round(static_cast<double>(_sourceHeight) * targetAspect));
-            const int crop = std::max(0, _sourceWidth - croppedWidth);
-            left = crop / 2;
-            right = crop - left;
-        }
-        else if (sourceAspect < targetAspect)
-        {
-            const int croppedHeight = static_cast<int>(std::round(static_cast<double>(_sourceWidth) / targetAspect));
-            const int crop = std::max(0, _sourceHeight - croppedHeight);
-            top = crop / 2;
-            bottom = crop - top;
-        }
-
         g_object_set(
             G_OBJECT(_videoCrop),
             "left", left,
@@ -1129,6 +1115,7 @@ private:
                 RotationToFlipMethod(_rotationDegrees),
                 nullptr);
         }
+        ApplyCropToFillLocked();
     }
 
 private:
