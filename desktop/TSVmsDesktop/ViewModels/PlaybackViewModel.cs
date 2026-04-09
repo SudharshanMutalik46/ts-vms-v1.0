@@ -161,7 +161,7 @@ namespace TSVmsDesktop.ViewModels
             _recordingService = recordingService;
 
             // Reduce UI churn during playback to keep the app responsive.
-            _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
             _pollTimer.Tick += PollTimer_Tick;
 
             IsDiagnosticsExpanded = false;
@@ -169,21 +169,10 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task RunNativeAsync(Action action, string name = "unnamed")
         {
-            if (!await _nativeOpGate.WaitAsync(TimeSpan.FromSeconds(5)))
-            {
-                LogPlaybackDebug($"[RunNativeAsync] TIMEOUT waiting for gate: {name}");
-                throw new TimeoutException($"Playback operation '{name}' timed out waiting for access.");
-            }
-
+            await _nativeOpGate.WaitAsync();
             try
             {
-                var task = Task.Run(action);
-                if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10))) != task)
-                {
-                    LogPlaybackDebug($"[RunNativeAsync] HANG in Task.Run: {name}");
-                    throw new TimeoutException($"Playback operation '{name}' hung in native code.");
-                }
-                await task; // propagate exceptions
+                await Task.Run(action);
             }
             finally
             {
@@ -193,21 +182,10 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task<T> RunNativeAsync<T>(Func<T> func, string name = "unnamed")
         {
-            if (!await _nativeOpGate.WaitAsync(TimeSpan.FromSeconds(5)))
-            {
-                LogPlaybackDebug($"[RunNativeAsync<T>] TIMEOUT waiting for gate: {name}");
-                throw new TimeoutException($"Playback operation '{name}' timed out waiting for access.");
-            }
-
+            await _nativeOpGate.WaitAsync();
             try
             {
-                var task = Task.Run(func);
-                if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10))) != task)
-                {
-                    LogPlaybackDebug($"[RunNativeAsync<T>] HANG in Task.Run: {name}");
-                    throw new TimeoutException($"Playback operation '{name}' hung in native code.");
-                }
-                return await task;
+                return await Task.Run(func);
             }
             finally
             {
@@ -295,7 +273,9 @@ namespace TSVmsDesktop.ViewModels
                 // Immediately apply stashed size if we have one
                 if (_lastHostWidth > 0 && _lastHostHeight > 0)
                 {
-                    await RunNativeAsync(() => _playbackEngineService.SetHostSize(_lastHostWidth, _lastHostHeight), "Attach_SetSize");
+                    await RunNativeAsync(
+                        () => _playbackEngineService.RebindHost(_lastHostWidth, _lastHostHeight),
+                        "Attach_RebindHost");
                 }
             }
             catch (Exception ex)
@@ -326,7 +306,7 @@ namespace TSVmsDesktop.ViewModels
 
             try
             {
-                await RunNativeAsync(() => _playbackEngineService.SetHostSize(width, height), "UpdateSize");
+                await RunNativeAsync(() => _playbackEngineService.RebindHost(width, height), "UpdateRebind");
             }
             catch
             {
@@ -1170,7 +1150,7 @@ namespace TSVmsDesktop.ViewModels
                 StatusMessage = "Gap skipped to next available recording.";
         }
 
-        private async Task ApplyDesiredRateAsync(bool resumeAfter)
+        private async Task ApplyDesiredRateAsync(bool resumeAfter, bool alreadyPaused = false)
         {
             double requested = _desiredPlaybackRate <= 0 ? 1.0 : _desiredPlaybackRate;
             requested = Math.Clamp(requested, 0.25, 4.0);
@@ -1188,7 +1168,9 @@ namespace TSVmsDesktop.ViewModels
             }
             else
             {
-                await RunNativeAsync(() => _playbackEngineService.Pause(), "ApplyOptions_Pause");
+                if (!alreadyPaused)
+                    await RunNativeAsync(() => _playbackEngineService.Pause(), "ApplyOptions_Pause");
+
                 _shouldBePlaying = false;
                 IsPlaying = false;
             }
@@ -1487,19 +1469,20 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task LoadSegmentPausedAsync(int index, double localOffsetSeconds)
         {
-            if (index < 0 || index >= RecordingSegments.Count)
-                return;
-
-            var segment = RecordingSegments[index];
-
-            double safeOffset = Math.Max(0, localOffsetSeconds);
-            if (segment.DurationSeconds > 0.25)
-                safeOffset = Math.Min(safeOffset, segment.DurationSeconds - 0.25);
-            else
-                safeOffset = 0;
-
+            Interlocked.Exchange(ref _suspendPolling, 1);
             try
             {
+                if (index < 0 || index >= RecordingSegments.Count)
+                    return;
+
+                var segment = RecordingSegments[index];
+
+                double safeOffset = Math.Max(0, localOffsetSeconds);
+                if (segment.DurationSeconds > 0.25)
+                    safeOffset = Math.Min(safeOffset, segment.DurationSeconds - 0.25);
+                else
+                    safeOffset = 0;
+
                 _currentSegmentIndex = index;
                 SelectedSegment = segment;
                 HasMediaLoaded = true;
@@ -1539,7 +1522,7 @@ namespace TSVmsDesktop.ViewModels
                     }, "LoadPaused_Seek");
                 }
 
-                await ApplyPlaybackOptionsAfterLoadAsync(false);
+                await ApplyDesiredRateAsync(false, alreadyPaused: true);
 
                 var posUtc = segment.StartTs.AddSeconds(safeOffset);
                 CurrentWallClockText = posUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
@@ -1552,23 +1535,28 @@ namespace TSVmsDesktop.ViewModels
             {
                 StatusMessage = $"Failed to load paused segment: {ex.Message}";
             }
+            finally
+            {
+                Interlocked.Exchange(ref _suspendPolling, 0);
+            }
         }
 
         private async Task LoadAndPlaySegmentAsync(int index, double localOffsetSeconds)
         {
-            if (index < 0 || index >= RecordingSegments.Count)
-                return;
-
-            var segment = RecordingSegments[index];
-
-            double safeOffset = Math.Max(0, localOffsetSeconds);
-            if (segment.DurationSeconds > 0.25)
-                safeOffset = Math.Min(safeOffset, segment.DurationSeconds - 0.25);
-            else
-                safeOffset = 0;
-
+            Interlocked.Exchange(ref _suspendPolling, 1);
             try
             {
+                if (index < 0 || index >= RecordingSegments.Count)
+                    return;
+
+                var segment = RecordingSegments[index];
+
+                double safeOffset = Math.Max(0, localOffsetSeconds);
+                if (segment.DurationSeconds > 0.25)
+                    safeOffset = Math.Min(safeOffset, segment.DurationSeconds - 0.25);
+                else
+                    safeOffset = 0;
+
                 _currentSegmentIndex = index;
                 SelectedSegment = segment;
                 HasMediaLoaded = true;
@@ -1610,6 +1598,10 @@ namespace TSVmsDesktop.ViewModels
             {
                 StatusMessage = $"Failed to load segment: {ex.Message}";
             }
+            finally
+            {
+                Interlocked.Exchange(ref _suspendPolling, 0);
+            }
         }
 
         private async void PollTimer_Tick(object? sender, EventArgs e)
@@ -1631,16 +1623,14 @@ namespace TSVmsDesktop.ViewModels
                 var snapshot = await RunNativeAsync(() =>
                 {
                     int state = _playbackEngineService.GetState();
-                    int playlistIndex = _playbackEngineService.GetPlaylistIndex();
                     double localSeconds = _playbackEngineService.GetPositionSeconds();
                     bool eosReached = _playbackEngineService.HasReachedEos();
-                    double actualRate = _playbackEngineService.GetRate();
-                    return (state, playlistIndex, localSeconds, eosReached, actualRate);
+                    return (state, localSeconds, eosReached);
                 }, "Poll_Snapshot");
 
                 bool enginePlaying = snapshot.state == 2;
                 double localSeconds = Math.Max(0, snapshot.localSeconds);
-                int nativeIndex = snapshot.playlistIndex;
+                int nativeIndex = _playbackEngineService.GetPlaylistIndex();
 
                 // Sync segment index with engine
                 if (nativeIndex >= 0 && nativeIndex < RecordingSegments.Count && nativeIndex != _currentSegmentIndex)

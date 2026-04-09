@@ -99,6 +99,8 @@
                 <RowDefinition Height="3*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Style="{StaticResource PlaybackTileStyle}">
@@ -124,66 +126,87 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" Background="Black" CornerRadius="14" BorderBrush="#CBD5E1" BorderThickness="1" MinHeight="520">
-                <Grid ClipToBounds="True">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <controls:PlaybackVideoHost x:Name="PlaybackHost" MinWidth="64" MinHeight="64" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-
-                    <Border Background="#FF000000"
-                            CornerRadius="10"
-                            Padding="10"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Top"
-                            Margin="12"
-                            Visibility="{Binding ShowPlayerOverlay, Converter={StaticResource BoolToVis}}">
-                        <StackPanel>
-                            <TextBlock Text="{Binding PlayerOverlayTitle}" Foreground="White" FontSize="14" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding PlayerOverlaySubtitle}" Foreground="#E2E8F0" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Grid.Row="1"
-                            Background="#F8FAFC"
-                            BorderBrush="#E2E8F0"
-                            BorderThickness="1,1,1,0"
-                            CornerRadius="0,0,14,14"
-                            Padding="10,8"
-                            VerticalAlignment="Bottom">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-
-                            <WrapPanel VerticalAlignment="Center">
-                                <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                                <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                                <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                                <Button Content="Prev" Command="{Binding PrevRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                                <Button Content="Next" Command="{Binding NextRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,12,0"/>
-                                <Button Content="0.5x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="0.5" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="1x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="2x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="2" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                                <Button Content="4x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="4" IsEnabled="{Binding HasMediaLoaded}"/>
-                            </WrapPanel>
-
-                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding CurrentWallClockText}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Right"/>
-                                <TextBlock Text="{Binding WindowSummaryText}" Foreground="#64748B" FontSize="12" HorizontalAlignment="Right" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </Grid>
+            <Border Grid.Row="2"
+                    Background="Black"
+                    CornerRadius="14"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    MinHeight="520"
+                    ClipToBounds="True">
+                <Grid x:Name="PlaybackViewport"
+                      Background="Black"
+                      ClipToBounds="True">
+                    <Border x:Name="PlaybackHostFrame"
+                            Background="Black"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            ClipToBounds="True">
+                        <controls:PlaybackVideoHost x:Name="PlaybackHost"
+                                                    MinWidth="64"
+                                                    MinHeight="64"
+                                                    HorizontalAlignment="Stretch"
+                                                    VerticalAlignment="Stretch"/>
                     </Border>
                 </Grid>
             </Border>
 
-            <Border Grid.Row="3" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
+            <Border Grid.Row="3"
+                    Background="#F8FAFC"
+                    BorderBrush="#E2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="12,10"
+                    Margin="0,12,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <WrapPanel VerticalAlignment="Center">
+                        <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
+                        <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
+                        <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
+                        <Button Content="Prev" Command="{Binding PrevRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
+                        <Button Content="Next" Command="{Binding NextRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,12,0"/>
+                        <Button Content="0.5x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="0.5" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="1x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="2x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="2" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
+                        <Button Content="4x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="4" IsEnabled="{Binding HasMediaLoaded}"/>
+                    </WrapPanel>
+
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding CurrentWallClockText}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Right"/>
+                        <TextBlock Text="{Binding WindowSummaryText}" Foreground="#64748B" FontSize="12" HorizontalAlignment="Right" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="4"
+                    Background="White"
+                    BorderBrush="#E2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="12"
+                    Margin="0,12,0,0"
+                    Visibility="{Binding ShowPlayerOverlay, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="{Binding PlayerOverlayTitle}"
+                               Foreground="#0F172A"
+                               FontSize="14"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding PlayerOverlaySubtitle}"
+                               Foreground="#64748B"
+                               FontSize="12"
+                               Margin="0,2,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="5" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
                 </Border.Effect>
@@ -266,7 +289,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Grid.Row="4" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
+            <Border Grid.Row="6" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
                 </Border.Effect>

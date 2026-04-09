@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <gst/video/videooverlay.h>
 #include <gst/video/video.h>
+#include <gst/video/video-frame.h>
 #include <gst/tag/tag.h>
 
 #include <string>
@@ -257,8 +258,19 @@ public:
         std::lock_guard<std::mutex> lock(_mutex);
         _clientWidth = width;
         _clientHeight = height;
-        ApplyRenderRectangleUnlocked();
-        ApplyCropToFillLocked();
+        ApplyWindowCapsLocked();
+
+        if (_videoCrop)
+        {
+            g_object_set(
+                G_OBJECT(_videoCrop),
+                "left", 0,
+                "right", 0,
+                "top", 0,
+                "bottom", 0,
+                nullptr);
+        }
+
         return 1;
     }
 
@@ -282,11 +294,20 @@ public:
             _lastPos = 0.0;
         }
 
-        // Allow the next loaded item to re-apply any stream-provided orientation.
-        _manualRotationOverride = false;
-        _rotationDegrees = 0;
+        // Reset source dimensions for the newly loaded item, but DO NOT wipe a
+        // user-selected/manual rotation. Otherwise playback returns to 0° every
+        // time a new segment is loaded.
         _sourceWidth = 0;
         _sourceHeight = 0;
+
+        if (_videoFlip)
+        {
+            g_object_set(
+                G_OBJECT(_videoFlip),
+                "method",
+                RotationToFlipMethod(_rotationDegrees),
+                nullptr);
+        }
 
         std::string uri = FilePathToUri(path);
 
@@ -345,11 +366,19 @@ public:
             firstPath = _playlistPaths[startIndex];
         }
 
-        // Allow the next loaded item to re-apply any stream-provided orientation.
-        _manualRotationOverride = false;
-        _rotationDegrees = 0;
+        // Reset source dimensions for the newly loaded item, but preserve the
+        // active manual rotation across playlist segment changes.
         _sourceWidth = 0;
         _sourceHeight = 0;
+
+        if (_videoFlip)
+        {
+            g_object_set(
+                G_OBJECT(_videoFlip),
+                "method",
+                RotationToFlipMethod(_rotationDegrees),
+                nullptr);
+        }
 
         std::string uri = FilePathToUri(firstPath.c_str());
 
@@ -837,32 +866,148 @@ public:
     }
 
 private:
+    void ResetDetectedContentCropLocked()
+    {
+        _contentCropDetected = false;
+        _contentCropLeft = 0;
+        _contentCropRight = 0;
+        _contentCropTop = 0;
+        _contentCropBottom = 0;
+    }
+
+    static GstPadProbeReturn OnContentDetectProbe(GstPad* pad, GstPadProbeInfo* info, gpointer userData)
+    {
+        auto* self = static_cast<PlaybackEngine*>(userData);
+        if (!self || !info || !(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+            return GST_PAD_PROBE_OK;
+
+        GstBuffer* buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+        if (!buffer)
+            return GST_PAD_PROBE_OK;
+
+        std::lock_guard<std::mutex> lock(self->_mutex);
+
+        if (self->_contentCropDetected)
+            return GST_PAD_PROBE_REMOVE;
+
+        GstCaps* caps = gst_pad_get_current_caps(pad);
+        if (!caps)
+            return GST_PAD_PROBE_OK;
+
+        GstVideoInfo vinfo;
+        if (!gst_video_info_from_caps(&vinfo, caps))
+        {
+            gst_caps_unref(caps);
+            return GST_PAD_PROBE_OK;
+        }
+        gst_caps_unref(caps);
+
+        GstVideoFrame frame;
+        if (!gst_video_frame_map(&frame, &vinfo, buffer, GST_MAP_READ))
+            return GST_PAD_PROBE_OK;
+
+        const int width = GST_VIDEO_INFO_WIDTH(&vinfo);
+        const int height = GST_VIDEO_INFO_HEIGHT(&vinfo);
+        const int stride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0);
+        const guint8* data = static_cast<const guint8*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
+
+        if (!data || width <= 0 || height <= 0)
+        {
+            gst_video_frame_unmap(&frame);
+            return GST_PAD_PROBE_OK;
+        }
+
+        auto isDarkPixel = [&](int x, int y) -> bool
+        {
+            const guint8* px = data + y * stride + x * 4; // BGRA
+            const int b = px[0];
+            const int g = px[1];
+            const int r = px[2];
+            return r < 20 && g < 20 && b < 20;
+        };
+
+        auto columnMostlyBlack = [&](int x) -> bool
+        {
+            int dark = 0;
+            int total = 0;
+            for (int y = height / 20; y < height - (height / 20); y += 4)
+            {
+                ++total;
+                if (isDarkPixel(x, y))
+                    ++dark;
+            }
+            return total > 0 && (dark * 100 / total) >= 98;
+        };
+
+        auto rowMostlyBlack = [&](int y) -> bool
+        {
+            int dark = 0;
+            int total = 0;
+            for (int x = width / 20; x < width - (width / 20); x += 4)
+            {
+                ++total;
+                if (isDarkPixel(x, y))
+                    ++dark;
+            }
+            return total > 0 && (dark * 100 / total) >= 98;
+        };
+
+        int left = 0;
+        int right = 0;
+        int top = 0;
+        int bottom = 0;
+
+        const int maxSideScan = width / 3;
+        const int maxTopBottomScan = height / 3;
+
+        while (left < maxSideScan && columnMostlyBlack(left))
+            ++left;
+
+        while (right < maxSideScan && columnMostlyBlack(width - 1 - right))
+            ++right;
+
+        while (top < maxTopBottomScan && rowMostlyBlack(top))
+            ++top;
+
+        while (bottom < maxTopBottomScan && rowMostlyBlack(height - 1 - bottom))
+            ++bottom;
+
+        self->_contentCropLeft = left;
+        self->_contentCropRight = right;
+        self->_contentCropTop = top;
+        self->_contentCropBottom = bottom;
+        self->_contentCropDetected = true;
+
+        gst_video_frame_unmap(&frame);
+
+        self->ApplyCropToFillLocked();
+        return GST_PAD_PROBE_REMOVE;
+    }
+
     GstElement* BuildVideoFilterBin()
     {
         GstElement* bin = gst_bin_new("tsvms_video_sink_bin");
         if (!bin) return nullptr;
 
         GstElement* convert = gst_element_factory_make("videoconvert", "tsvms_convert");
-        _videoCrop = nullptr; // fit mode: no crop-to-fill
         _videoFlip = gst_element_factory_make("videoflip", "tsvms_video_flip");
+        _analysisCapsFilter = gst_element_factory_make("capsfilter", "tsvms_analysis_caps");
+        _videoCrop = gst_element_factory_make("videocrop", "tsvms_video_crop");
         _videoScale = gst_element_factory_make("videoscale", "tsvms_video_scale");
         _scaleCapsFilter = gst_element_factory_make("capsfilter", "tsvms_scale_caps");
 
-        // Prefer D3D11, then OpenGL. Avoid autovideosink/d3dvideosink (it is failing on this system).
         GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
         if (!videoSink)
             videoSink = gst_element_factory_make("glimagesink", "video-sink");
         if (!videoSink)
-        {
-            // Last-resort: fakesink to prevent playbin from choosing d3dvideosink.
             videoSink = gst_element_factory_make("fakesink", "video-sink");
-        }
 
-        if (!convert || !videoSink || !_videoScale || !_scaleCapsFilter)
+        if (!convert || !_videoFlip || !_analysisCapsFilter || !_videoCrop || !_videoScale || !_scaleCapsFilter || !videoSink)
         {
             if (convert) gst_object_unref(convert);
-            if (_videoCrop) { gst_object_unref(_videoCrop); _videoCrop = nullptr; }
             if (_videoFlip) { gst_object_unref(_videoFlip); _videoFlip = nullptr; }
+            if (_analysisCapsFilter) { gst_object_unref(_analysisCapsFilter); _analysisCapsFilter = nullptr; }
+            if (_videoCrop) { gst_object_unref(_videoCrop); _videoCrop = nullptr; }
             if (_videoScale) { gst_object_unref(_videoScale); _videoScale = nullptr; }
             if (_scaleCapsFilter) { gst_object_unref(_scaleCapsFilter); _scaleCapsFilter = nullptr; }
             if (videoSink) gst_object_unref(videoSink);
@@ -870,62 +1015,67 @@ private:
             return nullptr;
         }
 
-        if (_videoFlip)
+        GstCaps* analysisCaps = gst_caps_new_simple(
+            "video/x-raw",
+            "format", G_TYPE_STRING, "BGRA",
+            nullptr);
+        if (analysisCaps)
         {
-            g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
+            g_object_set(G_OBJECT(_analysisCapsFilter), "caps", analysisCaps, nullptr);
+            gst_caps_unref(analysisCaps);
         }
+
+        g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
+
         _videoSink = videoSink;
         gst_object_ref(_videoSink);
         ApplySinkDisplayModeLocked(_videoSink);
 
-        if (GstElementFactory* factory = gst_element_get_factory(videoSink))
-        {
-            const char* fname = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory));
-            if (fname)
-            {
-                fprintf(stderr, "[TS-VMS] Playback sink selected: %s\n", fname);
-            }
-        }
+        gst_bin_add_many(GST_BIN(bin),
+            convert,
+            _videoFlip,
+            _analysisCapsFilter,
+            _videoCrop,
+            _videoScale,
+            _scaleCapsFilter,
+            videoSink,
+            nullptr);
 
-        // Build chain with optional flip/crop.
-        gst_bin_add(GST_BIN(bin), convert);
-        GstElement* last = convert;
+        gst_element_link_many(
+            convert,
+            _videoFlip,
+            _analysisCapsFilter,
+            _videoCrop,
+            _videoScale,
+            _scaleCapsFilter,
+            videoSink,
+            nullptr);
 
-        if (_videoFlip)
-        {
-            gst_bin_add(GST_BIN(bin), _videoFlip);
-            gst_element_link(last, _videoFlip);
-            last = _videoFlip;
-        }
-
-        // Fit mode: no crop-to-fill element in the chain.
-
-        gst_bin_add(GST_BIN(bin), _videoScale);
-        gst_element_link(last, _videoScale);
-        last = _videoScale;
-
-        gst_bin_add(GST_BIN(bin), _scaleCapsFilter);
-        gst_element_link(last, _scaleCapsFilter);
-        last = _scaleCapsFilter;
-
-
-        gst_bin_add(GST_BIN(bin), videoSink);
-        gst_element_link(last, videoSink);
-
-        GstElement* firstElem = convert;
-        GstPad* sinkPad = gst_element_get_static_pad(firstElem, "sink");
+        GstPad* sinkPad = gst_element_get_static_pad(convert, "sink");
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
 
-        GstPad* cropProbePad = gst_element_get_static_pad(convert, "src");
-        if (cropProbePad)
+        GstPad* analysisPad = gst_element_get_static_pad(_analysisCapsFilter, "src");
+        if (analysisPad)
         {
-            gst_pad_add_probe(cropProbePad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &PlaybackEngine::OnVideoCapsProbe, this, nullptr);
-            gst_object_unref(cropProbePad);
+            gst_pad_add_probe(
+                analysisPad,
+                GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+                &PlaybackEngine::OnVideoCapsProbe,
+                this,
+                nullptr);
+
+            gst_pad_add_probe(
+                analysisPad,
+                GST_PAD_PROBE_TYPE_BUFFER,
+                &PlaybackEngine::OnContentDetectProbe,
+                this,
+                nullptr);
+
+            gst_object_unref(analysisPad);
         }
 
         ApplyWindowCapsLocked();
-        
         return bin;
     }
 
@@ -1118,7 +1268,6 @@ private:
         if (!sink)
             return;
 
-        // Match Live view behavior: stretch to fill (no bars).
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "force-aspect-ratio"))
         {
             g_object_set(G_OBJECT(sink), "force-aspect-ratio", FALSE, nullptr);
@@ -1134,7 +1283,6 @@ private:
             g_object_set(G_OBJECT(sink), "redraw-on-update", TRUE, nullptr);
         }
 
-        // Keep last frame visible while paused (avoid black frames).
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "enable-last-sample"))
         {
             g_object_set(G_OBJECT(sink), "enable-last-sample", _lastSampleEnabled ? TRUE : FALSE, nullptr);
@@ -1144,54 +1292,34 @@ private:
     void ApplyCropToFillLocked()
     {
         if (!_cropToFill)
+        {
+            if (_videoCrop)
+            {
+                g_object_set(
+                    G_OBJECT(_videoCrop),
+                    "left", 0,
+                    "right", 0,
+                    "top", 0,
+                    "bottom", 0,
+                    nullptr);
+            }
             return;
+        }
         if (!_videoCrop || _clientWidth <= 0 || _clientHeight <= 0)
             return;
         if (_sourceWidth <= 0 || _sourceHeight <= 0)
-        {
-            // Try to pull negotiated caps from the pipeline if the caps probe hasn't fired.
-            if (_videoScale)
-            {
-                GstPad* pad = gst_element_get_static_pad(_videoScale, "sink");
-                if (pad)
-                {
-                    if (GstCaps* caps = gst_pad_get_current_caps(pad))
-                    {
-                        GstVideoInfo vinfo;
-                        if (gst_video_info_from_caps(&vinfo, caps))
-                        {
-                            _sourceWidth = GST_VIDEO_INFO_WIDTH(&vinfo);
-                            _sourceHeight = GST_VIDEO_INFO_HEIGHT(&vinfo);
-                        }
-                        gst_caps_unref(caps);
-                    }
-                    gst_object_unref(pad);
-                }
-            }
-            if (_sourceWidth <= 0 || _sourceHeight <= 0)
-                return;
-        }
-
-        double srcW = static_cast<double>(_sourceWidth);
-        double srcH = static_cast<double>(_sourceHeight);
-        if (_rotationDegrees == 90 || _rotationDegrees == 270)
-        {
-            std::swap(srcW, srcH);
-        }
-
-        // If we are using aspectratiocrop, just set the target aspect ratio.
-        if (g_object_class_find_property(G_OBJECT_GET_CLASS(_videoCrop), "aspect-ratio"))
-        {
-            GValue ratio = G_VALUE_INIT;
-            g_value_init(&ratio, GST_TYPE_FRACTION);
-            gst_value_set_fraction(&ratio, _clientWidth, _clientHeight);
-            g_object_set_property(G_OBJECT(_videoCrop), "aspect-ratio", &ratio);
-            g_value_unset(&ratio);
             return;
-        }
 
-        // Force zoom-crop to remove embedded black bars (content is letterboxed inside frame).
-        // Calculate crop to fill the destination aspect ratio without stretching.
+        int left = _contentCropLeft;
+        int right = _contentCropRight;
+        int top = _contentCropTop;
+        int bottom = _contentCropBottom;
+
+        double srcW = static_cast<double>(_sourceWidth - left - right);
+        double srcH = static_cast<double>(_sourceHeight - top - bottom);
+
+        if (srcW <= 1.0 || srcH <= 1.0)
+            return;
 
         double dstW = static_cast<double>(_clientWidth);
         double dstH = static_cast<double>(_clientHeight);
@@ -1199,32 +1327,26 @@ private:
         double srcAspect = srcW / srcH;
         double dstAspect = dstW / dstH;
 
-        int left = 0;
-        int right = 0;
-        int top = 0;
-        int bottom = 0;
-
         if (std::abs(srcAspect - dstAspect) > 0.001)
         {
             if (srcAspect > dstAspect)
             {
-                // Source is wider than target: crop left/right.
                 double targetW = srcH * dstAspect;
-                double crop = std::max(0.0, srcW - targetW);
-                int cropPx = static_cast<int>(std::round(crop));
-                left = cropPx / 2;
-                right = cropPx - left;
+                double extraCrop = std::max(0.0, srcW - targetW);
+                int extra = static_cast<int>(std::round(extraCrop));
+                left += extra / 2;
+                right += extra - (extra / 2);
             }
             else
             {
-                // Source is taller than target: crop top/bottom.
                 double targetH = srcW / dstAspect;
-                double crop = std::max(0.0, srcH - targetH);
-                int cropPx = static_cast<int>(std::round(crop));
-                top = cropPx / 2;
-                bottom = cropPx - top;
+                double extraCrop = std::max(0.0, srcH - targetH);
+                int extra = static_cast<int>(std::round(extraCrop));
+                top += extra / 2;
+                bottom += extra - (extra / 2);
             }
         }
+
         g_object_set(
             G_OBJECT(_videoCrop),
             "left", left,
@@ -1236,29 +1358,8 @@ private:
 
     void ApplyAutoRotationLocked()
     {
-        if (_manualRotationOverride)
-            return;
-        if (_sourceWidth <= 0 || _sourceHeight <= 0 || _clientWidth <= 0 || _clientHeight <= 0)
-            return;
-
-        double srcAspect = static_cast<double>(_sourceWidth) / static_cast<double>(_sourceHeight);
-        double dstAspect = static_cast<double>(_clientWidth) / static_cast<double>(_clientHeight);
-        double diff0 = std::abs(srcAspect - dstAspect);
-        double diff90 = std::abs((1.0 / srcAspect) - dstAspect);
-
-        int desired = diff90 + 0.01 < diff0 ? 90 : 0;
-        if (desired == _rotationDegrees)
-            return;
-
-        _rotationDegrees = desired;
-        if (_videoFlip)
-        {
-            g_object_set(
-                G_OBJECT(_videoFlip),
-                "method",
-                RotationToFlipMethod(_rotationDegrees),
-                nullptr);
-        }
+        // Do not auto-rotate based on panel aspect ratio.
+        // Only manual rotation and real stream orientation tags should affect playback.
     }
 
     void ApplyWindowCapsLocked()
@@ -1266,11 +1367,13 @@ private:
         if (!_scaleCapsFilter || _clientWidth <= 0 || _clientHeight <= 0)
             return;
 
-        GstCaps* caps = gst_caps_new_simple("video/x-raw",
+        GstCaps* caps = gst_caps_new_simple(
+            "video/x-raw",
             "width", G_TYPE_INT, _clientWidth,
             "height", G_TYPE_INT, _clientHeight,
+            "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1,
             nullptr);
-        
+
         if (caps)
         {
             g_object_set(G_OBJECT(_scaleCapsFilter), "caps", caps, nullptr);
@@ -1343,6 +1446,14 @@ private:
     bool _manualRotationOverride = false;
     bool _lastSampleEnabled = true;
     bool _cropToFill = false;
+    GstElement* _analysisCapsFilter = nullptr;
+
+    bool _contentCropDetected = false;
+    int _contentCropLeft = 0;
+    int _contentCropRight = 0;
+    int _contentCropTop = 0;
+    int _contentCropBottom = 0;
+
     int _clientWidth = 0;
     int _clientHeight = 0;
     int _sourceWidth = 0;

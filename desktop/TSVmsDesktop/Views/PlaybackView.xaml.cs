@@ -1,26 +1,59 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
-using System.Threading.Tasks;
 using TSVmsDesktop.ViewModels;
 
 namespace TSVmsDesktop.Views
 {
     public partial class PlaybackView : System.Windows.Controls.UserControl
     {
+        private const double DefaultPlaybackAspect = 16.0 / 9.0;
+
         public PlaybackView()
         {
             InitializeComponent();
             Loaded += PlaybackView_Loaded;
             Unloaded += PlaybackView_Unloaded;
             PlaybackHost.HandleCreated += PlaybackHost_HandleCreated;
-            PlaybackHost.SizeChanged += PlaybackHost_SizeChanged;
+
+            // IMPORTANT: resize the viewport, not the HwndHost directly.
+            PlaybackViewport.SizeChanged += PlaybackViewport_SizeChanged;
+        }
+
+        private void UpdatePlaybackHostLayout()
+        {
+            double vw = PlaybackViewport.ActualWidth;
+            double vh = PlaybackViewport.ActualHeight;
+
+            if (vw <= 0 || vh <= 0)
+                return;
+
+            double hostW = vw;
+            double hostH = hostW / DefaultPlaybackAspect;
+
+            if (hostH > vh)
+            {
+                hostH = vh;
+                hostW = hostH * DefaultPlaybackAspect;
+            }
+
+            hostW = Math.Max(64, Math.Floor(hostW));
+            hostH = Math.Max(64, Math.Floor(hostH));
+
+            PlaybackHostFrame.Width = hostW;
+            PlaybackHostFrame.Height = hostH;
+
+            PlaybackHost.Width = double.NaN;
+            PlaybackHost.Height = double.NaN;
         }
 
         private async void PlaybackView_Loaded(object sender, RoutedEventArgs e)
         {
+            UpdatePlaybackHostLayout();
+
             if (DataContext is PlaybackViewModel vm)
             {
                 var hwnd = await WaitForPlaybackHostReadyAsync();
@@ -33,6 +66,8 @@ namespace TSVmsDesktop.Views
 
         private async void PlaybackHost_HandleCreated(object? sender, IntPtr hwnd)
         {
+            UpdatePlaybackHostLayout();
+
             if (DataContext is PlaybackViewModel vm)
             {
                 hwnd = await WaitForPlaybackHostReadyAsync();
@@ -42,11 +77,13 @@ namespace TSVmsDesktop.Views
             }
         }
 
-        private async void PlaybackHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        private async void PlaybackViewport_SizeChanged(object sender, SizeChangedEventArgs e)
         {
+            UpdatePlaybackHostLayout();
+
             if (DataContext is PlaybackViewModel vm)
             {
-                await vm.UpdateVideoHostSizeAsync((int)e.NewSize.Width, (int)e.NewSize.Height);
+                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
             }
         }
 
