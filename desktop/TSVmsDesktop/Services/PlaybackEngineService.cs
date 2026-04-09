@@ -31,12 +31,39 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public IntPtr HostHandle
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _hostHandle;
+                }
+            }
+        }
+
         public void SetHostSize(int width, int height)
         {
             lock (_sync)
             {
                 EnsureReady();
                 ThrowIfFailed(NativePlayback.tsplay_set_window_size(_engine, Math.Max(1, width), Math.Max(1, height)));
+            }
+        }
+
+        public void RebindHost(int width, int height)
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+                if (_hostHandle == IntPtr.Zero)
+                    return;
+
+                ThrowIfFailed(NativePlayback.tsplay_set_window_handle(_engine, _hostHandle));
+                if (width > 0 && height > 0)
+                {
+                    ThrowIfFailed(NativePlayback.tsplay_set_window_size(_engine, width, height));
+                }
             }
         }
 
@@ -101,6 +128,24 @@ namespace TSVmsDesktop.Services
             lock (_sync)
             {
                 return _engine == IntPtr.Zero ? 1.0 : NativePlayback.tsplay_get_rate(_engine);
+            }
+        }
+
+        public void SetLastSampleEnabled(bool enabled)
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+                NativePlayback.tsplay_set_last_sample_enabled(_engine, enabled ? 1 : 0);
+            }
+        }
+
+        public void ForceExpose()
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+                NativePlayback.tsplay_force_expose(_engine);
             }
         }
 
@@ -177,6 +222,20 @@ namespace TSVmsDesktop.Services
             _engine = NativePlayback.tsplay_create();
             if (_engine == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to create playback engine.");
+        }
+
+        public void ResetEngine()
+        {
+            lock (_sync)
+            {
+                if (_engine != IntPtr.Zero)
+                {
+                    NativePlayback.tsplay_destroy(_engine);
+                    _engine = IntPtr.Zero;
+                }
+
+                _initialized = false;
+            }
         }
 
         private void EnsureReady()

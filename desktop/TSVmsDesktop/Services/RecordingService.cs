@@ -9,6 +9,10 @@ namespace TSVmsDesktop.Services
     public class RecordingService
     {
         private readonly ApiClient _api;
+        private Dictionary<string, string> _lastStatusMap = new(StringComparer.OrdinalIgnoreCase);
+        private DateTime _lastStatusFetch = DateTime.MinValue;
+        private readonly System.Threading.SemaphoreSlim _fetchLock = new(1, 1);
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(2);
 
         public RecordingService(ApiClient api)
         {
@@ -17,23 +21,38 @@ namespace TSVmsDesktop.Services
 
         public async Task<Dictionary<string, string>> GetAllStatusesAsync()
         {
+            if (DateTime.Now - _lastStatusFetch < CacheDuration)
+                return _lastStatusMap;
+
+            await _fetchLock.WaitAsync();
             try
             {
-                var status = await _api.GetAsync<RecordingStatusResponse>("/api/v1/recording/status");
-                if (status?.Workers == null || status.Workers.Length == 0)
-                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (DateTime.Now - _lastStatusFetch < CacheDuration)
+                    return _lastStatusMap;
 
+                var status = await _api.GetAsync<RecordingStatusResponse>("/api/v1/recording/status");
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var worker in status.Workers)
+
+                if (status?.Workers != null)
                 {
-                    if (!string.IsNullOrWhiteSpace(worker?.CameraId))
-                        map[worker.CameraId] = worker.State ?? string.Empty;
+                    foreach (var worker in status.Workers)
+                    {
+                        if (!string.IsNullOrWhiteSpace(worker?.CameraId))
+                            map[worker.CameraId] = worker.State ?? string.Empty;
+                    }
                 }
+
+                _lastStatusMap = map;
+                _lastStatusFetch = DateTime.Now;
                 return map;
             }
             catch
             {
-                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                return _lastStatusMap; // Return stale cache on error
+            }
+            finally
+            {
+                _fetchLock.Release();
             }
         }
 
@@ -64,7 +83,7 @@ namespace TSVmsDesktop.Services
             return _api.PostAsync("/api/v1/recording/schedules", schedule);
         }
 
-        public async Task<List<RecordingSegment>> GetSegmentsAsync(string cameraId, DateTime fromUtc, DateTime toUtc)
+        public async Task<List<RecordingSegment>> GetSegmentsAsync(string cameraId, DateTime fromUtc, DateTime toUtc, System.Threading.CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(cameraId))
                 return new List<RecordingSegment>();
@@ -73,7 +92,7 @@ namespace TSVmsDesktop.Services
             string to = Uri.EscapeDataString(toUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
             string url = $"/api/v1/recording/cameras/{cameraId}/segments?from={from}&to={to}";
 
-            return await _api.GetAsync<List<RecordingSegment>>(url) ?? new List<RecordingSegment>();
+            return await _api.GetAsync<List<RecordingSegment>>(url, cancellationToken) ?? new List<RecordingSegment>();
         }
 
         public Task<bool> StartCameraAsync(string cameraId) =>

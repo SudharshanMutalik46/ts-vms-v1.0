@@ -132,7 +132,7 @@ namespace TSVmsDesktop.ViewModels
             catch (Exception ex)
             {
                 RtspValidationResult = $"Error: {ex.Message}";
-                MessageBox.Show($"Server Error while saving: {ex.Message}\nCheck api_debug_log.txt for details.", "Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Server Error while saving: {ex.Message}\nCheck logs\\api_debug_log.txt for details.", "Server Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

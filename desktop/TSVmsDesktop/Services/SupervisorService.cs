@@ -14,7 +14,7 @@ namespace TSVmsDesktop.Services
         {
             _healthService = healthService;
             // Define local log path. Adjust if logs are stored elsewhere.
-            // For now, assuming standard AppData or where the app writes logs + api_debug_log.txt on Desktop
+            // For now, assuming standard AppData or where the app writes logs + logs\\api_debug_log.txt
             _logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TS-VMS");
         }
 
@@ -26,7 +26,7 @@ namespace TSVmsDesktop.Services
         public void OpenLogFolder()
         {
             // Also try to open the Desktop log file if it exists, or just the folder
-            string debugLog = @"C:\Users\sudha\Desktop\api_debug_log.txt";
+            string debugLog = LogPaths.ApiDebugLogPath;
             if (File.Exists(debugLog))
             {
                  Process.Start(new ProcessStartInfo

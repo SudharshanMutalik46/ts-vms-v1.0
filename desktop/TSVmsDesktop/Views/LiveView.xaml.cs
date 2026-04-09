@@ -465,7 +465,11 @@ namespace TSVmsDesktop.Views
 
         private MainViewModel? GetMainViewModel() => App.Current.Services.GetRequiredService<MainViewModel>();
 
-        private PlaybackViewModel? GetPlaybackViewModel() => App.Current.Services.GetRequiredService<PlaybackViewModel>();
+        private PlaybackViewModel? GetPlaybackViewModel()
+        {
+            var mainVm = GetMainViewModel();
+            return mainVm?.CurrentView as PlaybackViewModel;
+        }
 
         private LiveViewModel? GetLiveViewModel() => DataContext as LiveViewModel;
 
@@ -506,10 +510,12 @@ namespace TSVmsDesktop.Views
         {
             var slot = GetMenuSlot(sender);
             var mainVm = GetMainViewModel();
-            var playbackVm = GetPlaybackViewModel();
-            if (slot == null || mainVm == null || playbackVm == null) return;
+            if (slot == null || mainVm == null) return;
 
             mainVm.NavigateToPlaybackCommand.Execute(null);
+
+            var playbackVm = mainVm.CurrentView as PlaybackViewModel;
+            if (playbackVm == null) return;
 
             var camService = App.Current.Services.GetRequiredService<CameraService>();
             var cam = camService.AllCameras.FirstOrDefault(c => c.Id == slot.Id);

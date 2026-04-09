@@ -26,6 +26,8 @@ TSVMS_PLAYBACK_API int   tsplay_step_frame(void* engine, int frames);
 TSVMS_PLAYBACK_API int   tsplay_set_playlist(void* engine, const wchar_t* const* paths, int count, int startIndex);
 TSVMS_PLAYBACK_API int   tsplay_get_playlist_index(void* engine);
 TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine);
+TSVMS_PLAYBACK_API int   tsplay_set_last_sample_enabled(void* engine, int enabled);
+TSVMS_PLAYBACK_API int   tsplay_force_expose(void* engine);
 
 
 TSVMS_PLAYBACK_API double tsplay_get_position_seconds(void* engine);

@@ -220,6 +220,137 @@ func gstPath(v string) string {
 	return filepath.ToSlash(filepath.Clean(v))
 }
 
+func ffprobePath(ffmpegPath string) string {
+	if ffmpegPath == "" {
+		return ""
+	}
+	if strings.HasSuffix(strings.ToLower(ffmpegPath), "ffmpeg.exe") {
+		return strings.TrimSuffix(ffmpegPath, "ffmpeg.exe") + "ffprobe.exe"
+	}
+	return ""
+}
+
+func gstDiscovererPath(gstLaunchPath string) string {
+	if gstLaunchPath == "" {
+		return ""
+	}
+	if strings.HasSuffix(strings.ToLower(gstLaunchPath), "gst-launch-1.0.exe") {
+		return strings.TrimSuffix(gstLaunchPath, "gst-launch-1.0.exe") + "gst-discoverer-1.0.exe"
+	}
+	return ""
+}
+
+func injectRTSPCreds(rtspURL, user, pass string) string {
+	if user == "" || rtspURL == "" {
+		return rtspURL
+	}
+	lower := strings.ToLower(rtspURL)
+	if !strings.HasPrefix(lower, "rtsp://") {
+		return rtspURL
+	}
+	if strings.Contains(rtspURL, "@") {
+		return rtspURL
+	}
+	auth := user
+	if pass != "" {
+		auth = auth + ":" + pass
+	}
+	return "rtsp://" + auth + "@" + rtspURL[len("rtsp://"):]
+}
+
+func (w *RecorderWorker) logDetectedCodec(ctx context.Context, source RecordingSource) {
+	if w.Config == nil {
+		return
+	}
+	url := injectRTSPCreds(source.RTSPURL, w.Camera.Username, w.Camera.Password)
+	host := extractRTSPHost(source.RTSPURL)
+
+	if probe := ffprobePath(w.Config.Global.FFmpegPath); probe != "" {
+		cmd := exec.CommandContext(
+			ctx,
+			probe,
+			"-v", "error",
+			"-rtsp_transport", w.rtspTransport(),
+			"-stimeout", "5000000",
+			"-select_streams", "v:0",
+			"-show_entries", "stream=codec_name",
+			"-of", "default=nokey=1:noprint_wrappers=1",
+			url,
+		)
+
+		if out, err := cmd.CombinedOutput(); err == nil {
+			codec := strings.ToLower(strings.TrimSpace(string(out)))
+			if codec != "" {
+				log.Printf("[EVENT] recording.ffprobe.codec camera_id=%s host=%s codec=%s", w.CameraID, host, codec)
+				return
+			}
+			log.Printf("[WARNING] recording.ffprobe.empty camera_id=%s host=%s", w.CameraID, host)
+		} else {
+			log.Printf("[WARNING] recording.ffprobe.failed camera_id=%s host=%s err=%v", w.CameraID, host, err)
+		}
+	}
+
+	if discoverer := gstDiscovererPath(w.Config.Global.GstLaunchPath); discoverer != "" {
+		cmd := exec.CommandContext(ctx, discoverer, "--timeout=10", url)
+		out, err := cmd.CombinedOutput()
+		txt := strings.ToLower(string(out))
+		if codec := parseDiscovererCodec(txt); codec != "" {
+			log.Printf("[EVENT] recording.gst_discoverer.codec camera_id=%s host=%s codec=%s", w.CameraID, host, codec)
+			return
+		}
+		if err != nil {
+			log.Printf("[WARNING] recording.gst_discoverer.failed camera_id=%s host=%s err=%v", w.CameraID, host, err)
+			return
+		}
+		log.Printf("[WARNING] recording.gst_discoverer.empty camera_id=%s host=%s", w.CameraID, host)
+	}
+}
+
+func (w *RecorderWorker) detectCodecFromRTSP(ctx context.Context, source RecordingSource) string {
+	if w.Config == nil {
+		return ""
+	}
+	discoverer := gstDiscovererPath(w.Config.Global.GstLaunchPath)
+	if discoverer == "" {
+		return ""
+	}
+
+	url := injectRTSPCreds(source.RTSPURL, w.Camera.Username, w.Camera.Password)
+	probeCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(probeCtx, discoverer, "--timeout=10", url)
+	out, err := cmd.CombinedOutput()
+	txt := strings.ToLower(string(out))
+	host := extractRTSPHost(source.RTSPURL)
+	if codec := parseDiscovererCodec(txt); codec != "" {
+		if err != nil {
+			log.Printf("[WARNING] recording.gst_discoverer.nonfatal camera_id=%s host=%s err=%v", w.CameraID, host, err)
+		}
+		log.Printf("[EVENT] recording.gst_discoverer.codec camera_id=%s host=%s codec=%s", w.CameraID, host, codec)
+		return codec
+	}
+	if err != nil {
+		log.Printf("[WARNING] recording.gst_discoverer.failed camera_id=%s host=%s err=%v", w.CameraID, host, err)
+		return ""
+	}
+	log.Printf("[WARNING] recording.gst_discoverer.empty camera_id=%s host=%s", w.CameraID, host)
+	return ""
+}
+
+func parseDiscovererCodec(txt string) string {
+	if txt == "" {
+		return ""
+	}
+	if strings.Contains(txt, "video/x-h265") || strings.Contains(txt, "h.265") || strings.Contains(txt, "h265/90000") || strings.Contains(txt, "hevc") {
+		return "h265"
+	}
+	if strings.Contains(txt, "video/x-h264") || strings.Contains(txt, "h.264") || strings.Contains(txt, "h264/90000") || strings.Contains(txt, "avc") {
+		return "h264"
+	}
+	return ""
+}
+
 func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error {
 	// Root storage for this camera
 	baseDir := filepath.Join(w.Config.Global.StorageRoot, w.Config.Global.DefaultTenantID, w.Config.Global.DefaultSiteID, w.CameraID)
@@ -261,12 +392,6 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 		w.codecRetryUsed = false
 	}
 	w.currentSourceIdx = sourceIdx
-	if normalizeCodec(w.Camera.PreferredRecordingCodec) != "" && normalizeCodec(w.Camera.Codec) == "" {
-		w.Camera.Codec = w.Camera.PreferredRecordingCodec
-	}
-	if normalizeCodec(w.Camera.Codec) == "" {
-		w.Camera.Codec = source.Codec
-	}
 	w.Camera.RtspURL = source.RTSPURL
 	w.mu.Unlock()
 
@@ -288,6 +413,15 @@ func (w *RecorderWorker) startPipeline(ctx context.Context, runID uint64) error 
 				log.Printf("[WARNING] failed to decrypt credentials for %s: %v", w.CameraID, err)
 			}
 		}
+	}
+
+	// Detect codec from RTSP SDP/caps and set depay accordingly.
+	if detected := w.detectCodecFromRTSP(ctx, source); detected != "" {
+		w.Camera.Codec = detected
+	} else if normalizeCodec(w.Camera.PreferredRecordingCodec) != "" && normalizeCodec(w.Camera.Codec) == "" {
+		w.Camera.Codec = w.Camera.PreferredRecordingCodec
+	} else if normalizeCodec(w.Camera.Codec) == "" {
+		w.Camera.Codec = source.Codec
 	}
 
 	pattern := filepath.Join(runDir, "segment_%05d"+w.segmentExt()+".tmp")
@@ -840,6 +974,10 @@ func (w *RecorderWorker) selectRecordingSource(ctx context.Context) (RecordingSo
 func (w *RecorderWorker) loadRecordingSources(ctx context.Context) []RecordingSource {
 	if s, ok := w.Store.(*PostgresStore); ok && s != nil {
 		if sources, err := s.LoadCameraRecordingSources(ctx, w.CameraID, w.Camera.RtspURL); err == nil && len(sources) > 0 {
+			if w.Config != nil && w.Config.Recording.ForceMainStream {
+				// Always prefer main stream; do not allow sub-stream fallback.
+				return []RecordingSource{sources[0]}
+			}
 			return sources
 		}
 	}
@@ -850,10 +988,16 @@ func (w *RecorderWorker) loadRecordingSources(ctx context.Context) []RecordingSo
 	if rtspURL == "" {
 		return nil
 	}
+	if w.Config != nil && w.Config.Recording.ForceMainStream {
+		return []RecordingSource{{RTSPURL: rtspURL, Codec: inferCodecFromRTSPURL(rtspURL)}}
+	}
 	return []RecordingSource{{RTSPURL: rtspURL, Codec: inferCodecFromRTSPURL(rtspURL)}}
 }
 
 func (w *RecorderWorker) advanceRecordingSource() {
+	if w.Config != nil && w.Config.Recording.ForceMainStream {
+		return
+	}
 	w.mu.Lock()
 	w.recordingSourceIx++
 	w.mu.Unlock()
@@ -933,6 +1077,7 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 			"!", "splitmuxsink",
 			"location="+gstPath(pattern),
 			"max-size-time="+fmt.Sprintf("%d", segmentNs),
+			"send-keyframe-requests=true",
 			"muxer-factory=mp4mux",
 			"muxer-properties=properties,streamable=true",
 		)
@@ -941,6 +1086,7 @@ func (w *RecorderWorker) gstRecorderArgs(pattern string) []string {
 			"!", "splitmuxsink",
 			"location="+gstPath(pattern),
 			"max-size-time="+fmt.Sprintf("%d", segmentNs),
+			"send-keyframe-requests=true",
 			"muxer-factory=matroskamux",
 			"muxer-properties=properties,streamable=true",
 		)

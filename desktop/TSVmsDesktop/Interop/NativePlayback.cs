@@ -39,6 +39,12 @@ namespace TSVmsDesktop.Interop
         internal static extern double tsplay_get_rate(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_set_last_sample_enabled(IntPtr engine, int enabled);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_force_expose(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int tsplay_play(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

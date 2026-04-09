@@ -53,6 +53,15 @@ namespace TSVmsDesktop.Controls
             public IntPtr hIconSm;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
         protected override HandleRef BuildWindowCore(HandleRef hwndParent)
         {
             EnsureClassRegistered();
@@ -91,6 +100,19 @@ namespace TSVmsDesktop.Controls
             _hwnd = IntPtr.Zero;
         }
 
+        public void ClearSurface()
+        {
+            if (_hwnd == IntPtr.Zero)
+                return;
+
+            if (GetClientRect(_hwnd, out var rc))
+            {
+                IntPtr brush = GetStockObject(BLACK_BRUSH);
+                FillRect(_hwnd, ref rc, brush);
+            }
+        }
+
+
         protected override IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             if (msg == WM_WINDOWPOSCHANGING)
@@ -112,12 +134,25 @@ namespace TSVmsDesktop.Controls
 
         protected override void OnWindowPositionChanged(System.Windows.Rect rcBoundingBox)
         {
-            double safeWidth = rcBoundingBox.IsEmpty || rcBoundingBox.Width < 64 ? 64 : rcBoundingBox.Width;
-            double safeHeight = rcBoundingBox.IsEmpty || rcBoundingBox.Height < 64 ? 64 : rcBoundingBox.Height;
-            double safeX = rcBoundingBox.IsEmpty ? 0 : rcBoundingBox.X;
-            double safeY = rcBoundingBox.IsEmpty ? 0 : rcBoundingBox.Y;
+            if (rcBoundingBox.IsEmpty)
+            {
+                base.OnWindowPositionChanged(rcBoundingBox);
+                return;
+            }
 
-            base.OnWindowPositionChanged(new System.Windows.Rect(safeX, safeY, safeWidth, safeHeight));
+            // Ensure we never pass zero-size to the base class as it can cause 
+            // the hosted native window to be hidden or incorrectly clipped.
+            double safeWidth = Math.Max(64, rcBoundingBox.Width);
+            double safeHeight = Math.Max(64, rcBoundingBox.Height);
+
+            base.OnWindowPositionChanged(new System.Windows.Rect(rcBoundingBox.X, rcBoundingBox.Y, safeWidth, safeHeight));
+            
+            // If the window is ready, clear the surface to prevent "ghosting" 
+            // from previous layout states during rapid resizing.
+            if (_hwnd != IntPtr.Zero)
+            {
+                ClearSurface();
+            }
         }
 
         private static void EnsureClassRegistered()
@@ -183,11 +218,17 @@ namespace TSVmsDesktop.Controls
         [DllImport("user32.dll", EntryPoint = "DestroyWindow", CharSet = CharSet.Unicode)]
         private static extern bool DestroyWindow(IntPtr hwnd);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
         private static extern IntPtr LoadLibrary(string lpFileName);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
         private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [DllImport("user32.dll")]
+        private static extern int FillRect(IntPtr hDC, [In] ref RECT lprc, IntPtr hbr);
 
         [DllImport("gdi32.dll", SetLastError = true)]
         private static extern IntPtr GetStockObject(int fnObject);

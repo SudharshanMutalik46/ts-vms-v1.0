@@ -79,6 +79,10 @@ type Config struct {
 			PreallocateFiles        bool `yaml:"preallocate_files"`
 		} `yaml:"io"`
 	} `yaml:"performance"`
+
+	Recording struct {
+		ForceMainStream bool `yaml:"force_main_stream"`
+	} `yaml:"recording"`
 }
 
 type CameraConfig struct {
@@ -123,6 +127,7 @@ func (c *Config) ApplyDefaults() {
 	if c.Performance.IO.SegmentWriterBatchBytes <= 0 {
 		c.Performance.IO.SegmentWriterBatchBytes = 4 * 1024 * 1024
 	}
+	// Recording.ForceMainStream defaults to false (allow fallback).
 	if c.Global.DefaultTenantID == "" {
 		c.Global.DefaultTenantID = "tenant-default"
 	}

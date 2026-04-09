@@ -37,7 +37,7 @@ health_monitoring:
 failover_recovery:
   enabled: true
   restart_backoff_sec: 5
-  db_required_for_ready: true
+  db_required_for_ready: false
   orphan_reconcile_mode: "log_only"
 
 circuit_breaker:
@@ -69,6 +69,7 @@ recording:
   prebuffer_seconds: 15
   segment_duration_seconds: 60
   max_restarts_per_minute: 5
+  force_main_stream: true
   storage_tiers:
     - name: "hot"
       path: "C:\\ts_vms_storage\\hot"

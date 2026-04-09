@@ -13,6 +13,7 @@ namespace TSVmsDesktop.Services
         private static string _logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gstreamer_log.txt");
         private static readonly object _logLock = new object();
         private readonly object _lock = new object();
+        private static readonly ConcurrentDictionary<string, string> _codecCache = new(StringComparer.OrdinalIgnoreCase);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct GErrorNative
@@ -36,6 +37,7 @@ namespace TSVmsDesktop.Services
             public string Password { get; set; } = "";
             public bool HasAudio { get; set; }
             public string RtspTransport { get; set; } = "tcp";
+            public string? DetectedCodec { get; set; }
 
             public IntPtr Pipeline { get; set; }
             public IntPtr OverlayElement { get; set; }
@@ -128,6 +130,136 @@ namespace TSVmsDesktop.Services
         }
 
         private static string NormalizeRtspTransport(string transport) => "tcp";
+
+        private static string InjectRtspCredentials(string rtspUrl, string username, string password)
+        {
+            if (string.IsNullOrWhiteSpace(rtspUrl)) return rtspUrl;
+            if (!rtspUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase)) return rtspUrl;
+            if (rtspUrl.Contains("@", StringComparison.Ordinal)) return rtspUrl;
+            if (string.IsNullOrWhiteSpace(username)) return rtspUrl;
+
+            string userInfo = username;
+            if (!string.IsNullOrWhiteSpace(password))
+                userInfo += ":" + password;
+
+            return "rtsp://" + userInfo + "@" + rtspUrl.Substring("rtsp://".Length);
+        }
+
+        private static string ResolveGstDiscovererPath()
+        {
+            string? overridePath = Environment.GetEnvironmentVariable("TS_VMS_GST_DISCOVERER");
+            if (!string.IsNullOrWhiteSpace(overridePath) && System.IO.File.Exists(overridePath))
+                return overridePath;
+
+            string? gstRoot = Environment.GetEnvironmentVariable("GSTREAMER_1_0_ROOT_X86_64");
+            if (!string.IsNullOrWhiteSpace(gstRoot))
+            {
+                string candidate = System.IO.Path.Combine(gstRoot, "bin", "gst-discoverer-1.0.exe");
+                if (System.IO.File.Exists(candidate))
+                    return candidate;
+            }
+
+            string defaultPath = @"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin\gst-discoverer-1.0.exe";
+            if (System.IO.File.Exists(defaultPath))
+                return defaultPath;
+
+            return "gst-discoverer-1.0.exe";
+        }
+
+        private static string ParseDiscovererCodec(string output)
+        {
+            if (string.IsNullOrWhiteSpace(output)) return "";
+            string txt = output.ToLowerInvariant();
+            if (txt.Contains("video/x-h265") || txt.Contains("h.265") || txt.Contains("h265/90000") || txt.Contains("hevc"))
+                return "h265";
+            if (txt.Contains("video/x-h264") || txt.Contains("h.264") || txt.Contains("h264/90000") || txt.Contains("avc"))
+                return "h264";
+            return "";
+        }
+
+        private static async Task<string> DetectCodecWithGstDiscoverer(string rtspUrl, string username, string password)
+        {
+            string discoverer = ResolveGstDiscovererPath();
+            string probeUrl = InjectRtspCredentials(rtspUrl, username, password);
+            string args = $"\"{probeUrl}\"";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = discoverer,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return "";
+
+                var outputTask = proc.StandardOutput.ReadToEndAsync();
+                var errorTask = proc.StandardError.ReadToEndAsync();
+
+                const int timeoutMs = 15000;
+                var waited = 0;
+                while (!proc.HasExited && waited < timeoutMs)
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                    waited += 100;
+                }
+
+                if (!proc.HasExited)
+                {
+                    try { proc.Kill(true); } catch { }
+                    Log($"[TS-VMS] gst-discoverer timeout after {timeoutMs}ms for {probeUrl}");
+                    return "";
+                }
+
+                string output = await outputTask.ConfigureAwait(false);
+                string err = await errorTask.ConfigureAwait(false);
+                string combined = output + "\n" + err;
+                return ParseDiscovererCodec(combined);
+            }
+            catch (Exception ex)
+            {
+                Log($"[TS-VMS] gst-discoverer failed: {ex.Message}");
+                return "";
+            }
+        }
+
+        private static void StartLiveCodecProbe(StreamContext ctx, string authUrl, string username, string password)
+        {
+            if (_codecCache.TryGetValue(authUrl, out var cached))
+            {
+                ctx.DetectedCodec = cached;
+                Log($"[TS-VMS] Live codec cache hit: {authUrl} -> {cached}");
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    string codec = await DetectCodecWithGstDiscoverer(authUrl, username, password)
+                        .ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(codec))
+                    {
+                        _codecCache[authUrl] = codec;
+                        ctx.DetectedCodec = codec;
+                        Log($"[TS-VMS] Live gst-discoverer codec: {authUrl} -> {codec}");
+                    }
+                    else
+                    {
+                        Log($"[TS-VMS] Live gst-discoverer codec not found for {authUrl}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[TS-VMS] Live gst-discoverer probe error: {ex.Message}");
+                }
+            });
+        }
 
         private static string StripRtspCredentials(string rtspUrl, out string username, out string password)
         {
@@ -421,7 +553,7 @@ namespace TSVmsDesktop.Services
             string pipelineStr =
                 $"rtspsrc location=\"{authUrl}\" user-agent=\"{userAgent}\" {userIdProp} {userPwProp} latency=500 drop-on-latency=true protocols={transport} timeout=10000000 tcp-timeout=10000000 name=rtspsrc_src " +
                 $"rtspsrc_src. ! application/x-rtp,media=video ! queue ! decodebin3 name=vdbin " +
-                $"vdbin. ! queue ! textoverlay text=\"{cameraName.Replace("\"", "\\\"")}\" valignment=top halignment=right font-desc=\"Sans Bold 10\" ! d3d11videosink name=mysink sync=false force-aspect-ratio=false add-borders=false " +
+                $"vdbin. ! queue ! textoverlay text=\"{cameraName.Replace("\"", "\\\"")}\" valignment=top halignment=right font-desc=\"Sans Bold 10\" ! d3d11videosink name=mysink sync=false force-aspect-ratio=false " +
                 audioPart +
                 "rtspsrc_src. ! application/x-rtp,media=application ! queue ! fakesink sync=false async=false";
 
@@ -454,6 +586,9 @@ namespace TSVmsDesktop.Services
                 LastProgressAtUtc = DateTime.UtcNow,
                 LastProgressPositionNs = -1
             };
+
+            // Background codec probe for live view (non-blocking).
+            StartLiveCodecProbe(ctx, authUrl, effectiveUser, effectivePassword);
 
             IntPtr sink = GstNative.gst_bin_get_by_name(pipeline, "mysink");
             if (sink != IntPtr.Zero)

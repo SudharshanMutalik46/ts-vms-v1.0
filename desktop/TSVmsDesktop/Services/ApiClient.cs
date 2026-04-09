@@ -58,7 +58,8 @@ namespace TSVmsDesktop.Services
         private async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             bool allowAuthRetry = true,
-            int retryCount = 0)
+            int retryCount = 0,
+            System.Threading.CancellationToken cancellationToken = default)
         {
             EnsureBaseUrl();
 
@@ -73,7 +74,7 @@ namespace TSVmsDesktop.Services
 
             try
             {
-                var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 started.Stop();
 
                 if (request.RequestUri != null && request.RequestUri.OriginalString.Contains("/recording/", StringComparison.OrdinalIgnoreCase))
@@ -107,7 +108,7 @@ namespace TSVmsDesktop.Services
                     await Task.Delay(retryAfter);
 
                     var newReq = await CloneRequestAsync(request);
-                    return await SendAsync(newReq, allowAuthRetry, retryCount + 1);
+                    return await SendAsync(newReq, allowAuthRetry, retryCount + 1, cancellationToken);
                 }
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized && allowAuthRetry)
@@ -115,7 +116,7 @@ namespace TSVmsDesktop.Services
                     if (_session.AccessToken != tokenUsed && !string.IsNullOrEmpty(_session.AccessToken))
                     {
                         var newReq = await CloneRequestAsync(request);
-                        return await SendAsync(newReq, false, 0);
+                        return await SendAsync(newReq, false, 0, cancellationToken);
                     }
 
                     await _refreshLock.WaitAsync();
@@ -124,13 +125,13 @@ namespace TSVmsDesktop.Services
                         if (_session.AccessToken != tokenUsed && !string.IsNullOrEmpty(_session.AccessToken))
                         {
                             var newReq = await CloneRequestAsync(request);
-                            return await SendAsync(newReq, false, 0);
+                            return await SendAsync(newReq, false, 0, cancellationToken);
                         }
 
                         if (await PerformRefreshAsync())
                         {
                             var newReq = await CloneRequestAsync(request);
-                            return await SendAsync(newReq, false, 0);
+                            return await SendAsync(newReq, false, 0, cancellationToken);
                         }
                         else
                         {
@@ -238,16 +239,16 @@ namespace TSVmsDesktop.Services
             return false;
         }
 
-        public Task<HttpResponseMessage> GetAsync(string uri)
+        public Task<HttpResponseMessage> GetAsync(string uri, System.Threading.CancellationToken cancellationToken = default)
         {
             var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            return SendAsync(req);
+            return SendAsync(req, cancellationToken: cancellationToken);
         }
 
-        public async Task<T?> GetAsync<T>(string uri)
+        public async Task<T?> GetAsync<T>(string uri, System.Threading.CancellationToken cancellationToken = default)
         {
             var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            var res = await SendAsync(req);
+            var res = await SendAsync(req, cancellationToken: cancellationToken);
 
             string rawResponse = await res.Content.ReadAsStringAsync();
             string absoluteUri = BuildAbsoluteUri(uri);
@@ -256,7 +257,7 @@ namespace TSVmsDesktop.Services
             {
                 string err =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] GET {absoluteUri} FAILED ({res.StatusCode}):\n{rawResponse}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
                 return default;
             }
 
@@ -265,7 +266,7 @@ namespace TSVmsDesktop.Services
             {
                 string successMsg =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] GET {absoluteUri} SUCCESS. Raw JSON:\n{rawResponse}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", successMsg);
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", successMsg);
             }
 
             try
@@ -288,7 +289,7 @@ namespace TSVmsDesktop.Services
                 sb.AppendLine("<<< RAW RESPONSE END");
                 sb.AppendLine("--------------------------------------------------");
 
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", sb.ToString());
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", sb.ToString());
                 throw;
             }
         }
@@ -308,7 +309,7 @@ namespace TSVmsDesktop.Services
                 string raw = await res.Content.ReadAsStringAsync();
                 string err =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] POST {absoluteUri} FAILED ({res.StatusCode}):\n{raw}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
             }
 
             return res.IsSuccessStatusCode;
@@ -329,8 +330,8 @@ namespace TSVmsDesktop.Services
             {
                 string err =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] POST {absoluteUri} FAILED ({res.StatusCode}):\n{rawResponse}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
-                throw new Exception($"Server Error ({res.StatusCode}). See api_debug_log.txt");
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
+                throw new Exception($"Server Error ({res.StatusCode}). See logs\\api_debug_log.txt");
             }
 
             try
@@ -353,8 +354,8 @@ namespace TSVmsDesktop.Services
                 sb.AppendLine("<<< RAW RESPONSE END");
                 sb.AppendLine("--------------------------------------------------");
 
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", sb.ToString());
-                throw new Exception("JSON Parse Error! Check api_debug_log.txt on Desktop.");
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", sb.ToString());
+                throw new Exception("JSON Parse Error! Check logs\\api_debug_log.txt.");
             }
         }
 
@@ -373,7 +374,7 @@ namespace TSVmsDesktop.Services
                 string raw = await res.Content.ReadAsStringAsync();
                 string err =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] PUT {absoluteUri} FAILED ({res.StatusCode}):\n{raw}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
             }
 
             return res.IsSuccessStatusCode;
@@ -390,7 +391,7 @@ namespace TSVmsDesktop.Services
                 string raw = await res.Content.ReadAsStringAsync();
                 string err =
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] DELETE {absoluteUri} FAILED ({res.StatusCode}):\n{raw}\n";
-                System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
             }
 
             return res.IsSuccessStatusCode;
@@ -427,7 +428,7 @@ namespace TSVmsDesktop.Services
                     string raw = await res.Content.ReadAsStringAsync();
                     string err =
                         $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] DOWNLOAD {absoluteUri} FAILED ({res.StatusCode}):\n{raw}\n";
-                    System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                    System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
                     return false;
                 }
 
@@ -441,7 +442,7 @@ namespace TSVmsDesktop.Services
             catch (Exception ex)
             {
                 System.IO.File.AppendAllText(
-                    @"C:\Users\sudha\Desktop\api_debug_log.txt",
+                    @"LogPaths.ApiDebugLogPath",
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] Download Exception: {ex.Message}\n");
                 return false;
             }
@@ -460,7 +461,7 @@ namespace TSVmsDesktop.Services
                     string raw = await res.Content.ReadAsStringAsync();
                     string err =
                         $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] DOWNLOAD GET {absoluteUri} FAILED ({res.StatusCode}):\n{raw}\n";
-                    System.IO.File.AppendAllText(@"C:\Users\sudha\Desktop\api_debug_log.txt", err);
+                    System.IO.File.AppendAllText(@"LogPaths.ApiDebugLogPath", err);
                     return false;
                 }
 
@@ -474,7 +475,7 @@ namespace TSVmsDesktop.Services
             catch (Exception ex)
             {
                 System.IO.File.AppendAllText(
-                    @"C:\Users\sudha\Desktop\api_debug_log.txt",
+                    @"LogPaths.ApiDebugLogPath",
                     $"[{DateTime.Now:dd-MM-yyyy HH:mm:ss}] Download GET Exception: {ex.Message}\n");
                 return false;
             }
