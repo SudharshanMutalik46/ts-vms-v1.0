@@ -110,6 +110,7 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private bool _hasMediaLoaded;
 
         [ObservableProperty] private string _playbackRateText = "1x";
+        [ObservableProperty] private double _videoAspectRatio = 16.0 / 9.0;
 
         // Window + Calendar
         [ObservableProperty] private DateTime _selectedDayLocal = DateTime.Today;
@@ -202,10 +203,16 @@ namespace TSVmsDesktop.ViewModels
             {
                 int state = _playbackEngineService.GetState();
                 double localSeconds = _playbackEngineService.GetPositionSeconds();
-                return (state, localSeconds);
+                var videoSize = _playbackEngineService.GetVideoSize();
+                return (state, localSeconds, videoSize.width, videoSize.height);
             }, "RefreshUi_GetStatePos");
 
             IsPlaying = snapshot.state == 2;
+
+            if (snapshot.width > 0 && snapshot.height > 0)
+            {
+                VideoAspectRatio = Math.Max(0.3, Math.Min(3.5, (double)snapshot.width / snapshot.height));
+            }
 
             var seg = RecordingSegments[_currentSegmentIndex];
             double local = Math.Max(0, snapshot.localSeconds);
@@ -277,6 +284,8 @@ namespace TSVmsDesktop.ViewModels
                         () => _playbackEngineService.RebindHost(_lastHostWidth, _lastHostHeight),
                         "Attach_RebindHost");
                 }
+
+                await RunNativeAsync(() => _playbackEngineService.ForceExpose(), "Attach_ForceExpose");
             }
             catch (Exception ex)
             {
@@ -307,6 +316,7 @@ namespace TSVmsDesktop.ViewModels
             try
             {
                 await RunNativeAsync(() => _playbackEngineService.RebindHost(width, height), "UpdateRebind");
+                await RunNativeAsync(() => _playbackEngineService.ForceExpose(), "Update_ForceExpose");
             }
             catch
             {
@@ -1625,11 +1635,16 @@ namespace TSVmsDesktop.ViewModels
                     int state = _playbackEngineService.GetState();
                     double localSeconds = _playbackEngineService.GetPositionSeconds();
                     bool eosReached = _playbackEngineService.HasReachedEos();
-                    return (state, localSeconds, eosReached);
+                    var videoSize = _playbackEngineService.GetVideoSize();
+                    return (state, localSeconds, eosReached, videoSize.width, videoSize.height);
                 }, "Poll_Snapshot");
 
                 bool enginePlaying = snapshot.state == 2;
                 double localSeconds = Math.Max(0, snapshot.localSeconds);
+                if (snapshot.width > 0 && snapshot.height > 0)
+                {
+                    VideoAspectRatio = Math.Max(0.3, Math.Min(3.5, (double)snapshot.width / snapshot.height));
+                }
                 int nativeIndex = _playbackEngineService.GetPlaylistIndex();
 
                 // Sync segment index with engine

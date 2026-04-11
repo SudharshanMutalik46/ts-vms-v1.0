@@ -539,7 +539,8 @@
               Visibility="Collapsed"
               Background="#020617"
               ClipToBounds="True"
-              Opacity="0">
+              Opacity="0"
+              SizeChanged="FullScreenGrid_SizeChanged">
 
             <Border Background="#020617"/>
 
@@ -551,8 +552,8 @@
             <controls:VideoCanvas x:Name="FullScreenPlayer"
                                   MinWidth="64"
                                   MinHeight="64"
-                                  HorizontalAlignment="Stretch"
-                                  VerticalAlignment="Stretch"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
                                   IsVisibleChanged="FullScreenPlayer_IsVisibleChanged"/>
 
             <!-- STABLE EXIT BUTTON (TOP-LEFT) - NO POPUP TO PREVENT GHOSTING -->

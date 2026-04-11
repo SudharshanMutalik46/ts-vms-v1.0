@@ -34,6 +34,8 @@ TSVMS_PLAYBACK_API double tsplay_get_position_seconds(void* engine);
 TSVMS_PLAYBACK_API double tsplay_get_duration_seconds(void* engine);
 TSVMS_PLAYBACK_API int    tsplay_get_state(void* engine);
 TSVMS_PLAYBACK_API int    tsplay_has_reached_eos(void* engine);
+TSVMS_PLAYBACK_API int    tsplay_get_video_width(void* engine);
+TSVMS_PLAYBACK_API int    tsplay_get_video_height(void* engine);
 TSVMS_PLAYBACK_API const wchar_t* tsplay_get_last_error(void* engine);
 
 TSVMS_PLAYBACK_API int TSPlayback_SetRotationDegrees(void* engine, int degrees);

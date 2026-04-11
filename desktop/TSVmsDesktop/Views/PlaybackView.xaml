@@ -9,154 +9,223 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-        <Style x:Key="PlaybackTileStyle" TargetType="Border">
+        <Style x:Key="PlaybackShellCardStyle" TargetType="Border">
             <Setter Property="Background" Value="White"/>
             <Setter Property="CornerRadius" Value="18"/>
-            <Setter Property="Padding" Value="18"/>
+            <Setter Property="Padding" Value="16"/>
         </Style>
 
-        <Style x:Key="PlaybackSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="Padding" Value="14,0"/>
-            <Setter Property="Foreground" Value="#475569"/>
+        <Style x:Key="PlaybackTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#0F172A"/>
+        </Style>
+
+        <Style x:Key="PlaybackMetaStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="PlaybackMiniButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinWidth" Value="50"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Foreground" Value="#0F172A"/>
             <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
         </Style>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource PageBackground}" Margin="20">
+    <Grid Background="Transparent" Margin="0">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230"/>
-            <ColumnDefinition Width="18"/>
+            <ColumnDefinition Width="182"/>
+            <ColumnDefinition Width="8"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Style="{StaticResource PlaybackTileStyle}">
-            <Border.Effect>
-                <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
-            </Border.Effect>
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Top">
-                    <TextBlock Text="Playback Cameras" FontSize="26" FontWeight="Bold" Foreground="#1E293B"/>
-                    <TextBlock Text="Select camera, pick a time window, then play the archive."
-                               Foreground="#64748B" FontSize="12" Margin="0,4,0,14" TextWrapping="Wrap"/>
-                    <TextBox Height="34"
-                             Margin="0,0,0,12"
-                             Text="{Binding CameraSearchText, UpdateSourceTrigger=PropertyChanged}"
-                             VerticalContentAlignment="Center"
-                             Padding="10,0"
-                             Background="#F8FAFC"
-                             BorderBrush="#E2E8F0"
-                             BorderThickness="1"/>
-                </StackPanel>
-
-                <ListBox ItemsSource="{Binding AvailableCameras}"
-                         SelectedItem="{Binding SelectedCamera}"
-                         BorderThickness="0"
-                         Background="Transparent"
-                         HorizontalContentAlignment="Stretch"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="0"/>
-                            <Setter Property="Margin" Value="0,0,0,8"/>
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="10">
-                                            <ContentPresenter/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#E0F2FE"/>
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
-                                            </Trigger>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#94A3B8"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#0F172A" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding IpAddress}" Foreground="#64748B" FontSize="11" Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-        </Border>
-
-        <Grid Grid.Column="2">
+        <Grid Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="12"/>
-                <RowDefinition Height="3*"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Style="{StaticResource PlaybackTileStyle}">
-                <Border.Effect>
-                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
-                </Border.Effect>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel>
-                        <TextBlock Text="{Binding SelectedCamera.Name, TargetNullValue=Playback Viewer}" FontSize="22" FontWeight="Bold" Foreground="#0F172A"/>
-                        <TextBlock Text="{Binding StatusMessage}" Foreground="#64748B" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                    </StackPanel>
-
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding CoverageSummaryText}"
-                               Foreground="#475569"
-                               VerticalAlignment="Center"
-                               Margin="16,0,0,0"/>
-                </Grid>
+            <Border Grid.Row="0"
+                    Background="Transparent"
+                    CornerRadius="0"
+                    Padding="12,8,8,8">
+                <StackPanel>
+                    <TextBlock Text="Common"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="#0F172A"/>
+                    <DatePicker Margin="0,10,0,0"
+                                SelectedDate="{Binding SelectedDayLocal, Mode=TwoWay}"
+                                SelectedDateFormat="Short"/>
+                </StackPanel>
             </Border>
 
             <Border Grid.Row="2"
-                    Background="Black"
-                    CornerRadius="14"
-                    BorderBrush="#CBD5E1"
-                    BorderThickness="1"
-                    MinHeight="520"
+                    Background="Transparent"
+                    CornerRadius="0"
+                    Padding="12,8,8,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Playback Cameras"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Foreground="#0F172A"/>
+                        <TextBlock Text="Select a device to review archived footage."
+                                   Margin="0,6,0,0"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource PlaybackMetaStyle}"/>
+                    </StackPanel>
+
+                    <TextBox Grid.Row="2"
+                             Height="36"
+                             Padding="10,0"
+                             VerticalContentAlignment="Center"
+                             Text="{Binding CameraSearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Background="#F8FAFC"
+                             BorderBrush="#E2E8F0"
+                             BorderThickness="1"/>
+
+                    <ListBox Grid.Row="4"
+                             ItemsSource="{Binding AvailableCameras}"
+                             SelectedItem="{Binding SelectedCamera}"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0,0,0,8"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd"
+                                                    Background="#F8FAFC"
+                                                    BorderBrush="#E2E8F0"
+                                                    BorderThickness="1"
+                                                    CornerRadius="12"
+                                                    Padding="12,10">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#E0F2FE"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#94A3B8"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Name}"
+                                               FontWeight="SemiBold"
+                                               Foreground="#0F172A"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding IpAddress}"
+                                               Margin="0,3,0,0"
+                                               Style="{StaticResource PlaybackMetaStyle}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+
+            <Grid Grid.Column="2" x:Name="PlaybackContentGrid">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+            <Border x:Name="PlaybackStage"
+                    Grid.Row="0"
+                    Background="#030712"
+                    Padding="0"
+                    CornerRadius="0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
                     ClipToBounds="True">
-                <Grid x:Name="PlaybackViewport"
-                      Background="Black"
-                      ClipToBounds="True">
+                <Grid x:Name="PlaybackViewport" Background="#030712" ClipToBounds="True">
                     <Border x:Name="PlaybackHostFrame"
                             Background="Black"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             ClipToBounds="True">
-                        <controls:PlaybackVideoHost x:Name="PlaybackHost"
-                                                    MinWidth="64"
-                                                    MinHeight="64"
-                                                    HorizontalAlignment="Stretch"
-                                                    VerticalAlignment="Stretch"/>
+                        <Grid>
+                            <controls:VideoCanvas x:Name="PlaybackHost"
+                                                  MinWidth="64"
+                                                  MinHeight="64"
+                                                  HorizontalAlignment="Stretch"
+                                                  VerticalAlignment="Stretch"/>
+
+                            <Border HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Margin="0,14,14,0"
+                                    Padding="12,10"
+                                    Background="#CCFFFFFF"
+                                    CornerRadius="12">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding CoverageSummaryText}"
+                                               Foreground="#334155"
+                                               HorizontalAlignment="Right"/>
+                                    <TextBlock Text="{Binding WindowSummaryText}"
+                                               Margin="0,4,0,0"
+                                               HorizontalAlignment="Right"
+                                               Style="{StaticResource PlaybackMetaStyle}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="#BF020617"
+                                    Visibility="{Binding ShowPlayerOverlay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="380">
+                                    <TextBlock Text="{Binding PlayerOverlayTitle}"
+                                               FontSize="24"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center"
+                                               TextAlignment="Center"/>
+                                    <TextBlock Text="{Binding PlayerOverlaySubtitle}"
+                                               Margin="0,10,0,0"
+                                               Foreground="#CBD5E1"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>
 
-            <Border Grid.Row="3"
-                    Background="#F8FAFC"
-                    BorderBrush="#E2E8F0"
-                    BorderThickness="1"
-                    CornerRadius="14"
-                    Padding="12,10"
-                    Margin="0,12,0,0">
+            <Border Grid.Row="2"
+                    Background="Transparent"
+                    CornerRadius="0"
+                    Padding="8,4,8,4">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -164,64 +233,97 @@
                     </Grid.ColumnDefinitions>
 
                     <WrapPanel VerticalAlignment="Center">
-                        <Button Content="Play/Pause" Command="{Binding TogglePlayPauseCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                        <Button Content="Stop" Command="{Binding StopPlaybackCommand}" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                        <Button Content="-10s" Command="{Binding JumpSecondsCommand}" CommandParameter="-10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="+10s" Command="{Binding JumpSecondsCommand}" CommandParameter="10" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="-30s" Command="{Binding JumpSecondsCommand}" CommandParameter="-30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="+30s" Command="{Binding JumpSecondsCommand}" CommandParameter="30" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,12,0"/>
-                        <Button Content="Prev" Command="{Binding PrevRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,8,0"/>
-                        <Button Content="Next" Command="{Binding NextRecordingBlockCommand}" IsEnabled="{Binding HasSegments}" Margin="0,0,12,0"/>
-                        <Button Content="0.5x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="0.5" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="1x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="1" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="2x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="2" IsEnabled="{Binding HasMediaLoaded}" Margin="0,0,8,0"/>
-                        <Button Content="4x" Command="{Binding SetPlaybackRateCommand}" CommandParameter="4" IsEnabled="{Binding HasMediaLoaded}"/>
+                        <Button Content="Play"
+                                Command="{Binding TogglePlayPauseCommand}"
+                                IsEnabled="{Binding HasSegments}"
+                                Style="{StaticResource PlaybackMiniButtonStyle}"/>
+                        <Button Content="Stop"
+                                Command="{Binding StopPlaybackCommand}"
+                                IsEnabled="{Binding HasMediaLoaded}"
+                                Style="{StaticResource PlaybackMiniButtonStyle}"/>
+                        <Button Content="2x"
+                                Command="{Binding SetPlaybackRateCommand}"
+                                CommandParameter="2"
+                                IsEnabled="{Binding HasMediaLoaded}"
+                                Style="{StaticResource PlaybackMiniButtonStyle}"/>
+                        <Button Content="4x"
+                                Command="{Binding SetPlaybackRateCommand}"
+                                CommandParameter="4"
+                                IsEnabled="{Binding HasMediaLoaded}"
+                                Style="{StaticResource PlaybackMiniButtonStyle}"/>
                     </WrapPanel>
 
-                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding CurrentWallClockText}" FontSize="22" FontWeight="Bold" Foreground="#0F172A" HorizontalAlignment="Right"/>
-                        <TextBlock Text="{Binding WindowSummaryText}" Foreground="#64748B" FontSize="12" HorizontalAlignment="Right" Margin="0,2,0,0"/>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding CurrentWallClockText}"
+                                   FontSize="22"
+                                   FontWeight="Bold"
+                                   Foreground="#0F172A"
+                                   VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
             <Border Grid.Row="4"
-                    Background="White"
-                    BorderBrush="#E2E8F0"
-                    BorderThickness="1"
-                    CornerRadius="14"
-                    Padding="12"
-                    Margin="0,12,0,0"
-                    Visibility="{Binding ShowPlayerOverlay, Converter={StaticResource BoolToVis}}">
-                <StackPanel>
-                    <TextBlock Text="{Binding PlayerOverlayTitle}"
-                               Foreground="#0F172A"
-                               FontSize="14"
-                               FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding PlayerOverlaySubtitle}"
-                               Foreground="#64748B"
-                               FontSize="12"
-                               Margin="0,2,0,0"
-                               TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
+                    Background="Transparent"
+                    CornerRadius="0"
+                    Padding="8,6,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="300"/>
+                    </Grid.ColumnDefinitions>
 
-            <Border Grid.Row="5" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
-                <Border.Effect>
-                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
-                </Border.Effect>
-                <StackPanel>
-                    <DockPanel Margin="0,0,0,8">
-                        <TextBlock Text="Coverage Timeline" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" DockPanel.Dock="Left"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                            <Border Width="14" Height="14" Background="#BBF7D0" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0"/>
-                            <TextBlock Text="Recording" VerticalAlignment="Center" Foreground="#475569" Margin="0,0,14,0"/>
-                            <Border Width="14" Height="14" Background="#FEE2E2" BorderBrush="#FB7185" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0"/>
+                    <DockPanel Grid.Row="0" Grid.Column="0">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                            <TextBlock Text="Timeline" Style="{StaticResource PlaybackTitleStyle}"/>
+                            <TextBlock Text="Click to seek, double-click to seek and play."
+                                       Margin="12,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource PlaybackMetaStyle}"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Border Width="12" Height="12" Background="#BBF7D0" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0"/>
+                            <TextBlock Text="Recording" VerticalAlignment="Center" Foreground="#475569" Margin="0,0,12,0"/>
+                            <Border Width="12" Height="12" Background="#FEE2E2" BorderBrush="#FB7185" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0"/>
                             <TextBlock Text="No Recording" VerticalAlignment="Center" Foreground="#475569"/>
                         </StackPanel>
                     </DockPanel>
 
-                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="6" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="0"
+                                Grid.Column="1"
+                                Margin="18,0,0,0">
+                        <TextBlock Text="Jump To Exact Time" Style="{StaticResource PlaybackTitleStyle}"/>
+                        <TextBox Height="34"
+                                 Margin="0,8,0,0"
+                                 Padding="10,0"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding JumpToLocalText, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Content="Jump"
+                                Height="34"
+                                Margin="0,8,0,0"
+                                Command="{Binding JumpToTimeCommand}"/>
+                    </StackPanel>
+
+                    <Border Grid.Row="2"
+                            Grid.Column="0"
+                            Background="#F8FAFC"
+                            BorderBrush="#E2E8F0"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="8,6">
                         <ItemsControl ItemsSource="{Binding TimelineTicks}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -239,39 +341,51 @@
                                     <TextBlock Text="{Binding Label}" FontSize="10" Foreground="#475569"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </ItemsControl>
                     </Border>
 
                     <Border x:Name="CoverageHost"
-                            Height="54"
+                            Grid.Row="4"
+                            Grid.Column="0"
+                            Height="70"
                             Background="#FEE2E2"
                             BorderBrush="#FB7185"
                             BorderThickness="1"
                             CornerRadius="10"
-                            Padding="2"
+                            Padding="3"
                             SizeChanged="CoverageHost_OnSizeChanged"
                             MouseLeftButtonDown="CoverageHost_MouseLeftButtonDown">
                         <Grid>
                             <ItemsControl ItemsSource="{Binding TimelineSegments}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <Canvas Height="48"/>
+                                        <Canvas Height="62"/>
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemContainerStyle>
                                     <Style TargetType="ContentPresenter">
                                         <Setter Property="Canvas.Left" Value="{Binding LeftPx}"/>
-                                        <Setter Property="Canvas.Top" Value="3"/>
+                                        <Setter Property="Canvas.Top" Value="7"/>
                                     </Style>
                                 </ItemsControl.ItemContainerStyle>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Width="{Binding WidthPx}" Height="42" Background="#BBF7D0" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="6"/>
+                                        <Border Width="{Binding WidthPx}"
+                                                Height="48"
+                                                Background="#BBF7D0"
+                                                BorderBrush="#22C55E"
+                                                BorderThickness="1"
+                                                CornerRadius="6"/>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <Border Width="3" Height="48" Background="White" BorderBrush="#0F172A" BorderThickness="1,0,1,0" HorizontalAlignment="Left">
+                            <Border Width="3"
+                                    Height="62"
+                                    Background="White"
+                                    BorderBrush="#0F172A"
+                                    BorderThickness="1,0,1,0"
+                                    HorizontalAlignment="Left">
                                 <Border.RenderTransform>
                                     <TranslateTransform X="{Binding PlayheadLeftPx}"/>
                                 </Border.RenderTransform>
@@ -280,68 +394,37 @@
                     </Border>
 
                     <Slider x:Name="WindowSlider"
-                            Margin="0,8,0,0"
+                            Grid.Row="6"
+                            Grid.Column="0"
                             Minimum="0"
                             Maximum="{Binding TotalTimelineSeconds}"
                             Value="{Binding CurrentTimelineSeconds, Mode=OneWay}"
                             IsEnabled="{Binding HasSegments}"
                             Thumb.DragCompleted="WindowSlider_DragCompleted"/>
-                </StackPanel>
-            </Border>
 
-            <Border Grid.Row="6" Margin="0,12,0,0" Style="{StaticResource PlaybackTileStyle}">
-                <Border.Effect>
-                    <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
-                </Border.Effect>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="18"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Recording day" FontWeight="SemiBold" Foreground="#0F172A"/>
-                        <DatePicker Margin="0,8,0,0"
-                                    Width="220"
-                                    SelectedDate="{Binding SelectedDayLocal, Mode=TwoWay}"
-                                    SelectedDateFormat="Short"
-                                    HorizontalAlignment="Left"/>
-                        <WrapPanel Margin="0,8,0,0">
-                            <Button Content="15m" Command="{Binding Preset15mCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
-                            <Button Content="1h" Command="{Binding Preset1hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
-                            <Button Content="6h" Command="{Binding Preset6hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}" Margin="0,0,8,0"/>
-                            <Button Content="24h" Command="{Binding Preset24hCommand}" Style="{StaticResource PlaybackSecondaryButtonStyle}"/>
-                        </WrapPanel>
-
-                        <TextBlock Text="Jump to exact time" FontWeight="SemiBold" Foreground="#0F172A"/>
-                        <WrapPanel Margin="0,8,0,0">
-                            <TextBox Width="220"
-                                     Height="30"
-                                     VerticalContentAlignment="Center"
-                                     Padding="8,0"
-                                     Text="{Binding JumpToLocalText, UpdateSourceTrigger=PropertyChanged}"/>
-                            <Button Content="Jump" Command="{Binding JumpToTimeCommand}" Margin="8,0,0,0" Padding="16,4"/>
-                        </WrapPanel>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Export time range" FontWeight="SemiBold" Foreground="#0F172A"/>
-                        <WrapPanel Margin="0,8,0,0">
-                            <TextBox Width="170"
-                                     Height="30"
-                                     VerticalContentAlignment="Center"
-                                     Padding="8,0"
-                                     Text="{Binding ExportStartLocal, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"/>
-                            <TextBox Width="170"
-                                     Height="30"
-                                     VerticalContentAlignment="Center"
-                                     Padding="8,0"
-                                     Margin="8,0,0,0"
-                                     Text="{Binding ExportEndLocal, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"/>
-                            <Button Content="Export Range" Command="{Binding ExportRangeCommand}" Margin="8,0,0,0" Padding="16,4"/>
-                        </WrapPanel>
-                        <TextBlock Text="{Binding LastExportDisplay}" Foreground="#64748B" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                    <StackPanel Grid.Row="2"
+                                Grid.RowSpan="5"
+                                Grid.Column="1"
+                                Margin="18,0,0,0">
+                        <TextBlock Text="Export Clip" Style="{StaticResource PlaybackTitleStyle}"/>
+                        <TextBox Height="32"
+                                 Margin="0,8,0,0"
+                                 Padding="10,0"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding ExportStartLocal, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"/>
+                        <TextBox Height="32"
+                                 Margin="0,8,0,0"
+                                 Padding="10,0"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding ExportEndLocal, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"/>
+                        <Button Content="Export Range"
+                                Height="34"
+                                Margin="0,8,0,0"
+                                Command="{Binding ExportRangeCommand}"/>
+                        <TextBlock Text="{Binding LastExportDisplay}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource PlaybackMetaStyle}"/>
                     </StackPanel>
                 </Grid>
             </Border>

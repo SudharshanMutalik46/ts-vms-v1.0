@@ -1020,6 +1020,44 @@ namespace TSVmsDesktop.Views
             }
         }
 
+        private void UpdateFullScreenLayout()
+        {
+            // 1. Force the measurement to ONLY look at the dark gray inner container
+            if (FullScreenGrid == null || FullScreenPlayer == null || FullScreenGrid.ActualWidth <= 0 || FullScreenGrid.ActualHeight <= 0)
+                return;
+
+            double availableWidth = FullScreenGrid.ActualWidth;
+            double availableHeight = FullScreenGrid.ActualHeight;
+
+            // 2. Calculate the perfect 16:9 letterbox (prevents stretching)
+            double videoAspect = 16.0 / 9.0;
+            double containerAspect = availableWidth / availableHeight;
+
+            double targetWidth, targetHeight;
+
+            if (containerAspect > videoAspect)
+            {
+                // UI is too wide: limit width, keep height
+                targetHeight = availableHeight;
+                targetWidth = availableHeight * videoAspect;
+            }
+            else
+            {
+                // UI is too tall: limit height, keep width
+                targetWidth = availableWidth;
+                targetHeight = availableWidth / videoAspect;
+            }
+
+            // Apply safe dimensions to the HWND host
+            FullScreenPlayer.Width = Math.Max(64, Math.Floor(targetWidth));
+            FullScreenPlayer.Height = Math.Max(64, Math.Floor(targetHeight));
+        }
+
+        private void FullScreenGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateFullScreenLayout();
+        }
+
         private async void StartFullScreenStream(VideoCanvas canvas)
         {
             if (_isFullScreenStarting || _fullScreenPipeline != IntPtr.Zero)
@@ -1027,6 +1065,8 @@ namespace TSVmsDesktop.Views
                 VideoService.Log("[TS-VMS] Ignored duplicate StartFullScreenStream request.");
                 return;
             }
+
+            UpdateFullScreenLayout();
 
             VideoService? videoService = null;
             Action<IntPtr>? readyHandler = null;

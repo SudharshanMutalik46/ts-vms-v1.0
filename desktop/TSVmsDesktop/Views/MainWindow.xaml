@@ -50,7 +50,7 @@
             <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
         </Style>
         <DataTemplate x:Key="SidebarCompactIconTemplate">
-            <Viewbox Width="18" Height="18">
+            <Viewbox Width="20" Height="20">
                 <Path Data="{Binding}"
                       Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -58,6 +58,63 @@
                       Stretch="Uniform"/>
             </Viewbox>
         </DataTemplate>
+        <ControlTemplate x:Key="TopNavButtonTemplate" TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="15"
+                    Padding="{TemplateBinding Padding}">
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <ContentPresenter VerticalAlignment="Center"/>
+                    <TextBlock Text="{TemplateBinding Tag}"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{TemplateBinding Foreground}"/>
+                </StackPanel>
+            </Border>
+        </ControlTemplate>
+        <Style x:Key="TopNavButtonStyle" TargetType="Button">
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#F8FBFF"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template" Value="{StaticResource TopNavButtonTemplate}"/>
+            <Setter Property="ContentTemplate" Value="{StaticResource SidebarCompactIconTemplate}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#14FFFFFF"/>
+                    <Setter Property="BorderBrush" Value="#28FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="TopNavActiveButtonStyle" TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+            <Setter Property="Background" Value="#FFF6F0"/>
+            <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+            <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+        </Style>
+        <Style x:Key="IconOnlyButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <GeometryGroup x:Key="DashboardIconGeometry">
             <RectangleGeometry Rect="3.5,3.5,7,7" RadiusX="1.8" RadiusY="1.8"/>
             <RectangleGeometry Rect="13.5,3.5,7,4.5" RadiusX="1.6" RadiusY="1.6"/>
@@ -165,9 +222,6 @@
         <KeyBinding Key="D5" Modifiers="Ctrl" Command="{Binding NavigateToPlaybackCommand}"/>
     </Window.InputBindings>
 
-
-
-
     <Grid>
         <ContentControl Content="{Binding CurrentView}">
             <ContentControl.Style>
@@ -185,595 +239,263 @@
         <Grid Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.Style>
                 <Style TargetType="Grid">
-                    <Setter Property="Margin" Value="25"/>
+                    <Setter Property="Margin" Value="0"/>
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                             <Setter Property="Margin" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Grid.Style>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/> <RowDefinition Height="*"/>    </Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Background="White" CornerRadius="15" Height="90" Margin="0,0,0,25"
+            <Border Grid.Row="0"
+                    Background="{StaticResource TechnoOrange}"
+                    CornerRadius="16"
+                    Margin="0,0,0,18"
+                    Padding="16,10,16,10"
                     Visibility="{Binding IsKioskMode, Converter={StaticResource InverseBoolToVisConverter}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Margin" Value="0,0,0,6"/>
+                        <Setter Property="CornerRadius" Value="0"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentPage}" Value="Playback"/>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Border.Effect>
-                    <DropShadowEffect Color="#DDD" BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
+                    <DropShadowEffect Color="#D56A12" BlurRadius="14" ShadowDepth="2" Opacity="0.16"/>
                 </Border.Effect>
-                <Grid Margin="30,0">
+                <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/> <ColumnDefinition Width="*"/>    <ColumnDefinition Width="Auto"/> <ColumnDefinition Width="Auto"/> </Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="14"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="14"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image Source="/Images/logo.png" Height="65" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    </StackPanel>
+                    <Image Source="/Images/operator-logo.png"
+                           Width="188"
+                           Height="56"
+                           Stretch="Uniform"
+                           VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
 
-                    <Grid Grid.Column="2" VerticalAlignment="Center" Margin="0,0,25,0">
-                        <TextBox x:Name="HeaderSearchBox" 
-                                 Style="{StaticResource SearchBoxStyle}" 
-                                 Width="320" Height="45" 
-                                 VerticalContentAlignment="Center" 
-                                 Padding="45,0,10,0"
-                                 FontSize="14"
-                                 Foreground="#333"/>
-                        
-                        <StackPanel Orientation="Horizontal" IsHitTestVisible="False" VerticalAlignment="Center" Margin="15,0,0,0">
-                            <TextBlock Text="🔍" Foreground="#AAA" FontSize="16" Margin="0,1,5,0"/>
-                            <TextBlock Text="Search" Foreground="#BBB" FontSize="14" VerticalAlignment="Center"/>
-                            
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Text, ElementName=HeaderSearchBox}" Value="">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
+                    <Button Grid.Column="4"
+                            Command="{Binding NavigateToLogoutCommand}"
+                            ToolTip="Logout"
+                            Width="48"
+                            Height="48"
+                            Style="{StaticResource IconOnlyButtonStyle}"
+                            Cursor="Hand"
+                            VerticalAlignment="Center">
+                        <Image Source="/Images/logout-icon.png"
+                               Width="28"
+                               Height="28"
+                               Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Button>
+
+                    <ScrollViewer Grid.Column="2"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  PanningMode="HorizontalOnly"
+                                  VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Command="{Binding NavigateToLiveCommand}" Content="{StaticResource LiveViewIconGeometry}" Tag="Live" ToolTip="Live View">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Live">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToPlaybackCommand}" Content="{StaticResource PlaybackIconGeometry}" Tag="Playback" ToolTip="Playback">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToAuditCommand}" Content="{StaticResource AuditLogIconGeometry}" Tag="Audit" ToolTip="Audit Log" Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Audit Log">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToCamerasCommand}" Content="{StaticResource CamerasIconGeometry}" Tag="Cameras" ToolTip="Cameras">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Cameras">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToNvrsCommand}" Content="{StaticResource NvrsIconGeometry}" Tag="NVRs" ToolTip="NVRs">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="NVRs">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToAiConfigCommand}" Content="{StaticResource AiConfigIconGeometry}" Tag="AI Config" ToolTip="AI Config">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="AI Config">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToHealthCommand}" Content="{StaticResource SystemHealthIconGeometry}" Tag="Health" ToolTip="System Health">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Health">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToUsersCommand}" Content="{StaticResource UsersIconGeometry}" Tag="Users" ToolTip="Users" Visibility="{Binding CanViewUsers, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Users">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToLicenseCommand}" Content="{StaticResource LicenseIconGeometry}" Tag="License" ToolTip="License" Visibility="{Binding CanViewLicense, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="License">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToSupervisorCommand}" Content="{StaticResource SupervisorIconGeometry}" Tag="Supervisor" ToolTip="Supervisor">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Supervisor">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToWinDiscoveryCommand}" Content="{StaticResource WinHelperIconGeometry}" Tag="Win Helper" ToolTip="Win Helper">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Win Helper">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Command="{Binding NavigateToSettingsCommand}" Content="{StaticResource SettingsIconGeometry}" Tag="Settings" ToolTip="Settings">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentPage}" Value="Settings">
+                                                <Setter Property="Background" Value="#FFF6F0"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
+                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                         </StackPanel>
-                    </Grid>
+                    </ScrollViewer>
 
-                    <Border Grid.Column="3" Width="45" Height="45" CornerRadius="25" Background="#F5F5F5" Cursor="Hand">
-                        <TextBlock Text="👤" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#555" FontSize="18"/>
-                    </Border>
                 </Grid>
             </Border>
 
             <Border Grid.Row="1" Background="White" CornerRadius="25">
                 <Border.Style>
                     <Style TargetType="Border">
-                        <Setter Property="CornerRadius" Value="25"/>
-                         <Style.Triggers>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="CornerRadius" Value="0"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Style.Triggers>
                             <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                                 <Setter Property="CornerRadius" Value="0"/>
+                                <Setter Property="CornerRadius" Value="0"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <Border.Effect>
-                    <DropShadowEffect Color="#CCC" BlurRadius="20" ShadowDepth="5" Opacity="0.15"/>
-                </Border.Effect>
-                
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <Border Grid.Column="0" Width="320" Background="{StaticResource TechnoOrange}" CornerRadius="25,0,0,25">
-                        <Border.Style>
-                            <Style TargetType="Border">
+                <Grid x:Name="ViewLayoutContainer">
+                    <ContentControl Content="{Binding CurrentView}">
+                        <ContentControl.Style>
+                            <Style TargetType="ContentControl">
+                                <Setter Property="Margin" Value="0"/>
                                 <Setter Property="Visibility" Value="Visible"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsSidebarCollapsed}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Setter Property="Margin" Value="0"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </Border.Style>
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*"/>    <RowDefinition Height="Auto"/> </Grid.RowDefinitions>
-
-                            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Hidden" PanningMode="VerticalOnly">
-                                <StackPanel Margin="24,22,22,18">
-                                    <Grid Margin="0,0,0,18">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <TextBlock Text="Dashboard"
-                                                   Foreground="White"
-                                                   Opacity="0.92"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   Margin="12,0,0,0"/>
-
-                                        <Button Grid.Column="1"
-                                                Command="{Binding ToggleSidebarCommand}"
-                                                Width="36"
-                                                Height="36"
-                                                Background="#18FFFFFF"
-                                                BorderBrush="#55FFFFFF"
-                                                BorderThickness="1"
-                                                Cursor="Hand"
-                                                HorizontalAlignment="Right"
-                                                VerticalAlignment="Center"
-                                                ToolTip="Hide Sidebar">
-                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Border Width="15" Height="2" Background="White" CornerRadius="1" Margin="0,0,0,2"/>
-                                                <Border Width="15" Height="2" Background="White" CornerRadius="1" Margin="0,0,0,2"/>
-                                                <Border Width="15" Height="2" Background="White" CornerRadius="1"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </Grid>
-                                    
-                                    <Button Content="Live View" Command="{Binding NavigateToLiveCommand}" Tag="{StaticResource LiveViewIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Live">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                    
-                                    <Button Content="Playback" Command="{Binding NavigateToPlaybackCommand}" Tag="{StaticResource PlaybackIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="Audit Log" Command="{Binding NavigateToAuditCommand}" Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}" Tag="{StaticResource AuditLogIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Audit Log">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="Cameras" Command="{Binding NavigateToCamerasCommand}" Tag="{StaticResource CamerasIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Cameras">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="NVRs" Command="{Binding NavigateToNvrsCommand}" Tag="{StaticResource NvrsIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="NVRs">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                    
-                                    <Button Content="AI Config" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8" Tag="{StaticResource AiConfigIconGeometry}"/>
-                                    
-                                    <Button Content="System Health" Command="{Binding NavigateToHealthCommand}" Tag="{StaticResource SystemHealthIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Health">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="Users" Command="{Binding NavigateToUsersCommand}" Visibility="{Binding CanViewUsers, Converter={StaticResource BooleanToVisibilityConverter}}" Tag="{StaticResource UsersIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Users">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="License" Command="{Binding NavigateToLicenseCommand}" Visibility="{Binding CanViewLicense, Converter={StaticResource BooleanToVisibilityConverter}}" Tag="{StaticResource LicenseIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="License">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="Supervisor" Command="{Binding NavigateToSupervisorCommand}" Tag="{StaticResource SupervisorIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Supervisor">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="Win Helper" Command="{Binding NavigateToWinDiscoveryCommand}" Style="{StaticResource SidebarButtonStyle}" Opacity="0.8" Tag="{StaticResource WinHelperIconGeometry}"/>
-
-                                    <Button Content="Settings" Command="{Binding NavigateToSettingsCommand}" Tag="{StaticResource SettingsIconGeometry}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Settings">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                        <Setter Property="Margin" Value="0,5"/>
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                        <Setter Property="Template" Value="{StaticResource SidebarActiveButtonTemplate}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                </StackPanel>
-                            </ScrollViewer>
-                            
-                            <StackPanel Grid.Row="1" Margin="30,0,30,40">
-                                <Separator Background="White" Opacity="0.3" Margin="10,0,10,20"/>
-                                <Button Content="Logout" Command="{Binding NavigateToLogoutCommand}" Style="{StaticResource SidebarButtonStyle}" Opacity="0.9" Tag="{StaticResource LogoutIconGeometry}"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-
-        <Border Grid.Column="0" Width="74" Background="{StaticResource TechnoOrange}" CornerRadius="25,0,0,25">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsSidebarCollapsed}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <Grid Margin="0,14,0,14">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-
-                            <Button Width="34"
-                                    Height="34"
-                                    Command="{Binding ToggleSidebarCommand}"
-                                    Background="#18FFFFFF"
-                                    BorderBrush="#55FFFFFF"
-                                    BorderThickness="1"
-                                    Cursor="Hand"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Top"
-                                    Margin="0,8,6,0"
-                                    ToolTip="Show Sidebar">
-                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <Border Width="14" Height="2" Background="White" CornerRadius="1" Margin="0,0,0,2"/>
-                                    <Border Width="14" Height="2" Background="White" CornerRadius="1" Margin="0,0,0,2"/>
-                                    <Border Width="14" Height="2" Background="White" CornerRadius="1"/>
-                                </StackPanel>
-                            </Button>
-
-                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" PanningMode="VerticalOnly">
-                                <StackPanel Margin="0,40,0,12" HorizontalAlignment="Center">
-                                    <Button Command="{Binding NavigateToLiveCommand}" ToolTip="Live View" Content="{StaticResource LiveViewIconGeometry}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Live">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource PlaybackIconGeometry}" Command="{Binding NavigateToPlaybackCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Playback">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource AuditLogIconGeometry}" Command="{Binding NavigateToAuditCommand}" Visibility="{Binding CanViewAudit, Converter={StaticResource BooleanToVisibilityConverter}}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Audit Log">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Audit Log">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource CamerasIconGeometry}" Command="{Binding NavigateToCamerasCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Cameras">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Cameras">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource NvrsIconGeometry}" Command="{Binding NavigateToNvrsCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="NVRs">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="NVRs">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource SystemHealthIconGeometry}" Command="{Binding NavigateToHealthCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="System Health">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Health">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource UsersIconGeometry}" Command="{Binding NavigateToUsersCommand}" Visibility="{Binding CanViewUsers, Converter={StaticResource BooleanToVisibilityConverter}}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Users">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Users">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource LicenseIconGeometry}" Command="{Binding NavigateToLicenseCommand}" Visibility="{Binding CanViewLicense, Converter={StaticResource BooleanToVisibilityConverter}}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="License">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="License">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource SupervisorIconGeometry}" Command="{Binding NavigateToSupervisorCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Supervisor">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Supervisor">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource WinHelperIconGeometry}" Command="{Binding NavigateToWinDiscoveryCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Win Helper">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Win Helper">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-
-                                    <Button Content="{StaticResource SettingsIconGeometry}" Command="{Binding NavigateToSettingsCommand}" ContentTemplate="{StaticResource SidebarCompactIconTemplate}" ToolTip="Settings">
-                                        <Button.Style>
-                                            <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding CurrentPage}" Value="Settings">
-                                                        <Setter Property="Background" Value="White"/>
-                                                        <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
-                                                        <Setter Property="BorderBrush" Value="White"/>
-                                                        <Setter Property="Effect" Value="{StaticResource SidebarShadow}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                </StackPanel>
-                            </ScrollViewer>
-
-                            <Button Grid.Row="2"
-                                    Command="{Binding NavigateToLogoutCommand}"
-                                    ToolTip="Logout"
-                                    Content="{StaticResource LogoutIconGeometry}"
-                                    ContentTemplate="{StaticResource SidebarCompactIconTemplate}"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,8,0,0">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource SidebarCompactButtonStyle}">
-                                        <Setter Property="Margin" Value="0,8,0,0"/>
-                                        <Style.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Background" Value="#18FFFFFF"/>
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
-
-                        </Grid>
-                    </Border>
-
-                    <Border Grid.Column="1" Background="White" ClipToBounds="True">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="0,25,25,0"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                                        <Setter Property="CornerRadius" Value="0"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <Grid x:Name="ViewLayoutContainer">
-                            <ContentControl Content="{Binding CurrentView}">
-                                <ContentControl.Style>
-                                    <Style TargetType="ContentControl">
-                                        <Setter Property="Margin" Value="20"/>
-                                        <Setter Property="Visibility" Value="Visible"/> 
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsKioskMode}" Value="True">
-                                                <Setter Property="Margin" Value="0"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ContentControl.Style>
-                            </ContentControl>
-                        </Grid>
-                    </Border>
+                        </ContentControl.Style>
+                    </ContentControl>
                 </Grid>
             </Border>
         </Grid>

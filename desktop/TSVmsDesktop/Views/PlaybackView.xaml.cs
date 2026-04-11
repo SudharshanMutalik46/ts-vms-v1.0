@@ -1,8 +1,10 @@
 using System;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using TSVmsDesktop.ViewModels;
 
@@ -11,84 +13,94 @@ namespace TSVmsDesktop.Views
     public partial class PlaybackView : System.Windows.Controls.UserControl
     {
         private const double DefaultPlaybackAspect = 16.0 / 9.0;
+        private CancellationTokenSource? _hostAttachCts;
+        private bool _layoutSyncInFlight;
+        private int _lastSyncedWidthPx;
+        private int _lastSyncedHeightPx;
 
         public PlaybackView()
         {
             InitializeComponent();
             Loaded += PlaybackView_Loaded;
             Unloaded += PlaybackView_Unloaded;
-            PlaybackHost.HandleCreated += PlaybackHost_HandleCreated;
+            DataContextChanged += PlaybackView_DataContextChanged;
 
             // IMPORTANT: resize the viewport, not the HwndHost directly.
             PlaybackViewport.SizeChanged += PlaybackViewport_SizeChanged;
+            LayoutUpdated += PlaybackView_LayoutUpdated;
         }
 
-        private void UpdatePlaybackHostLayout()
+        private (double width, double height) UpdatePlaybackHostLayout()
         {
-            double vw = PlaybackViewport.ActualWidth;
-            double vh = PlaybackViewport.ActualHeight;
+            if (PlaybackContentGrid == null || PlaybackContentGrid.ActualWidth <= 0)
+                return (0, 0);
 
-            if (vw <= 0 || vh <= 0)
-                return;
+            double availableWidth = Math.Max(64, PlaybackContentGrid.ActualWidth);
+            double availableHeight = ActualHeight > 0 ? ActualHeight : PlaybackContentGrid.ActualHeight;
+            double reservedHeight = 168;
+            double maxStageHeight = Math.Max(360, availableHeight - reservedHeight);
+            double targetAspect = DefaultPlaybackAspect;
 
-            double hostW = vw;
-            double hostH = hostW / DefaultPlaybackAspect;
-
-            if (hostH > vh)
+            if (DataContext is PlaybackViewModel vm && vm.VideoAspectRatio > 0.1)
             {
-                hostH = vh;
-                hostW = hostH * DefaultPlaybackAspect;
+                targetAspect = vm.VideoAspectRatio;
             }
 
-            hostW = Math.Max(64, Math.Floor(hostW));
-            hostH = Math.Max(64, Math.Floor(hostH));
+            // Keep the height bounded by the operator controls, but always let the
+            // playback stage consume the full horizontal workspace.
+            double contentHeight = Math.Max(64, Math.Floor(maxStageHeight));
+            double contentWidth = Math.Max(64, Math.Floor(contentHeight * targetAspect));
 
-            PlaybackHostFrame.Width = hostW;
-            PlaybackHostFrame.Height = hostH;
+            if (contentWidth > availableWidth)
+            {
+                contentWidth = Math.Max(64, Math.Floor(availableWidth));
+                contentHeight = Math.Max(64, Math.Floor(contentWidth / targetAspect));
+            }
 
-            PlaybackHost.Width = double.NaN;
-            PlaybackHost.Height = double.NaN;
+            double stageWidth = Math.Max(64, Math.Floor(availableWidth));
+
+            PlaybackStage.Width = stageWidth;
+            PlaybackStage.Height = contentHeight;
+            PlaybackHostFrame.Width = contentWidth;
+            PlaybackHostFrame.Height = contentHeight;
+
+            PlaybackHost.Width = contentWidth;
+            PlaybackHost.Height = contentHeight;
+
+            return (contentWidth, contentHeight);
+        }
+
+        private (int widthPx, int heightPx) ToPixelSize(double widthDip, double heightDip)
+        {
+            var dpi = VisualTreeHelper.GetDpi(this);
+            double scaleX = dpi.DpiScaleX <= 0 ? 1.0 : dpi.DpiScaleX;
+            double scaleY = dpi.DpiScaleY <= 0 ? 1.0 : dpi.DpiScaleY;
+
+            int widthPx = Math.Max(64, (int)Math.Round(widthDip * scaleX));
+            int heightPx = Math.Max(64, (int)Math.Round(heightDip * scaleY));
+            return (widthPx, heightPx);
         }
 
         private async void PlaybackView_Loaded(object sender, RoutedEventArgs e)
         {
-            UpdatePlaybackHostLayout();
-
             if (DataContext is PlaybackViewModel vm)
             {
-                var hwnd = await WaitForPlaybackHostReadyAsync();
-                await vm.AttachVideoHostAsync(hwnd);
-                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
+                await EnsureHostAttachedAsync(vm);
                 await vm.InitializeAsync();
-                await vm.EnsureActivePlaybackAsync();
-            }
-        }
-
-        private async void PlaybackHost_HandleCreated(object? sender, IntPtr hwnd)
-        {
-            UpdatePlaybackHostLayout();
-
-            if (DataContext is PlaybackViewModel vm)
-            {
-                hwnd = await WaitForPlaybackHostReadyAsync();
-                await vm.AttachVideoHostAsync(hwnd);
-                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
                 await vm.EnsureActivePlaybackAsync();
             }
         }
 
         private async void PlaybackViewport_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            UpdatePlaybackHostLayout();
-
-            if (DataContext is PlaybackViewModel vm)
-            {
-                await vm.UpdateVideoHostSizeAsync((int)PlaybackHost.ActualWidth, (int)PlaybackHost.ActualHeight);
-            }
+            await SyncPlaybackHostLayoutAsync();
         }
 
         private async void PlaybackView_Unloaded(object sender, RoutedEventArgs e)
         {
+            _hostAttachCts?.Cancel();
+            _hostAttachCts = null;
+
             if (DataContext is PlaybackViewModel vm)
             {
                 await vm.DeactivateAsync();
@@ -128,24 +140,105 @@ namespace TSVmsDesktop.Views
         private async Task<IntPtr> WaitForPlaybackHostReadyAsync()
         {
             if (IsPlaybackHostReady())
-                return PlaybackHost.WindowHandle;
+                return PlaybackHost.Handle;
 
             for (int i = 0; i < 80; i++)
             {
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
                 if (IsPlaybackHostReady())
-                    return PlaybackHost.WindowHandle;
+                    return PlaybackHost.Handle;
                 await Task.Delay(25);
             }
 
-            return PlaybackHost.WindowHandle;
+            return PlaybackHost.Handle;
         }
 
         private bool IsPlaybackHostReady()
         {
-            return PlaybackHost.WindowHandle != IntPtr.Zero &&
+            return PlaybackHost.Handle != IntPtr.Zero &&
                    PlaybackHost.ActualWidth >= 64 &&
                    PlaybackHost.ActualHeight >= 64;
+        }
+
+        private async void PlaybackView_LayoutUpdated(object? sender, EventArgs e)
+        {
+            await SyncPlaybackHostLayoutAsync();
+        }
+
+        private void PlaybackView_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (e.OldValue is INotifyPropertyChanged oldNotify)
+                oldNotify.PropertyChanged -= PlaybackViewModel_PropertyChanged;
+
+            if (e.NewValue is INotifyPropertyChanged newNotify)
+                newNotify.PropertyChanged += PlaybackViewModel_PropertyChanged;
+        }
+
+        private async void PlaybackViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(PlaybackViewModel.VideoAspectRatio))
+            {
+                await SyncPlaybackHostLayoutAsync();
+            }
+        }
+
+        private async Task EnsureHostAttachedAsync(PlaybackViewModel vm)
+        {
+            _hostAttachCts?.Cancel();
+            _hostAttachCts = new CancellationTokenSource();
+            var token = _hostAttachCts.Token;
+
+            for (int i = 0; i < 120; i++)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+
+                if (IsPlaybackHostReady())
+                {
+                    var size = UpdatePlaybackHostLayout();
+                    var px = ToPixelSize(size.width, size.height);
+
+                    await vm.AttachVideoHostAsync(PlaybackHost.Handle);
+                    await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+                    _lastSyncedWidthPx = px.widthPx;
+                    _lastSyncedHeightPx = px.heightPx;
+                    return;
+                }
+
+                await Task.Delay(50, token);
+            }
+        }
+
+        private async Task SyncPlaybackHostLayoutAsync()
+        {
+            if (_layoutSyncInFlight)
+                return;
+
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+
+            var size = UpdatePlaybackHostLayout();
+            if (size.width <= 0 || size.height <= 0)
+                return;
+
+            var px = ToPixelSize(size.width, size.height);
+            if (px.widthPx == _lastSyncedWidthPx && px.heightPx == _lastSyncedHeightPx)
+                return;
+
+            _layoutSyncInFlight = true;
+            try
+            {
+                if (PlaybackHost.Handle != IntPtr.Zero)
+                {
+                    await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+                    _lastSyncedWidthPx = px.widthPx;
+                    _lastSyncedHeightPx = px.heightPx;
+                }
+            }
+            finally
+            {
+                _layoutSyncInFlight = false;
+            }
         }
     }
 }

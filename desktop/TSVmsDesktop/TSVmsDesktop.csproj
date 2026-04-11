@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <Resource Include="Images\logo.png" />
+    <Resource Include="Images\operator-logo.png" />
+    <Resource Include="Images\operator-logo-badge.png" />
+    <Resource Include="Images\logout-icon.png" />
     <Resource Include="Images\background.jpg" />
   </ItemGroup>
 

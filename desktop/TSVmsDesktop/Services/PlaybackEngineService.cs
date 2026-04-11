@@ -207,6 +207,19 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public (int width, int height) GetVideoSize()
+        {
+            lock (_sync)
+            {
+                if (_engine == IntPtr.Zero)
+                    return (0, 0);
+
+                return (
+                    NativePlayback.tsplay_get_video_width(_engine),
+                    NativePlayback.tsplay_get_video_height(_engine));
+            }
+        }
+
         public void EnsureNativeDllPresent(string baseDirectory)
         {
             string path = Path.Combine(baseDirectory, "native", "win-x64", "TSVmsPlaybackEngine.dll");

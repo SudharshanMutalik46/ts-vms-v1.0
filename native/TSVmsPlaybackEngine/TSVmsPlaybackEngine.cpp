@@ -128,25 +128,11 @@ public:
         if (!_videoSink)
             return 0;
 
-        if (GST_IS_VIDEO_OVERLAY(_videoSink))
+        auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+        if (hwndValue != 0)
         {
-            auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
-            if (hwndValue != 0)
-            {
-                gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(_videoSink), hwndValue);
-                gst_video_overlay_handle_events(GST_VIDEO_OVERLAY(_videoSink), TRUE);
-                if (_clientWidth > 0 && _clientHeight > 0)
-                {
-                    gst_video_overlay_set_render_rectangle(
-                        GST_VIDEO_OVERLAY(_videoSink),
-                        0,
-                        0,
-                        _clientWidth,
-                        _clientHeight);
-                }
-                gst_video_overlay_expose(GST_VIDEO_OVERLAY(_videoSink));
+            if (ApplyOverlayHandleLocked(_videoSink, hwndValue))
                 return 1;
-            }
         }
         return 0;
     }
@@ -154,6 +140,26 @@ public:
     int GetRotationDegrees() const
     {
         return _rotationDegrees;
+    }
+
+    int GetVideoWidth()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        int width = std::max(0, _sourceWidth - _contentCropLeft - _contentCropRight);
+        int height = std::max(0, _sourceHeight - _contentCropTop - _contentCropBottom);
+        if (NormalizeDegrees(_rotationDegrees) == 90 || NormalizeDegrees(_rotationDegrees) == 270)
+            return height;
+        return width;
+    }
+
+    int GetVideoHeight()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        int width = std::max(0, _sourceWidth - _contentCropLeft - _contentCropRight);
+        int height = std::max(0, _sourceHeight - _contentCropTop - _contentCropBottom);
+        if (NormalizeDegrees(_rotationDegrees) == 90 || NormalizeDegrees(_rotationDegrees) == 270)
+            return width;
+        return height;
     }
 
     double GetRate()
@@ -230,25 +236,15 @@ public:
 
         if (sink)
         {
-            if (GST_IS_VIDEO_OVERLAY(sink))
-            {
-                auto* overlay = GST_VIDEO_OVERLAY(sink);
-                gst_video_overlay_set_window_handle(
-                    overlay,
-                    reinterpret_cast<guintptr>(hwnd));
-                gst_video_overlay_handle_events(overlay, TRUE);
-
-                int width = 0;
-                int height = 0;
-                if (GetClientSize(hwnd, width, height))
-                {
-                    gst_video_overlay_set_render_rectangle(overlay, 0, 0, width, height);
-                }
-
-                gst_video_overlay_expose(overlay);
-            }
-
+            ApplyOverlayHandleLocked(sink, reinterpret_cast<guintptr>(hwnd));
+            gst_object_unref(sink);
         }
+
+        if (_videoSink)
+            ApplyOverlayHandleLocked(_videoSink, reinterpret_cast<guintptr>(hwnd));
+
+        if (_pipeline)
+            ApplyOverlayHandleToPlaybinLocked(reinterpret_cast<guintptr>(hwnd));
 
         return 1;
     }
@@ -299,6 +295,7 @@ public:
         // time a new segment is loaded.
         _sourceWidth = 0;
         _sourceHeight = 0;
+        ResetDetectedContentCropLocked();
 
         if (_videoFlip)
         {
@@ -313,6 +310,14 @@ public:
 
         gst_element_set_state(_pipeline, GST_STATE_NULL);
         g_object_set(G_OBJECT(_pipeline), "uri", uri.c_str(), nullptr);
+
+        // Re-apply overlay binding after reset.
+        auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+        if (hwndValue != 0)
+        {
+            ApplyOverlayHandleLocked(_videoSink, hwndValue);
+            ApplyOverlayHandleToPlaybinLocked(hwndValue);
+        }
 
         _currentRate = 1.0;
         _lastPath = path ? path : L"";
@@ -370,6 +375,7 @@ public:
         // active manual rotation across playlist segment changes.
         _sourceWidth = 0;
         _sourceHeight = 0;
+        ResetDetectedContentCropLocked();
 
         if (_videoFlip)
         {
@@ -384,6 +390,14 @@ public:
 
         gst_element_set_state(_pipeline, GST_STATE_NULL);
         g_object_set(G_OBJECT(_pipeline), "uri", uri.c_str(), nullptr);
+
+        // Re-apply overlay binding after reset.
+        auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+        if (hwndValue != 0)
+        {
+            ApplyOverlayHandleLocked(_videoSink, hwndValue);
+            ApplyOverlayHandleToPlaybinLocked(hwndValue);
+        }
 
         _currentRate = 1.0;
         _lastPath = firstPath;
@@ -503,6 +517,13 @@ public:
             return 0;
         }
 
+        auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+        if (hwndValue != 0)
+        {
+            ApplyOverlayHandleLocked(_videoSink, hwndValue);
+            ApplyOverlayHandleToPlaybinLocked(hwndValue);
+        }
+
         return 1;
     }
 
@@ -520,6 +541,13 @@ public:
         {
             SetErrorLocked(L"Failed to pause playback");
             return 0;
+        }
+
+        auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+        if (hwndValue != 0)
+        {
+            ApplyOverlayHandleLocked(_videoSink, hwndValue);
+            ApplyOverlayHandleToPlaybinLocked(hwndValue);
         }
 
         return 1;
@@ -923,33 +951,37 @@ private:
             const int b = px[0];
             const int g = px[1];
             const int r = px[2];
-            return r < 20 && g < 20 && b < 20;
+            return r < 30 && g < 30 && b < 30;
         };
 
         auto columnMostlyBlack = [&](int x) -> bool
         {
             int dark = 0;
             int total = 0;
-            for (int y = height / 20; y < height - (height / 20); y += 4)
+            const int yStart = height / 5;
+            const int yEnd = height - (height / 5);
+            for (int y = yStart; y < yEnd; y += 2)
             {
                 ++total;
                 if (isDarkPixel(x, y))
                     ++dark;
             }
-            return total > 0 && (dark * 100 / total) >= 98;
+            return total > 0 && (dark * 100 / total) >= 94;
         };
 
         auto rowMostlyBlack = [&](int y) -> bool
         {
             int dark = 0;
             int total = 0;
-            for (int x = width / 20; x < width - (width / 20); x += 4)
+            const int xStart = width / 8;
+            const int xEnd = width - (width / 8);
+            for (int x = xStart; x < xEnd; x += 2)
             {
                 ++total;
                 if (isDarkPixel(x, y))
                     ++dark;
             }
-            return total > 0 && (dark * 100 / total) >= 98;
+            return total > 0 && (dark * 100 / total) >= 94;
         };
 
         int left = 0;
@@ -986,7 +1018,7 @@ private:
 
     GstElement* BuildVideoFilterBin()
     {
-        GstElement* bin = gst_bin_new("tsvms_video_sink_bin");
+        GstElement* bin = gst_bin_new("tsvms_video_filter_bin");
         if (!bin) return nullptr;
 
         GstElement* convert = gst_element_factory_make("videoconvert", "tsvms_convert");
@@ -996,13 +1028,7 @@ private:
         _videoScale = gst_element_factory_make("videoscale", "tsvms_video_scale");
         _scaleCapsFilter = gst_element_factory_make("capsfilter", "tsvms_scale_caps");
 
-        GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
-        if (!videoSink)
-            videoSink = gst_element_factory_make("glimagesink", "video-sink");
-        if (!videoSink)
-            videoSink = gst_element_factory_make("fakesink", "video-sink");
-
-        if (!convert || !_videoFlip || !_analysisCapsFilter || !_videoCrop || !_videoScale || !_scaleCapsFilter || !videoSink)
+        if (!convert || !_videoFlip || !_analysisCapsFilter || !_videoCrop || !_videoScale || !_scaleCapsFilter)
         {
             if (convert) gst_object_unref(convert);
             if (_videoFlip) { gst_object_unref(_videoFlip); _videoFlip = nullptr; }
@@ -1010,7 +1036,6 @@ private:
             if (_videoCrop) { gst_object_unref(_videoCrop); _videoCrop = nullptr; }
             if (_videoScale) { gst_object_unref(_videoScale); _videoScale = nullptr; }
             if (_scaleCapsFilter) { gst_object_unref(_scaleCapsFilter); _scaleCapsFilter = nullptr; }
-            if (videoSink) gst_object_unref(videoSink);
             gst_object_unref(bin);
             return nullptr;
         }
@@ -1027,10 +1052,6 @@ private:
 
         g_object_set(G_OBJECT(_videoFlip), "method", RotationToFlipMethod(_rotationDegrees), nullptr);
 
-        _videoSink = videoSink;
-        gst_object_ref(_videoSink);
-        ApplySinkDisplayModeLocked(_videoSink);
-
         gst_bin_add_many(GST_BIN(bin),
             convert,
             _videoFlip,
@@ -1038,7 +1059,6 @@ private:
             _videoCrop,
             _videoScale,
             _scaleCapsFilter,
-            videoSink,
             nullptr);
 
         gst_element_link_many(
@@ -1048,12 +1068,15 @@ private:
             _videoCrop,
             _videoScale,
             _scaleCapsFilter,
-            videoSink,
             nullptr);
 
         GstPad* sinkPad = gst_element_get_static_pad(convert, "sink");
         gst_element_add_pad(bin, gst_ghost_pad_new("sink", sinkPad));
         gst_object_unref(sinkPad);
+
+        GstPad* srcPad = gst_element_get_static_pad(_scaleCapsFilter, "src");
+        gst_element_add_pad(bin, gst_ghost_pad_new("src", srcPad));
+        gst_object_unref(srcPad);
 
         GstPad* analysisPad = gst_element_get_static_pad(_analysisCapsFilter, "src");
         if (analysisPad)
@@ -1091,27 +1114,31 @@ private:
             return;
         }
 
-        GstElement* videoSinkBin = BuildVideoFilterBin();
-        if (!videoSinkBin)
-        {
-            // Fallback: force a direct sink to avoid playbin selecting d3dvideosink.
-            GstElement* fallbackSink = gst_element_factory_make("d3d11videosink", "video-sink");
-            if (!fallbackSink)
-                fallbackSink = gst_element_factory_make("glimagesink", "video-sink");
-            if (!fallbackSink)
-                fallbackSink = gst_element_factory_make("fakesink", "video-sink");
+        GstElement* videoFilterBin = BuildVideoFilterBin();
+        GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
+        if (!videoSink)
+            videoSink = gst_element_factory_make("glimagesink", "video-sink");
+        if (!videoSink)
+            videoSink = gst_element_factory_make("fakesink", "video-sink");
 
-            if (fallbackSink)
-            {
-                g_object_set(G_OBJECT(_pipeline), "video-sink", fallbackSink, nullptr);
-                _videoSink = fallbackSink;
-                gst_object_ref(_videoSink);
-            }
-        }
-        else
+        if (videoSink)
         {
-            g_object_set(G_OBJECT(_pipeline), "video-sink", videoSinkBin, nullptr);
+            _videoSink = videoSink;
+            gst_object_ref(_videoSink);
+            ApplySinkDisplayModeLocked(_videoSink);
+            g_object_set(G_OBJECT(_pipeline), "video-sink", videoSink, nullptr);
         }
+
+        if (videoFilterBin)
+        {
+            g_object_set(G_OBJECT(_pipeline), "video-filter", videoFilterBin, nullptr);
+        }
+        else if (!_videoSink)
+        {
+            SetErrorLocked(L"Failed to create playback video pipeline");
+            return;
+        }
+
         ApplyWindowCapsLocked();
 
         GstBus* bus = gst_element_get_bus(_pipeline);
@@ -1172,18 +1199,11 @@ private:
                 std::lock_guard<std::mutex> lock(self->_mutex);
                 self->UpdateClientSizeLocked(reinterpret_cast<HWND>(hwndValue));
                 GstElement* sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
-                if (sink && GST_IS_VIDEO_OVERLAY(sink))
+                if (!self->ApplyOverlayHandleLocked(sink, hwndValue))
                 {
-                    self->ApplySinkDisplayModeLocked(sink);
-                    GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(sink);
-                    gst_video_overlay_set_window_handle(overlay, hwndValue);
-                    gst_video_overlay_handle_events(overlay, TRUE);
-                    if (self->_clientWidth > 0 && self->_clientHeight > 0)
-                    {
-                        gst_video_overlay_set_render_rectangle(overlay, 0, 0, self->_clientWidth, self->_clientHeight);
-                    }
-
-                    gst_video_overlay_expose(overlay);
+                    if (self->_videoSink)
+                        self->ApplyOverlayHandleLocked(self->_videoSink, hwndValue);
+                    self->ApplyOverlayHandleToPlaybinLocked(hwndValue);
                 }
             }
             return GST_BUS_DROP;
@@ -1270,12 +1290,12 @@ private:
 
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "force-aspect-ratio"))
         {
-            g_object_set(G_OBJECT(sink), "force-aspect-ratio", FALSE, nullptr);
+            g_object_set(G_OBJECT(sink), "force-aspect-ratio", TRUE, nullptr);
         }
 
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "add-borders"))
         {
-            g_object_set(G_OBJECT(sink), "add-borders", FALSE, nullptr);
+            g_object_set(G_OBJECT(sink), "add-borders", TRUE, nullptr);
         }
 
         if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "redraw-on-update"))
@@ -1427,6 +1447,98 @@ private:
     }
 
 private:
+    GstElement* FindOverlayElement(GstElement* element)
+    {
+        if (!element)
+            return nullptr;
+
+        if (GST_IS_VIDEO_OVERLAY(element))
+            return GST_ELEMENT(gst_object_ref(element));
+
+        if (!GST_IS_BIN(element))
+            return nullptr;
+
+        GstIterator* it = gst_bin_iterate_recurse(GST_BIN(element));
+        if (!it)
+            return nullptr;
+
+        GValue item = G_VALUE_INIT;
+        gboolean done = FALSE;
+        GstElement* found = nullptr;
+
+        while (!done)
+        {
+            switch (gst_iterator_next(it, &item))
+            {
+            case GST_ITERATOR_OK:
+            {
+                GstElement* child = GST_ELEMENT(g_value_get_object(&item));
+                if (child && GST_IS_VIDEO_OVERLAY(child))
+                {
+                    found = GST_ELEMENT(gst_object_ref(child));
+                    g_value_unset(&item);
+                    done = TRUE;
+                    break;
+                }
+                g_value_unset(&item);
+                break;
+            }
+            case GST_ITERATOR_RESYNC:
+                gst_iterator_resync(it);
+                break;
+            case GST_ITERATOR_ERROR:
+            case GST_ITERATOR_DONE:
+                done = TRUE;
+                break;
+            }
+        }
+
+        gst_iterator_free(it);
+        return found;
+    }
+
+    bool ApplyOverlayHandleLocked(GstElement* element, guintptr hwndValue)
+    {
+        if (!element || hwndValue == 0)
+            return false;
+
+        GstElement* overlayElement = FindOverlayElement(element);
+        if (!overlayElement)
+            return false;
+
+        ApplySinkDisplayModeLocked(overlayElement);
+        // Some sinks prefer the "window-handle" property over GstVideoOverlay.
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(overlayElement), "window-handle"))
+        {
+            g_object_set(G_OBJECT(overlayElement), "window-handle", hwndValue, nullptr);
+        }
+        auto* overlay = GST_VIDEO_OVERLAY(overlayElement);
+        gst_video_overlay_set_window_handle(overlay, hwndValue);
+        gst_video_overlay_handle_events(overlay, TRUE);
+        if (_clientWidth > 0 && _clientHeight > 0)
+        {
+            gst_video_overlay_set_render_rectangle(overlay, 0, 0, _clientWidth, _clientHeight);
+        }
+        gst_video_overlay_expose(overlay);
+        gst_object_unref(overlayElement);
+        return true;
+    }
+
+    bool ApplyOverlayHandleToPlaybinLocked(guintptr hwndValue)
+    {
+        if (!_pipeline || hwndValue == 0)
+            return false;
+
+        if (!GST_IS_VIDEO_OVERLAY(_pipeline))
+            return false;
+
+        auto* overlay = GST_VIDEO_OVERLAY(_pipeline);
+        gst_video_overlay_set_window_handle(overlay, hwndValue);
+        gst_video_overlay_handle_events(overlay, TRUE);
+        gst_video_overlay_expose(overlay);
+        return true;
+    }
+
     std::mutex _mutex;
     std::mutex _errorMutex;
     std::mutex _playlistMutex;
@@ -1575,6 +1687,18 @@ TSVMS_PLAYBACK_API int tsplay_has_reached_eos(void* engine)
 {
     if (!engine) return 0;
     return static_cast<PlaybackEngine*>(engine)->HasReachedEos();
+}
+
+TSVMS_PLAYBACK_API int tsplay_get_video_width(void* engine)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->GetVideoWidth();
+}
+
+TSVMS_PLAYBACK_API int tsplay_get_video_height(void* engine)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->GetVideoHeight();
 }
 
 TSVMS_PLAYBACK_API const wchar_t* tsplay_get_last_error(void* engine)

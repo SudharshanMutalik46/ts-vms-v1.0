@@ -75,6 +75,12 @@ namespace TSVmsDesktop.Interop
         internal static extern int tsplay_has_reached_eos(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_get_video_width(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_get_video_height(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr tsplay_get_last_error(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

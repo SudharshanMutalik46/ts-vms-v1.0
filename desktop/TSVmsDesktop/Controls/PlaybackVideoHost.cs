@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace TSVmsDesktop.Controls
 {
@@ -18,6 +19,8 @@ namespace TSVmsDesktop.Controls
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_NOOWNERZORDER = 0x0200;
 
+        // Custom WNDCLASS name — must be subclassable so d3d11videosink embeds
+        // instead of creating its own top-level popup window.
         private const string WndClassName = "TSVmsPlaybackVideoHost";
 
         private static int _classRegistered;
@@ -47,6 +50,13 @@ namespace TSVmsDesktop.Controls
         {
             EnsureClassRegistered();
 
+            var dpi = VisualTreeHelper.GetDpi(this);
+            double scaleX = dpi.DpiScaleX <= 0 ? 1.0 : dpi.DpiScaleX;
+            double scaleY = dpi.DpiScaleY <= 0 ? 1.0 : dpi.DpiScaleY;
+
+            int widthPx = Math.Max(64, (int)Math.Round(ActualWidth * scaleX));
+            int heightPx = Math.Max(64, (int)Math.Round(ActualHeight * scaleY));
+
             _hwnd = CreateWindowEx(
                 0,
                 WndClassName,
@@ -54,8 +64,8 @@ namespace TSVmsDesktop.Controls
                 WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                 0,
                 0,
-                Math.Max(64, (int)Math.Round(ActualWidth)),
-                Math.Max(64, (int)Math.Round(ActualHeight)),
+                widthPx,
+                heightPx,
                 hwndParent.Handle,
                 IntPtr.Zero,
                 IntPtr.Zero,
@@ -86,8 +96,12 @@ namespace TSVmsDesktop.Controls
             if (_hwnd == IntPtr.Zero)
                 return;
 
-            int width = Math.Max(64, (int)Math.Round(ActualWidth));
-            int height = Math.Max(64, (int)Math.Round(ActualHeight));
+            var dpi = VisualTreeHelper.GetDpi(this);
+            double scaleX = dpi.DpiScaleX <= 0 ? 1.0 : dpi.DpiScaleX;
+            double scaleY = dpi.DpiScaleY <= 0 ? 1.0 : dpi.DpiScaleY;
+
+            int width = Math.Max(64, (int)Math.Round(ActualWidth * scaleX));
+            int height = Math.Max(64, (int)Math.Round(ActualHeight * scaleY));
 
             SetWindowPos(
                 _hwnd,
@@ -99,7 +113,7 @@ namespace TSVmsDesktop.Controls
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         }
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateWindowEx(
             int dwExStyle,
             string lpClassName,
@@ -130,44 +144,45 @@ namespace TSVmsDesktop.Controls
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
+        private static extern IntPtr LoadLibrary(string lpFileName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 
         [DllImport("gdi32.dll")]
         private static extern IntPtr GetStockObject(int fnObject);
 
         private static void EnsureClassRegistered()
         {
-            if (Interlocked.Exchange(ref _classRegistered, 1) == 1)
+            if (Interlocked.CompareExchange(ref _classRegistered, 1, 0) != 0)
                 return;
 
             var wc = new WNDCLASSEX
             {
                 cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
-                lpfnWndProc = DefWindowProc,
+                lpfnWndProc = GetDefWindowProcPtr(),
                 hInstance = GetModuleHandle(null),
                 hbrBackground = GetStockObject(BLACK_BRUSH),
                 lpszClassName = WndClassName
             };
 
-            RegisterClassEx(ref wc);
+            ushort atom = RegisterClassEx(ref wc);
+            if (atom == 0)
+            {
+                int err = Marshal.GetLastWin32Error();
+                if (err != 1410) // ERROR_CLASS_ALREADY_EXISTS
+                    throw new InvalidOperationException($"RegisterClassEx failed for '{WndClassName}': Win32 error {err}");
+            }
         }
 
-        private static readonly IntPtr DefWindowProc = GetDefWindowProc();
-
-        private static IntPtr GetDefWindowProc()
+        private static IntPtr GetDefWindowProcPtr()
         {
-            return Marshal.GetFunctionPointerForDelegate((WndProcDelegate)DefaultWndProc);
-        }
-
-        private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DefWindowProcW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-        private static IntPtr DefaultWndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
-        {
-            return DefWindowProcW(hwnd, msg, wParam, lParam);
+            IntPtr user32 = LoadLibrary("user32.dll");
+            return GetProcAddress(user32, "DefWindowProcW");
         }
     }
 }
