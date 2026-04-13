@@ -159,6 +159,7 @@ func (r *Reconciler) collectSegments(roots []string, from, to time.Time) ([]Arch
 			SizeBytes:  f.SizeBytes,
 			FileSize:   f.SizeBytes,
 			Container:  container,
+			VideoCodec: "",
 			Finalized:  true,
 		}
 

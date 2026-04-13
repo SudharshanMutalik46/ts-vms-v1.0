@@ -53,6 +53,7 @@ type ArchiveSegment struct {
 	FileSize       int64     `json:"file_size"`
 	SizeBytes      int64     `json:"size_bytes"`
 	Container      string    `json:"container"`
+	VideoCodec     string    `json:"video_codec"`
 	ChecksumSHA256 string    `json:"checksum_sha256"`
 	HealthState    string    `json:"health_state"`
 	IsMissing      bool      `json:"is_missing"`

@@ -2,7 +2,10 @@ namespace TSVmsDesktop.Models
 {
     public class AppConfig
     {
-        public string StoragePath { get; set; } = @"C:\TS-VMS\Storage";
+        public string StoragePath { get; set; } = System.IO.Path.Combine(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+            "TS-VMS",
+            "Storage");
         public bool EnableHardwareAcceleration { get; set; } = true;
         public bool EnableDarkMode { get; set; } = false;
         public string LogLevel { get; set; } = "Error";

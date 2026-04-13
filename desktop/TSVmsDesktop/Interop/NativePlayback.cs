@@ -88,5 +88,8 @@ namespace TSVmsDesktop.Interop
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int TSPlayback_GetRotationDegrees(IntPtr engine);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_reset_engine(IntPtr engine);
     }
 }

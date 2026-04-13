@@ -151,6 +151,18 @@ namespace TSVmsDesktop.Services
             if (!string.IsNullOrWhiteSpace(overridePath) && System.IO.File.Exists(overridePath))
                 return overridePath;
 
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] bundledCandidates =
+            {
+                System.IO.Path.Combine(baseDir, "gst-discoverer-1.0.exe"),
+                System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "..", "..", "tools", "gstreamer", "bin", "gst-discoverer-1.0.exe")),
+            };
+            foreach (string candidate in bundledCandidates)
+            {
+                if (System.IO.File.Exists(candidate))
+                    return candidate;
+            }
+
             string? gstRoot = Environment.GetEnvironmentVariable("GSTREAMER_1_0_ROOT_X86_64");
             if (!string.IsNullOrWhiteSpace(gstRoot))
             {
@@ -900,6 +912,12 @@ namespace TSVmsDesktop.Services
             {
                 Log($"[TS-VMS] {ctx.StreamId} Starting teardown for {ctx.Url}");
 
+                IntPtr overlayToRelease = ctx.OverlayElement;
+                Task? watchTask = ctx.WatchTask;
+
+                ctx.OverlayElement = IntPtr.Zero;
+                ctx.OverlayBound = false;
+
                 // Signal all tasks to stop
                 ctx.Cts?.Cancel();
                 ctx.FallbackCts?.Cancel();
@@ -915,14 +933,39 @@ namespace TSVmsDesktop.Services
                 // Clean up overlay sync handler
                 RemoveOverlaySyncHandler(ctx);
 
+                // Let the bus watcher release its own refs before we drop the stream's
+                // final references. Without this, teardown can race with the watch
+                // task finalizer and produce spurious gst_object_unref criticals.
+                if (watchTask != null)
+                {
+                    try
+                    {
+                        if (!watchTask.Wait(TimeSpan.FromSeconds(2)))
+                            Log($"[TS-VMS] {ctx.StreamId} Bus monitor did not exit within timeout.");
+                    }
+                    catch (AggregateException ex) when (ex.InnerExceptions.All(inner => inner is TaskCanceledException or OperationCanceledException))
+                    {
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[TS-VMS] {ctx.StreamId} Bus monitor wait failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ctx.WatchTask = null;
+                    }
+                }
+
                 // Unref components
                 try
                 {
-                    if (ctx.OverlayElement != IntPtr.Zero)
+                    if (overlayToRelease != IntPtr.Zero)
                     {
                         Log($"[TS-VMS] {ctx.StreamId} Unreferencing OverlayElement...");
-                        GstNative.SafeObjectUnref(ctx.OverlayElement);
-                        ctx.OverlayElement = IntPtr.Zero;
+                        GstNative.SafeObjectUnref(overlayToRelease);
                     }
                 }
                 catch (Exception ex)
@@ -934,15 +977,8 @@ namespace TSVmsDesktop.Services
                 {
                     if (pipeline != IntPtr.Zero)
                     {
-                        if (ctx.BusHandle == IntPtr.Zero)
-                        {
-                            Log($"[TS-VMS] {ctx.StreamId} Unreferencing Pipeline...");
-                            GstNative.SafeObjectUnref(pipeline);
-                        }
-                        else
-                        {
-                            Log($"[TS-VMS] {ctx.StreamId} Pipeline unref deferred to bus task.");
-                        }
+                        Log($"[TS-VMS] {ctx.StreamId} Unreferencing Pipeline...");
+                        GstNative.SafeObjectUnref(pipeline);
                     }
                 }
                 catch (Exception ex)
@@ -953,7 +989,6 @@ namespace TSVmsDesktop.Services
                 // Dispose tokens
                 try { ctx.Cts?.Dispose(); } catch { }
                 try { ctx.FallbackCts?.Dispose(); } catch { }
-                ctx.OverlayBound = false;
 
                 Log($"[TS-VMS] {ctx.StreamId} Stopped and handle cleared.");
             }

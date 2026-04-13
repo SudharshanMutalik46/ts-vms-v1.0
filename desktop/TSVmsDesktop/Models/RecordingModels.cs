@@ -32,6 +32,9 @@ namespace TSVmsDesktop.Models
         [JsonPropertyName("container")]
         public string Container { get; set; } = "mkv";
 
+        [JsonPropertyName("video_codec")]
+        public string VideoCodec { get; set; } = string.Empty;
+
         [JsonPropertyName("checksum_sha256")]
         public string ChecksumSha256 { get; set; } = string.Empty;
 

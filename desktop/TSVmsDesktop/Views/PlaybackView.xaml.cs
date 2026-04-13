@@ -1,11 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
+using TSVmsDesktop.Controls;
+using TSVmsDesktop.Models;
 using TSVmsDesktop.ViewModels;
 
 namespace TSVmsDesktop.Views
@@ -15,8 +19,7 @@ namespace TSVmsDesktop.Views
         private const double DefaultPlaybackAspect = 16.0 / 9.0;
         private CancellationTokenSource? _hostAttachCts;
         private bool _layoutSyncInFlight;
-        private int _lastSyncedWidthPx;
-        private int _lastSyncedHeightPx;
+        private bool _suppressCameraSelectionEvents;
 
         public PlaybackView()
         {
@@ -24,11 +27,25 @@ namespace TSVmsDesktop.Views
             Loaded += PlaybackView_Loaded;
             Unloaded += PlaybackView_Unloaded;
             DataContextChanged += PlaybackView_DataContextChanged;
-
-            // IMPORTANT: resize the viewport, not the HwndHost directly.
             PlaybackViewport.SizeChanged += PlaybackViewport_SizeChanged;
             LayoutUpdated += PlaybackView_LayoutUpdated;
         }
+
+        private IReadOnlyList<VideoCanvas> PlaybackHosts => new[]
+        {
+            PlaybackHost1,
+            PlaybackHost2,
+            PlaybackHost3,
+            PlaybackHost4
+        };
+
+        private IReadOnlyList<Border> PlaybackTiles => new[]
+        {
+            PlaybackTile1,
+            PlaybackTile2,
+            PlaybackTile3,
+            PlaybackTile4
+        };
 
         private (double width, double height) UpdatePlaybackHostLayout()
         {
@@ -37,17 +54,18 @@ namespace TSVmsDesktop.Views
 
             double availableWidth = Math.Max(64, PlaybackContentGrid.ActualWidth);
             double availableHeight = ActualHeight > 0 ? ActualHeight : PlaybackContentGrid.ActualHeight;
-            double reservedHeight = 168;
-            double maxStageHeight = Math.Max(360, availableHeight - reservedHeight);
+            double reservedHeight = 320;
+            double maxStageHeight = Math.Max(260, availableHeight - reservedHeight);
+
             double targetAspect = DefaultPlaybackAspect;
 
-            if (DataContext is PlaybackViewModel vm && vm.VideoAspectRatio > 0.1)
+            if (DataContext is PlaybackViewModel vm &&
+                vm.SelectedPlaybackCount <= 1 &&
+                vm.VideoAspectRatio > 0.3)
             {
                 targetAspect = vm.VideoAspectRatio;
             }
 
-            // Keep the height bounded by the operator controls, but always let the
-            // playback stage consume the full horizontal workspace.
             double contentHeight = Math.Max(64, Math.Floor(maxStageHeight));
             double contentWidth = Math.Max(64, Math.Floor(contentHeight * targetAspect));
 
@@ -57,25 +75,16 @@ namespace TSVmsDesktop.Views
                 contentHeight = Math.Max(64, Math.Floor(contentWidth / targetAspect));
             }
 
-            double stageWidth = Math.Max(64, Math.Floor(availableWidth));
-
-            PlaybackStage.Width = stageWidth;
+            PlaybackStage.Width = Math.Max(64, Math.Floor(availableWidth));
             PlaybackStage.Height = contentHeight;
-            PlaybackHostFrame.Width = contentWidth;
-            PlaybackHostFrame.Height = contentHeight;
-
-            PlaybackHost.Width = contentWidth;
-            PlaybackHost.Height = contentHeight;
-
             return (contentWidth, contentHeight);
         }
 
-        private (int widthPx, int heightPx) ToPixelSize(double widthDip, double heightDip)
+        private static (int widthPx, int heightPx) ToPixelSize(Visual visual, double widthDip, double heightDip)
         {
-            var dpi = VisualTreeHelper.GetDpi(this);
+            var dpi = VisualTreeHelper.GetDpi(visual);
             double scaleX = dpi.DpiScaleX <= 0 ? 1.0 : dpi.DpiScaleX;
             double scaleY = dpi.DpiScaleY <= 0 ? 1.0 : dpi.DpiScaleY;
-
             int widthPx = Math.Max(64, (int)Math.Round(widthDip * scaleX));
             int heightPx = Math.Max(64, (int)Math.Round(heightDip * scaleY));
             return (widthPx, heightPx);
@@ -85,7 +94,9 @@ namespace TSVmsDesktop.Views
         {
             if (DataContext is PlaybackViewModel vm)
             {
-                await EnsureHostAttachedAsync(vm);
+                ApplyPlaybackTileLayout(vm.SelectedPlaybackCount);
+                await EnsureHostsAttachedAsync(vm);
+                SyncCameraSelectionFromViewModel(vm);
                 await vm.InitializeAsync();
                 await vm.EnsureActivePlaybackAsync();
             }
@@ -102,26 +113,22 @@ namespace TSVmsDesktop.Views
             _hostAttachCts = null;
 
             if (DataContext is PlaybackViewModel vm)
-            {
                 await vm.DeactivateAsync();
-            }
         }
 
-        private void CoverageHost_OnSizeChanged(object sender, SizeChangedEventArgs e)
+        private void PlaybackTimelineHost_OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (DataContext is PlaybackViewModel vm)
-            {
                 vm.UpdateTimelineWidth(e.NewSize.Width);
-            }
         }
 
-        private async void CoverageHost_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private async void PlaybackTimelineHost_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (DataContext is not PlaybackViewModel vm)
+            if (sender is not FrameworkElement fe || DataContext is not PlaybackViewModel vm)
                 return;
 
-            var pos = e.GetPosition(CoverageHost);
-            double width = Math.Max(1, CoverageHost.ActualWidth);
+            var pos = e.GetPosition(fe);
+            double width = Math.Max(1, fe.ActualWidth);
             double ratio = Math.Max(0, Math.Min(1, pos.X / width));
             double seconds = ratio * Math.Max(1, vm.TotalTimelineSeconds);
 
@@ -132,32 +139,7 @@ namespace TSVmsDesktop.Views
         private void WindowSlider_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
         {
             if (DataContext is PlaybackViewModel vm)
-            {
                 _ = vm.SeekToWindowSecondsAsync(WindowSlider.Value, autoPlay: false);
-            }
-        }
-
-        private async Task<IntPtr> WaitForPlaybackHostReadyAsync()
-        {
-            if (IsPlaybackHostReady())
-                return PlaybackHost.Handle;
-
-            for (int i = 0; i < 80; i++)
-            {
-                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                if (IsPlaybackHostReady())
-                    return PlaybackHost.Handle;
-                await Task.Delay(25);
-            }
-
-            return PlaybackHost.Handle;
-        }
-
-        private bool IsPlaybackHostReady()
-        {
-            return PlaybackHost.Handle != IntPtr.Zero &&
-                   PlaybackHost.ActualWidth >= 64 &&
-                   PlaybackHost.ActualHeight >= 64;
         }
 
         private async void PlaybackView_LayoutUpdated(object? sender, EventArgs e)
@@ -172,36 +154,163 @@ namespace TSVmsDesktop.Views
 
             if (e.NewValue is INotifyPropertyChanged newNotify)
                 newNotify.PropertyChanged += PlaybackViewModel_PropertyChanged;
+
+            if (e.NewValue is PlaybackViewModel vm)
+                SyncCameraSelectionFromViewModel(vm);
+        }
+
+        private void SyncCameraSelectionFromViewModel(PlaybackViewModel vm)
+        {
+            _suppressCameraSelectionEvents = true;
+            try
+            {
+                var selectedIds = vm.GetSelectedPlaybackCameras()
+                    .Select(c => c.Id)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var choice in vm.AvailablePlaybackCameras)
+                    choice.IsSelected = selectedIds.Contains(choice.Camera.Id);
+            }
+            finally
+            {
+                _suppressCameraSelectionEvents = false;
+            }
         }
 
         private async void PlaybackViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(PlaybackViewModel.VideoAspectRatio))
+            if (e.PropertyName == nameof(PlaybackViewModel.VideoAspectRatio) &&
+                sender is PlaybackViewModel v &&
+                v.SelectedPlaybackCount <= 1)
             {
+                await SyncPlaybackHostLayoutAsync();
+            }
+            else if (e.PropertyName == nameof(PlaybackViewModel.SelectedPlaybackCount) && sender is PlaybackViewModel vm)
+            {
+                ApplyPlaybackTileLayout(vm.SelectedPlaybackCount);
+                SyncCameraSelectionFromViewModel(vm);
+                await Task.Delay(1);
+                await EnsureHostsAttachedAsync(vm);
                 await SyncPlaybackHostLayoutAsync();
             }
         }
 
-        private async Task EnsureHostAttachedAsync(PlaybackViewModel vm)
+        private void ResetTileLayout(Border tile, int row, int column)
+        {
+            tile.Visibility = Visibility.Visible;
+            Grid.SetRow(tile, row);
+            Grid.SetColumn(tile, column);
+            Grid.SetRowSpan(tile, 1);
+            Grid.SetColumnSpan(tile, 1);
+        }
+
+        private void ApplyPlaybackTileLayout(int selectedCount)
+        {
+            if (PlaybackTiles == null || PlaybackTiles.Count != 4)
+                return;
+
+            ResetTileLayout(PlaybackTile1, 0, 0);
+            ResetTileLayout(PlaybackTile2, 0, 1);
+            ResetTileLayout(PlaybackTile3, 1, 0);
+            ResetTileLayout(PlaybackTile4, 1, 1);
+
+            switch (selectedCount)
+            {
+                case 0:
+                case 1:
+                    Grid.SetRowSpan(PlaybackTile1, 2);
+                    Grid.SetColumnSpan(PlaybackTile1, 2);
+                    PlaybackTile2.Visibility = Visibility.Hidden;
+                    PlaybackTile3.Visibility = Visibility.Hidden;
+                    PlaybackTile4.Visibility = Visibility.Hidden;
+                    break;
+
+                case 2:
+                    Grid.SetRowSpan(PlaybackTile1, 2);
+                    Grid.SetRowSpan(PlaybackTile2, 2);
+                    PlaybackTile3.Visibility = Visibility.Hidden;
+                    PlaybackTile4.Visibility = Visibility.Hidden;
+                    break;
+
+                case 3:
+                    // Primary on top, two secondary tiles below.
+                    Grid.SetRow(PlaybackTile1, 0);
+                    Grid.SetColumn(PlaybackTile1, 0);
+                    Grid.SetRowSpan(PlaybackTile1, 1);
+                    Grid.SetColumnSpan(PlaybackTile1, 2);
+
+                    Grid.SetRow(PlaybackTile2, 1);
+                    Grid.SetColumn(PlaybackTile2, 0);
+                    Grid.SetRowSpan(PlaybackTile2, 1);
+                    Grid.SetColumnSpan(PlaybackTile2, 1);
+
+                    Grid.SetRow(PlaybackTile3, 1);
+                    Grid.SetColumn(PlaybackTile3, 1);
+                    Grid.SetRowSpan(PlaybackTile3, 1);
+                    Grid.SetColumnSpan(PlaybackTile3, 1);
+
+                    PlaybackTile4.Visibility = Visibility.Hidden;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        private static bool IsHostReady(VideoCanvas host)
+        {
+            return host.Handle != IntPtr.Zero &&
+                   host.ActualWidth >= 64 &&
+                   host.ActualHeight >= 64;
+        }
+
+        private async Task EnsureHostsAttachedAsync(PlaybackViewModel vm)
         {
             _hostAttachCts?.Cancel();
             _hostAttachCts = new CancellationTokenSource();
             var token = _hostAttachCts.Token;
+
+            int activeCount = vm.SelectedPlaybackCount <= 0
+                ? 1
+                : Math.Min(vm.SelectedPlaybackCount, PlaybackHosts.Count);
 
             for (int i = 0; i < 120; i++)
             {
                 if (token.IsCancellationRequested)
                     return;
 
-                if (IsPlaybackHostReady())
+                bool activeHostsReady = true;
+                for (int slotIndex = 0; slotIndex < activeCount; slotIndex++)
                 {
-                    var size = UpdatePlaybackHostLayout();
-                    var px = ToPixelSize(size.width, size.height);
+                    if (!IsHostReady(PlaybackHosts[slotIndex]))
+                    {
+                        activeHostsReady = false;
+                        break;
+                    }
+                }
 
-                    await vm.AttachVideoHostAsync(PlaybackHost.Handle);
-                    await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
-                    _lastSyncedWidthPx = px.widthPx;
-                    _lastSyncedHeightPx = px.heightPx;
+                if (activeHostsReady)
+                {
+                    UpdatePlaybackHostLayout();
+
+                    for (int slotIndex = 0; slotIndex < activeCount; slotIndex++)
+                    {
+                        var host = PlaybackHosts[slotIndex];
+                        var px = ToPixelSize(host, host.ActualWidth, host.ActualHeight);
+
+                        if (slotIndex == 0)
+                        {
+                            await vm.AttachVideoHostAsync(host.Handle);
+                            await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+                        }
+                        else
+                        {
+                            await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+                            await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
+                        }
+                    }
+
                     return;
                 }
 
@@ -211,34 +320,90 @@ namespace TSVmsDesktop.Views
 
         private async Task SyncPlaybackHostLayoutAsync()
         {
-            if (_layoutSyncInFlight)
-                return;
-
-            if (DataContext is not PlaybackViewModel vm)
+            if (_layoutSyncInFlight || DataContext is not PlaybackViewModel vm)
                 return;
 
             var size = UpdatePlaybackHostLayout();
             if (size.width <= 0 || size.height <= 0)
                 return;
 
-            var px = ToPixelSize(size.width, size.height);
-            if (px.widthPx == _lastSyncedWidthPx && px.heightPx == _lastSyncedHeightPx)
-                return;
+            int activeCount = vm.SelectedPlaybackCount <= 0
+                ? 1
+                : Math.Min(vm.SelectedPlaybackCount, PlaybackHosts.Count);
 
             _layoutSyncInFlight = true;
             try
             {
-                if (PlaybackHost.Handle != IntPtr.Zero)
+                for (int slotIndex = 0; slotIndex < activeCount; slotIndex++)
                 {
-                    await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
-                    _lastSyncedWidthPx = px.widthPx;
-                    _lastSyncedHeightPx = px.heightPx;
+                    var host = PlaybackHosts[slotIndex];
+                    if (!IsHostReady(host))
+                        continue;
+
+                    var px = ToPixelSize(host, host.ActualWidth, host.ActualHeight);
+                    if (slotIndex == 0)
+                        await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+                    else
+                        await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
                 }
             }
             finally
             {
                 _layoutSyncInFlight = false;
             }
+        }
+
+        private async void PlaybackTileHost_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm || sender is not VideoCanvas host)
+                return;
+
+            int slotIndex = Convert.ToInt32(host.Tag);
+            var px = ToPixelSize(host, Math.Max(64, host.ActualWidth), Math.Max(64, host.ActualHeight));
+            if (slotIndex == 0)
+            {
+                await vm.AttachVideoHostAsync(host.Handle);
+                await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+            }
+            else
+            {
+                await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+                await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
+            }
+        }
+
+        private async void PlaybackTileHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm || sender is not VideoCanvas host)
+                return;
+
+            int slotIndex = Convert.ToInt32(host.Tag);
+            var px = ToPixelSize(host, Math.Max(64, e.NewSize.Width), Math.Max(64, e.NewSize.Height));
+            if (slotIndex == 0)
+                await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
+            else
+                await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
+        }
+
+        private async void PlaybackCameraCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressCameraSelectionEvents || DataContext is not PlaybackViewModel vm)
+                return;
+
+            var selected = vm.AvailablePlaybackCameras
+                .Where(c => c.IsSelected)
+                .Select(c => c.Camera)
+                .Take(4)
+                .ToList();
+
+            if (vm.AvailablePlaybackCameras.Count(c => c.IsSelected) > 4)
+            {
+                if (sender is System.Windows.Controls.CheckBox checkBox && checkBox.DataContext is PlaybackCameraChoice choice)
+                    choice.IsSelected = false;
+                return;
+            }
+
+            await vm.SetSelectedPlaybackCamerasAsync(selected);
         }
     }
 }

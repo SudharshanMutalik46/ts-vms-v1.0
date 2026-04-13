@@ -514,6 +514,7 @@ func (w *RecorderWorker) syncSegments(ctx context.Context, forceBackfill bool) e
 			SizeBytes:      info.Size(),
 			FileSize:       info.Size(),
 			Container:      "mkv",
+			VideoCodec:     strings.ToUpper(w.cameraCodec()),
 			ChecksumSHA256: checksum,
 			Finalized:      true,
 		}

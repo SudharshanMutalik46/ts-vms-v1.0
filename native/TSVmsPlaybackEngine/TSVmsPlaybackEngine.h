@@ -39,6 +39,5 @@ TSVMS_PLAYBACK_API int    tsplay_get_video_height(void* engine);
 TSVMS_PLAYBACK_API const wchar_t* tsplay_get_last_error(void* engine);
 
 TSVMS_PLAYBACK_API int TSPlayback_SetRotationDegrees(void* engine, int degrees);
-TSVMS_PLAYBACK_API int TSPlayback_GetRotationDegrees(void* engine);
-
+TSVMS_PLAYBACK_API int   tsplay_reset_engine(void* engine);
 }

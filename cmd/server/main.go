@@ -146,9 +146,8 @@ func main() {
 	// Audit Service (Phase 1.5)
 	auditService := audit.NewService(db)
 
-	// Config Spooler (Using default from task or env helper later)
-	// For now using hardcoded default from prompt requirements via ConfigureFailover
-	audit.ConfigureFailover("C:\\ProgramData\\TechnoSupport\\VMS\\audit_spool", 1024)
+	auditSpoolDir := paths.ResolveDataRoot() + `\audit_spool`
+	audit.ConfigureFailover(auditSpoolDir, 1024)
 	auditService.StartReplayer(context.Background()) // Background context for long running
 
 	// License Manager (Phase 1.6)

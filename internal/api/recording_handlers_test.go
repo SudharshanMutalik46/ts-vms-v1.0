@@ -84,6 +84,7 @@ func TestHandleGetSegmentsReconcilesDiskWhenIndexIsEmpty(t *testing.T) {
 				FileSize:   1234,
 				SizeBytes:  1234,
 				Container:  "mkv",
+				VideoCodec: "H265",
 				Finalized:  true,
 			},
 		},
@@ -120,6 +121,9 @@ func TestHandleGetSegmentsReconcilesDiskWhenIndexIsEmpty(t *testing.T) {
 	if !mockDB.refreshed {
 		t.Fatalf("expected segment refresher to be called")
 	}
+	if got[0].VideoCodec != "H265" {
+		t.Fatalf("expected H265 video_codec, got %+v", got[0])
+	}
 }
 
 func TestHandleGetSegmentsFallsBackToDiskLoader(t *testing.T) {
@@ -143,6 +147,7 @@ func TestHandleGetSegmentsFallsBackToDiskLoader(t *testing.T) {
 					FileSize:   1234,
 					SizeBytes:  1234,
 					Container:  "mkv",
+					VideoCodec: "H264",
 					Finalized:  true,
 				},
 			}, nil
@@ -171,5 +176,8 @@ func TestHandleGetSegmentsFallsBackToDiskLoader(t *testing.T) {
 	}
 	if got[0].ID != "seg-disk-1" {
 		t.Fatalf("unexpected segment returned: %+v", got[0])
+	}
+	if got[0].VideoCodec != "H264" {
+		t.Fatalf("expected H264 video_codec, got %+v", got[0])
 	}
 }

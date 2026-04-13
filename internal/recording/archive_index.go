@@ -27,6 +27,8 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 		container = "mkv"
 	}
 
+	videoCodec := normalizeCodec(seg.VideoCodec)
+
 	healthState := seg.HealthState
 	if healthState == "" {
 		healthState = "finalized"
@@ -43,6 +45,7 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 			path,
 			size_bytes,
 			container,
+			video_codec,
 			checksum_sha256,
 			health_state,
 			is_missing_on_disk,
@@ -52,7 +55,7 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 			updated_at,
 			last_seen_on_disk
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,FALSE,FALSE,TRUE,NOW(),NOW(),NOW())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,FALSE,FALSE,TRUE,NOW(),NOW(),NOW())
 		ON CONFLICT (path) DO UPDATE SET
 			camera_id          = EXCLUDED.camera_id,
 			start_ts           = EXCLUDED.start_ts,
@@ -60,6 +63,7 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 			duration_ms        = EXCLUDED.duration_ms,
 			size_bytes         = EXCLUDED.size_bytes,
 			container          = EXCLUDED.container,
+			video_codec        = EXCLUDED.video_codec,
 			checksum_sha256    = EXCLUDED.checksum_sha256,
 			health_state       = EXCLUDED.health_state,
 			is_missing_on_disk = FALSE,
@@ -67,7 +71,7 @@ func (s *PostgresStore) UpsertFinalizedSegment(ctx context.Context, seg *Archive
 			is_finalized       = TRUE,
 			updated_at         = NOW(),
 			last_seen_on_disk  = NOW()
-	`, seg.TenantID, seg.SiteID, seg.CameraID, seg.StartTS, seg.EndTS, seg.DurationMs, path, sizeBytes, container, seg.ChecksumSHA256, healthState)
+	`, seg.TenantID, seg.SiteID, seg.CameraID, seg.StartTS, seg.EndTS, seg.DurationMs, path, sizeBytes, container, videoCodec, seg.ChecksumSHA256, healthState)
 	return err
 }
 
@@ -89,6 +93,7 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 			rs.path,
 			rs.size_bytes,
 			COALESCE(rs.container, 'mkv'),
+			COALESCE(rs.video_codec, ''),
 			COALESCE(rs.checksum_sha256, ''),
 			COALESCE(rs.health_state, 'finalized'),
 			COALESCE(rs.is_missing_on_disk, FALSE),
@@ -128,6 +133,7 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 			&seg.FilePath,
 			&seg.FileSize,
 			&seg.Container,
+			&seg.VideoCodec,
 			&seg.ChecksumSHA256,
 			&seg.HealthState,
 			&seg.IsMissing,
@@ -190,6 +196,7 @@ func (s *PostgresStore) GetSegmentByPath(ctx context.Context, path string) (*Arc
 			path,
 			size_bytes,
 			COALESCE(container, 'mkv'),
+			COALESCE(video_codec, ''),
 			COALESCE(checksum_sha256, ''),
 			COALESCE(health_state, 'finalized'),
 			COALESCE(is_missing_on_disk, FALSE),
@@ -209,6 +216,7 @@ func (s *PostgresStore) GetSegmentByPath(ctx context.Context, path string) (*Arc
 		&seg.FilePath,
 		&seg.FileSize,
 		&seg.Container,
+		&seg.VideoCodec,
 		&seg.ChecksumSHA256,
 		&seg.HealthState,
 		&seg.IsMissing,

@@ -18,6 +18,7 @@ func (w *ArchiveIndexWriter) WriteFinalizedSegment(ctx context.Context, seg *Arc
 	if seg.Container == "" {
 		seg.Container = "mkv"
 	}
+	seg.VideoCodec = normalizeCodec(seg.VideoCodec)
 	if seg.HealthState == "" {
 		seg.HealthState = "finalized"
 	}

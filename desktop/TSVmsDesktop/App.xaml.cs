@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.IO;
 using System.Windows;
 using Application = System.Windows.Application;
 using TSVmsDesktop.Services;
@@ -12,6 +13,42 @@ namespace TSVmsDesktop
     {
         public new static App Current => (App)Application.Current;
         public IServiceProvider Services { get; }
+
+        private static string? ResolveBundledGStreamerBin()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string? explicitRoot = Environment.GetEnvironmentVariable("TS_VMS_GSTREAMER_ROOT");
+            if (!string.IsNullOrWhiteSpace(explicitRoot))
+            {
+                string explicitBin = Path.Combine(explicitRoot, "bin");
+                if (Directory.Exists(explicitBin))
+                    return explicitBin;
+                if (Directory.Exists(explicitRoot))
+                    return explicitRoot;
+            }
+
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "gstreamer", "bin"),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "tools", "gstreamer", "bin")),
+            };
+
+            foreach (string candidate in candidates)
+            {
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            string? gstRoot = Environment.GetEnvironmentVariable("GSTREAMER_1_0_ROOT_X86_64");
+            if (!string.IsNullOrWhiteSpace(gstRoot))
+            {
+                string candidate = Path.Combine(gstRoot, "bin");
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return null;
+        }
 
         public App()
         {
@@ -82,10 +119,10 @@ namespace TSVmsDesktop
 
             // Add native DLL directories to PATH for PlaybackEngine and GStreamer dependencies
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
-            var gstPath = @"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin";
+            var gstPath = ResolveBundledGStreamerBin();
             var localNativePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", "win-x64");
             
-            if (!currentPath.Contains(gstPath, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(gstPath) && !currentPath.Contains(gstPath, StringComparison.OrdinalIgnoreCase))
                 currentPath = gstPath + ";" + currentPath;
             if (!currentPath.Contains(localNativePath, StringComparison.OrdinalIgnoreCase))
                 currentPath = localNativePath + ";" + currentPath;

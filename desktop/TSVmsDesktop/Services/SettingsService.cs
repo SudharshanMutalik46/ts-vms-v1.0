@@ -6,7 +6,10 @@ namespace TSVmsDesktop.Services
 {
     public class AppSettings
     {
-        public string StoragePath { get; set; } = @"C:\TS-VMS\Storage";
+        public string StoragePath { get; set; } = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TS-VMS",
+            "Storage");
         public bool EnableGpu { get; set; } = true;
         public string LogLevel { get; set; } = "Info";
         public string NasPath { get; set; } = "";

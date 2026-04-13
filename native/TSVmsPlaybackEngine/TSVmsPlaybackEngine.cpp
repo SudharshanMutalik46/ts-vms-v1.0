@@ -74,6 +74,13 @@ public:
     PlaybackEngine() = default;
     ~PlaybackEngine() { Cleanup(); }
 
+    int ResetEngine()
+    {
+        Cleanup();
+        EnsurePipelineLocked();
+        return 1;
+    }
+
     int NormalizeDegrees(int degrees)
     {
         int d = degrees % 360;
@@ -202,14 +209,22 @@ public:
             char** argv = nullptr;
             gst_init(&argc, &argv);
 
-            // Disable d3dvideosink globally (causing black screen on this system).
             if (GstRegistry* reg = gst_registry_get())
             {
-                if (GstPluginFeature* feat = gst_registry_find_feature(reg, "d3dvideosink", GST_TYPE_ELEMENT_FACTORY))
+                const char* disable_for_playback[] = {
+                    "d3dvideosink",
+                    "d3d11h265dec"
+                };
+
+                for (const char* name : disable_for_playback)
                 {
-                    gst_plugin_feature_set_rank(feat, GST_RANK_NONE);
-                    gst_registry_remove_feature(reg, feat);
-                    gst_object_unref(feat);
+                    if (GstPluginFeature* feat =
+                            gst_registry_find_feature(reg, name, GST_TYPE_ELEMENT_FACTORY))
+                    {
+                        // Demote instead of relying on this feature during playback autoplug.
+                        gst_plugin_feature_set_rank(feat, GST_RANK_NONE);
+                        gst_object_unref(feat);
+                    }
                 }
             }
         });
@@ -1115,9 +1130,12 @@ private:
         }
 
         GstElement* videoFilterBin = BuildVideoFilterBin();
-        GstElement* videoSink = gst_element_factory_make("d3d11videosink", "video-sink");
+
+        // Prefer stable sinks for multi-pane playback. 
+        // d3d11videosink is already globally demoted in Initialize().
+        GstElement* videoSink = gst_element_factory_make("glimagesink", "video-sink");
         if (!videoSink)
-            videoSink = gst_element_factory_make("glimagesink", "video-sink");
+            videoSink = gst_element_factory_make("autovideosink", "video-sink");
         if (!videoSink)
             videoSink = gst_element_factory_make("fakesink", "video-sink");
 
@@ -1212,6 +1230,21 @@ private:
         if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS)
         {
             self->_eosReached.store(true, std::memory_order_release);
+            return GST_BUS_PASS;
+        }
+
+        if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ASYNC_DONE)
+        {
+            auto hwndValue = self->_overlayHwnd.load(std::memory_order_acquire);
+            if (hwndValue != 0)
+            {
+                std::lock_guard<std::mutex> lock(self->_mutex);
+                self->UpdateClientSizeLocked(reinterpret_cast<HWND>(hwndValue));
+                if (self->_videoSink)
+                    self->ApplyOverlayHandleLocked(self->_videoSink, hwndValue);
+                self->ApplyOverlayHandleToPlaybinLocked(hwndValue);
+                self->ApplyRenderRectangleUnlocked();
+            }
             return GST_BUS_PASS;
         }
 
@@ -1735,6 +1768,11 @@ TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine)
 {
     if (!engine) return 1.0;
     return static_cast<PlaybackEngine*>(engine)->GetRate();
+}
+TSVMS_PLAYBACK_API int tsplay_reset_engine(void* engine)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->ResetEngine();
 }
 
 }

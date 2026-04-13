@@ -237,20 +237,6 @@ namespace TSVmsDesktop.Services
                 throw new InvalidOperationException("Failed to create playback engine.");
         }
 
-        public void ResetEngine()
-        {
-            lock (_sync)
-            {
-                if (_engine != IntPtr.Zero)
-                {
-                    NativePlayback.tsplay_destroy(_engine);
-                    _engine = IntPtr.Zero;
-                }
-
-                _initialized = false;
-            }
-        }
-
         private void EnsureReady()
         {
             EnsureCreated();
@@ -298,6 +284,17 @@ namespace TSVmsDesktop.Services
 
                 _initialized = false;
                 _hostHandle = IntPtr.Zero;
+            }
+        }
+        public void ResetEngine()
+        {
+            lock (_sync)
+            {
+                if (_engine != IntPtr.Zero)
+                {
+                    NativePlayback.tsplay_reset_engine(_engine);
+                    _initialized = false;
+                }
             }
         }
     }
