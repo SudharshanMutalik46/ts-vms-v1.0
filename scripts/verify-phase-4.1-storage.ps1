@@ -16,7 +16,10 @@ $siteId = "site-hq"
 $ts = Get-Date -Date "2026-02-26 14:00:00"
 $dateStr = $ts.ToString("yyyy-MM-dd")
 $hourStr = $ts.ToString("HH")
-$volPath = "C:\ts_vms_storage\hot"
+
+# Dynamically resolve storage root for test simulation
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$volPath = Join-Path $repoRoot "data\recordings\hot"
 
 $path = Join-Path $volPath "$tenantId\$siteId\$camId\$dateStr\$hourStr"
 Write-Host "    Expected Path: $path"

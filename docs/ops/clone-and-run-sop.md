@@ -21,7 +21,7 @@ Ensure the following software is installed on your Windows machine:
     *   **REQUIRED**: Select the "Desktop development with C++" workload during installation.
 9.  **CMake 3.25+**: Required for Media Plane build. [Download here](https://cmake.org/download/).
 10. **GStreamer 1.22+ (MSVC 64-bit)**: [Download here](https://gstreamer.freedesktop.org/download/#windows) (**Complete Install** required).
-    *   Add `C:\gstreamer\1.0\msvc_x86_64\bin` to your system's Environment Variable **PATH**.
+    *   Add `.\data\recordings to your system's Environment Variable **PATH**.
 
 ---
 
@@ -111,3 +111,4 @@ Use the following default administrator credentials:
 *   **C++ Build fails?**: Ensure "Desktop development with C++" is installed in Visual Studio 2022.
 *   **SFU Error?**: Ensure `node` is in your PATH and `npm install` was successful in the `sfu/` directory.
 *   **NATS/Redis Connection Refused?**: Verify both services are running. `dev-restart.ps1` tries to start them, but if they are already running on different ports, it might fail.
+

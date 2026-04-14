@@ -12,17 +12,17 @@ go run scripts/check_camera_status.go
 # Look for "Session ID: xxxxx"
 
 # Or find it directly
-Get-ChildItem "C:\ProgramData\TechnoSupport\VMS\hls\" -Directory | Select-Object Name, CreationTime
+Get-ChildItem "$env:ProgramData\TechnoSupport\VMS\hls\" -Directory | Select-Object Name, CreationTime
 ```
 
 ### Play the HLS Stream:
 ```powershell
 # Example if session ID is "tOOINOtwCZLZ"
 # Open in VLC or any HLS player:
-# File path: C:\ProgramData\TechnoSupport\VMS\hls\tOOINOtwCZLZ\playlist.m3u8
+# File path: %ProgramData%\TechnoSupport\VMS\hls\tOOINOtwCZLZ\playlist.m3u8
 
 # Or use ffplay (if installed):
-ffplay "C:\ProgramData\TechnoSupport\VMS\hls\<SESSION_ID>\playlist.m3u8"
+ffplay "%ProgramData%\TechnoSupport\VMS\hls\<SESSION_ID>\playlist.m3u8"
 ```
 
 ## Method 2: WebRTC Stream (Browser)
@@ -51,12 +51,12 @@ You can view the original RTSP stream directly (bypasses VMS).
 ### Using VLC:
 ```
 Media → Open Network Stream
-URL: rtsp://192.168.1.181:554/live/0/MAIN
+URL: rtsp://<camera_ip>:554/live/0/MAIN
 ```
 
 ### Using ffplay:
 ```powershell
-ffplay -rtsp_transport tcp rtsp://192.168.1.181:554/live/0/MAIN
+ffplay -rtsp_transport tcp rtsp://<camera_ip>:554/live/0/MAIN
 ```
 
 ## Method 4: Check HLS via HTTP (if HLSD is configured)
@@ -74,3 +74,4 @@ Invoke-WebRequest http://localhost:8088/health
 ## Quick Test Script
 
 I'll create a script to help you quickly access the live feed:
+

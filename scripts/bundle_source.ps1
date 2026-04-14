@@ -1,6 +1,7 @@
 $items = @('Config', 'Controls', 'Images', 'Models', 'Resources', 'Services', 'ViewModels', 'Views', 'App.xaml', 'App.xaml.cs', 'TSVmsDesktop.csproj')
-$src = 'c:\Users\sudha\Desktop\ts_vms_1.0\desktop\TSVmsDesktop'
-$dest = 'c:\Users\sudha\Desktop\TSVmsDesktop_Source_Phase3.9.zip'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$src = Join-Path $repoRoot 'desktop\TSVmsDesktop'
+$dest = Join-Path $env:USERPROFILE 'Desktop\TSVmsDesktop_Source_Bundle.zip'
 $temp = Join-Path $env:TEMP 'TSVmsBundle_Final'
 
 if (Test-Path $temp) { Remove-Item -Path $temp -Recurse -Force }

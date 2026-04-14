@@ -30,7 +30,7 @@ Each service is configured with the following auto-recovery actions:
 
 ### Crash-Loop Prevention
 If a service fails to stay running for more than 5 minutes after multiple restarts, **DO NOT FORCE RESTART**.
-1. Check `C:\ProgramData\TechnoSupport\VMS\logs\` for application errors.
+1. Check `$env:ProgramData\TechnoSupport\VMS\logs\` for application errors.
 2. Verify PostgreSQL and Redis services are healthy.
 3. Check Windows Event Viewer -> Application Log for source `TS-VMS-*`.
 
@@ -61,3 +61,4 @@ Use the provided PowerShell script in `scripts/service-manager.ps1`:
 
 ## External Dependencies
 PostgreSQL and Redis are expected to be installed as Windows services. The VMS services implement health checks and will retry connections with exponential backoff if the database or cache is temporarily unavailable. If they are not running as services, ensure they are started before the VMS stack.
+

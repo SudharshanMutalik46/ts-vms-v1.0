@@ -2,6 +2,8 @@
 *.exe
 *.dll
 *.pdb
+*.msi
+*.cab
 migrator.exe
 server.exe
 vms-media.exe
@@ -17,6 +19,17 @@ python.exe
 **/build/
 **/vcpkg_installed/
 **/out/
+**/x64/
+**/Debug/
+**/Release/
+**/MinSizeRel/
+**/RelWithDebInfo/
+**/ipch/
+.vs/
+**/CMakeFiles/
+**/CMakeScripts/
+**/dist/
+**/_deps/
 
 .DS_Store
 Thumbs.db
@@ -80,12 +93,34 @@ desktop/TSVmsDesktop/*.m3u8
 tmp/
 tmp_line_check.txt
 
-# Build state (recording)
-src/recording/*.vcxproj
-src/recording/CMakeFiles/
-src/recording/ZERO_CHECK.*
-src/recording/ALL_BUILD.*
-src/recording/*.stamp*
+# CMake
+CMakeCache.txt
+cmake_install.cmake
+install_local_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# MSVC / Visual Studio
+*.tlog
+*.recipe
+*.lastbuildstate
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+*.sln
+*.ilk
+*.exp
+*.lib
+*.log
+*.ncb
+*.suo
+*.user
+*.aps
+*.map
+*.manifest
+*.res
+*.cache
 
 # Gemini and temp files
 GEMINI.md

@@ -14,14 +14,14 @@ These actions happen **without** Operator intervention. They must be safe and id
 ### Runbook A: Disk Full Recovery
 **Symptom:** "Recording Stopped - Disk Full" alert.
 1. Log into Server.
-2. Check `D:\Recordings` usage.
+2. Check `.\data\recordings usage.
 3. Run `Force-Prune.ps1 -DaysToKeep 30` (Reduces retention).
 4. Verify recording resumes (check logs).
 
 ### Runbook B: Certificate Expiry
 **Symptom:** "Browser Security Warning" / "API TLS Fail".
 1. Generate new `server.crt` via Offline CA.
-2. Place in `C:\VMS\Certs\`.
+2. Place in `.\data\recordings
 3. Restart `vms-control` service.
 4. Distribute new Public Cert to client workstations if Root CA changed.
 
@@ -37,3 +37,4 @@ These actions happen **without** Operator intervention. They must be safe and id
 1. Stop all Services (Prevent timestamp poisoning).
 2. Force Sync: `w32tm /resync`.
 3. Start Services.
+

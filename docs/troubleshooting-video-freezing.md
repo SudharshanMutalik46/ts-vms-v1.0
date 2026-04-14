@@ -89,7 +89,7 @@ If your camera supports it, try using SubStream instead of MainStream:
 ### Fix 3: Check Network Path
 ```powershell
 # Test network to camera
-ping 192.168.1.181 -n 100
+ping <camera_ip> -n 100
 
 # Look for:
 # - Packet loss (should be 0%)
@@ -157,3 +157,4 @@ Then the issue is likely **WebRTC jitter buffer** settings, which can be fixed b
 - **Poor**: > 2s freezes, regular ← **Your current state**
 
 The goal is to get to "Good" or "Excellent" level.
+

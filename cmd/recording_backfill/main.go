@@ -19,8 +19,12 @@ import (
 )
 
 func main() {
-	dbConn := flag.String("db", "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable", "DB Connection")
-	scanDir := flag.String("dir", "", "Root directory to scan (e.g. D:\\TS_VMS_HOT)")
+	defaultDB := os.Getenv("DB_URL")
+	if defaultDB == "" {
+		defaultDB = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
+	}
+	dbConn := flag.String("db", defaultDB, "DB Connection String (overrides $DB_URL)")
+	scanDir := flag.String("dir", "", "Root directory to scan (e.g. ./data/recordings)")
 	flag.Parse()
 
 	if *scanDir == "" {
@@ -31,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("DB Connection Failed: %v", err)
 	}
-	metaDB := recording.NewPostgresMetadataDB(db)
+	metaDB := recording.NewPostgresStore(db)
 
 	scanned, inserted := 0, 0
 
@@ -74,7 +78,7 @@ func main() {
 			SizeBytes:  info.Size(),
 		}
 
-		if err := metaDB.WriteSegment(context.Background(), seg); err == nil {
+		if err := metaDB.UpsertFinalizedSegment(context.Background(), seg); err == nil {
 			inserted++
 		} else {
 			log.Printf("Failed to insert %s: %v", path, err)

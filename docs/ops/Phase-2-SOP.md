@@ -11,8 +11,8 @@ Provide a unified reference for administrators to deploy, configure, and verify 
 
 ### Windows-Native File System
 The system now enforces standard Windows directory structures. Ensure the following roots are accessible:
-- **Install Root**: `C:\Program Files\TechnoSupport\VMS`
-- **Data Root**: `C:\ProgramData\TechnoSupport\VMS`
+- **Install Root**: `.\data\recordings Files\TechnoSupport\VMS`
+- **Data Root**: `$env:ProgramData\TechnoSupport\VMS`
 
 Initialize standard subdirectories:
 ```powershell
@@ -97,3 +97,5 @@ go build -v -o server.exe ./cmd/server
 - **Discovery Timeout**: Ensure `powershell.exe` is in the system PATH and not blocked by execution policy.
 - **Firewall Naming Mismatch**: Verify the script is running with `-ConfigPath` pointing to a valid `default.yaml` if custom ports are used.
 - **NVR Poll Failures**: Check NATS server connectivity and verify vendor-specific credentials via the `/test-connection` API.
+
+

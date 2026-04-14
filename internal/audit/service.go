@@ -19,6 +19,11 @@ func (s *Service) WriteEvent(ctx context.Context, evt AuditEvent) error {
 		evt.EventID = uuid.New()
 	}
 
+	// Result Normalization (DB Constraint: CHECK (result IN ('success', 'failure')))
+	if evt.Result == "fail" {
+		evt.Result = "failure"
+	}
+
 	// 1. Try DB Write
 	query := `
 		INSERT INTO audit_logs (

@@ -1,19 +1,19 @@
 storage:
   volumes:
     - id: "vol-hot-1"
-      path: "C:\\ts_vms_storage\\hot"
+      path: "./data/recordings/hot"
       tier: "hot"
       priority: 1
       max_usage_percent: 85.0
-      reserved_free_gb: 50.0
+      reserved_free_gb: 5.0
       enabled: true
 
     - id: "vol-warm-1"
-      path: "D:\\ts_vms_storage\\warm"
+      path: "./data/recordings/warm"
       tier: "warm"
       priority: 2
       max_usage_percent: 90.0
-      reserved_free_gb: 100.0
+      reserved_free_gb: 10.0
       enabled: true
 
   quotas:

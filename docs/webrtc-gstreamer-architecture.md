@@ -61,8 +61,8 @@ rtspsrc → rtph264depay → h264parse →
 ```
 
 **Active Pipeline:**
-- Input: `rtsp://192.168.1.181:554/live/0/MAIN`
-- Output 1: HLS segments in `C:\ProgramData\TechnoSupport\VMS\hls\`
+- Input: `rtsp://<camera_ip>:554/live/0/MAIN`
+- Output 1: HLS segments in `./data/hls/` (or `%ProgramData%\TechnoSupport\VMS\hls\`)
 - Output 2: RTP stream to SFU on dynamic port
 
 ## WebRTC Components (Inside SFU)
@@ -135,4 +135,5 @@ Invoke-WebRequest http://localhost:8080/metrics | Select-String "vms_media"
 
 - **GStreamer logs**: `logs/media.log` and `logs/media_err.log`
 - **mediasoup logs**: `logs/sfu.log`
-- **HLS segments**: `C:\ProgramData\TechnoSupport\VMS\hls\<session-id>\`
+- **HLS segments**: `./data/hls/<session-id>/` (System default: `%ProgramData%\TechnoSupport\VMS\hls\<session-id>\`)
+

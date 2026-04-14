@@ -4,13 +4,17 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	connStr := "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
+	connStr := os.Getenv("DB_URL")
+	if connStr == "" {
+		connStr = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disable"
+	}
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
@@ -40,3 +44,4 @@ func main() {
 		fmt.Printf("User: Tenant=%s, Role=%s\n", userTenant, role)
 	}
 }
+

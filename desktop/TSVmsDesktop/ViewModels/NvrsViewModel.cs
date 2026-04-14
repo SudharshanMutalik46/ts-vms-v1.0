@@ -44,7 +44,7 @@ namespace TSVmsDesktop.ViewModels
                 var newNvr = new NvrModel 
                 { 
                     Name = $"New NVR {random}", 
-                    IpAddress = $"192.168.1.{random}", 
+                    IpAddress = $"10.0.0.{random}", 
                     AdapterType = "onvif" 
                 };
                 

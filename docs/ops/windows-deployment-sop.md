@@ -18,7 +18,7 @@ Ensure the following tools are installed and added to your System PATH:
 4.  **CMake 3.20+** (Media Plane Build)
 5.  **GStreamer 1.24+ (MSVC 64-bit)** (Media Plane Runtime)
     *   **Crucial:** Install "Complete" or ensure `d3d11` and `openh264` plugins are selected.
-    *   Add `C:\gstreamer\1.0\msvc_x86_64\bin` to PATH.
+    *   Add `.\data\recordings to PATH.
 6.  **PostgreSQL 14+** (Local Service)
 7.  **Redis 6+** (Local Service or Memurai)
 8.  **.NET 8 SDK** (Desktop Client)
@@ -162,9 +162,9 @@ Ensure all the following are active for a fully functional system:
 
 ## 5. Directory Structure
 The application uses standard Windows paths:
-*   **Binaries**: `C:\Program Files\TechnoSupport\VMS` (or local `bin/` in Dev)
-*   **Config/Data**: `C:\ProgramData\TechnoSupport\VMS`
-*   **Logs**: `C:\ProgramData\TechnoSupport\VMS\logs`
+*   **Binaries**: `.\data\recordings Files\TechnoSupport\VMS` (or local `bin/` in Dev)
+*   **Config/Data**: `$env:ProgramData\TechnoSupport\VMS`
+*   **Logs**: `$env:ProgramData\TechnoSupport\VMS\logs`
 
 ## 6. Troubleshooting Common Issues
 
@@ -172,5 +172,7 @@ The application uses standard Windows paths:
 *   **GStreamer Plugin Missing**: Ensure `d3d11` and `openh264` are present in `gst-inspect-1.0`. Only MSVC builds of GStreamer are supported.
 *   **SFU Connection Refused**: Ensure `sfu` service is running (`npm start`) and listening on 8085. Check `logs/sfu.log`.
 *   **Database Connectivity**: Verify PostgreSQL service is running and `DB_PASSWORD` matches `dev-restart.ps1` settings.
-*   **NVR Creation Failed (500)**: Check `C:\Users\sudha\Desktop\api_debug_log.txt`. Common causes include legacy "adapter_type" field usage (should be "vendor") or missing Default Site in multi-tenant environments.
+*   **NVR Creation Failed (500)**: Check `%USERPROFILE%\Desktop\api_debug_log.txt`. Common causes include legacy "adapter_type" field usage (should be "vendor") or missing Default Site in multi-tenant environments.
+
+
 

@@ -14,7 +14,7 @@ Phase 1.5 implements a tamper-resistant, append-only Audit Logging system with a
 
 ## Configuration
 Limits are defined in `config/default.yaml` (or via Env Vars in future).
-- `audit.spool_dir`: Default `C:\ProgramData\TechnoSupport\VMS\audit_spool`
+- `audit.spool_dir`: Default `$env:ProgramData\TechnoSupport\VMS\audit_spool`
 - `audit.retention_years`: 7 (Enforced Minimum)
 - `audit.max_spool_size_mb`: 1024 (1GB)
 
@@ -41,3 +41,4 @@ If DB is down:
 - **API**: `POST /api/v1/audit/exports`
 - **Format**: JSONL (Streaming).
 - **Permission**: Requires `audit.export` role.
+

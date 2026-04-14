@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	SpoolDir           = "C:\\ProgramData\\TechnoSupport\\VMS\\audit_spool"
+	SpoolDir           = filepath.Join(".", "data", "audit_spool")
 	MaxSpoolSize int64 = 1024 * 1024 * 1024 // 1GB
 	errStopWalk        = errors.New("stop-walk")
 	errNilInfo         = errors.New("audit-spool: nil file info")

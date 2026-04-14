@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"path/filepath"
 	"time"
 
 	"github.com/technosupport/ts-vms/internal/crypto"
@@ -79,8 +80,8 @@ func TestHandleGetSegmentsReconcilesDiskWhenIndexIsEmpty(t *testing.T) {
 				StartTS:    time.Date(2026, 4, 4, 20, 0, 0, 0, time.UTC),
 				EndTS:      time.Date(2026, 4, 4, 20, 1, 0, 0, time.UTC),
 				DurationMs: 60000,
-				Path:       `C:\ts_vms_storage\tenant_sys\site_hq\cam-1\20260404_200000\segment_00000.mkv`,
-				FilePath:   `C:\ts_vms_storage\tenant_sys\site_hq\cam-1\20260404_200000\segment_00000.mkv`,
+				Path:       filepath.Join("data", "recordings", "tenant_sys", "site_hq", "cam-1", "20260404_200000", "segment_00000.mkv"),
+				FilePath:   filepath.Join("data", "recordings", "tenant_sys", "site_hq", "cam-1", "20260404_200000", "segment_00000.mkv"),
 				FileSize:   1234,
 				SizeBytes:  1234,
 				Container:  "mkv",
@@ -142,8 +143,8 @@ func TestHandleGetSegmentsFallsBackToDiskLoader(t *testing.T) {
 					StartTS:    from.Add(10 * time.Minute),
 					EndTS:      from.Add(11 * time.Minute),
 					DurationMs: 60000,
-					Path:       `C:\ts_vms_storage\tenant_sys\site_hq\cam-1\20260404_200000\segment_00000.mkv`,
-					FilePath:   `C:\ts_vms_storage\tenant_sys\site_hq\cam-1\20260404_200000\segment_00000.mkv`,
+					Path:       filepath.Join("data", "recordings", "tenant_sys", "site_hq", "cam-1", "20260404_200000", "segment_00000.mkv"),
+					FilePath:   filepath.Join("data", "recordings", "tenant_sys", "site_hq", "cam-1", "20260404_200000", "segment_00000.mkv"),
 					FileSize:   1234,
 					SizeBytes:  1234,
 					Container:  "mkv",

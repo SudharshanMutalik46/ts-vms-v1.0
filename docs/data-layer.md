@@ -26,7 +26,7 @@ The Data Layer manages persistence for all subsystems. It uses a polyglot persis
 ### 2.4 Video Storage (Filesystem - NTFS)
 **Why:** Cheapest, simplest high-throughput storage.
 - Recordings are stored as `.mkv` or `.mp4` segments in a directory structure:
-  `D:\Recordings\{tenant_id}\{camera_id}\{yyyy-mm-dd}\{hour}\segment_001.mkv`
+  `.\data\recordings
 - **Indexing:** The "seek table" is the filesystem itself or a lightweight index in Postgres.
 
 ## 3. Retention & TTL
@@ -38,3 +38,4 @@ The Data Layer manages persistence for all subsystems. It uses a polyglot persis
 ## 4. Backup & Restore (On-Prem / Windows)
 - **Configuration (PostgreSQL):** `pg_dump` runs nightly via Windows Task Scheduler.
 - **Recordings:** Typically NOT backed up to cloud due to massive size. RAID is recommended for local redundancy.
+

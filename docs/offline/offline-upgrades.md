@@ -7,9 +7,9 @@ All updates are delivered as a single signed archive (`ts-vms-v1.2.0.zip`).
 ## 2. Atomic Deployment (Blue/Green)
 We mitigate risk by never overwriting the running version.
 
-1. **Current State:** `C:\Program Files\VMS\Current` -> symbolic link to `\V1.0`.
+1. **Current State:** `.\data\recordings Files\VMS\Current` -> symbolic link to `\V1.0`.
 2. **Design:**
-    - Extract Bundle to `C:\Program Files\VMS\V1.1`.
+    - Extract Bundle to `.\data\recordings Files\VMS\V1.1`.
     - Copy persistent config/keys from `\V1.0` to `\V1.1`.
     - Run DB Migrations (Schema Update).
     - **Stop Services**.
@@ -29,3 +29,4 @@ If the new version fails to start or passes health checks:
 3. Execute `Upgrade.ps1`.
 4. Monitor "Health API" for green status.
 5. If Red > 5 mins, Execute `Rollback.ps1`.
+

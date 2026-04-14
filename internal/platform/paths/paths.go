@@ -12,11 +12,25 @@ const (
 	DefaultDataRoot    = `C:\ProgramData\TechnoSupport\VMS`
 )
 
+// getExecutableDir returns the directory of the current executable.
+func getExecutableDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
+}
+
 // ResolveInstallRoot returns the absolute path to the VMS installation directory.
 func ResolveInstallRoot() string {
 	root := os.Getenv("VMS_INSTALL_ROOT")
 	if root == "" {
-		root = DefaultInstallRoot
+		// Check if default exists, else fallback to exe dir
+		if _, err := os.Stat(DefaultInstallRoot); err == nil {
+			root = DefaultInstallRoot
+		} else {
+			root = getExecutableDir()
+		}
 	}
 	return root
 }
@@ -25,7 +39,18 @@ func ResolveInstallRoot() string {
 func ResolveDataRoot() string {
 	root := os.Getenv("VMS_DATA_ROOT")
 	if root == "" {
-		root = DefaultDataRoot
+		// Check if default exists, else fallback to a data folder in the exe dir
+		if _, err := os.Stat(DefaultDataRoot); err == nil {
+			root = DefaultDataRoot
+		} else {
+			exeDir := getExecutableDir()
+			// If we are in 'bin', data's peer is '../data'
+			if strings.HasSuffix(strings.ToLower(exeDir), "bin") {
+				root = filepath.Join(filepath.Dir(exeDir), "data")
+			} else {
+				root = filepath.Join(exeDir, "data")
+			}
+		}
 	}
 	return root
 }

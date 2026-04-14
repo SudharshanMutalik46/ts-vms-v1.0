@@ -10,7 +10,7 @@ Split-brain occurs when parts of the system lose connectivity and independently 
 
 ## 3. Recording Authority
 - **Disk Allocation:** Only ONE Recorder service is allowed to write to a specific Volume/Path at a time.
-- **Overlap:** If multiple recorders write to `D:\Recordings`, index corruption occurs.
+- **Overlap:** If multiple recorders write to `.\data\recordings index corruption occurs.
 - **Prevention:** Recorder checks for ownership marker on disk mount.
 
 ## 4. High Availability (Future Scope)
@@ -18,3 +18,4 @@ If Multi-Node HA is enabled in future phases:
 - **Consensus:** We will use Raft (via `etcd` or embedded) to elect a leader.
 - **Rules:** No Leader = Read Only Mode.
 - **Quorum:** Minimum 3 nodes required to tolerate 1 failure.
+

@@ -79,7 +79,7 @@ go build -v -o server.exe ./cmd/server
 
 ### Logging & Auditing
 - **Event Log**: Check `Windows Event Viewer -> Application` for source `TS-VMS-*`.
-- **Audit Spool**: Located at `C:\ProgramData\TechnoSupport\VMS\audit_spool`.
+- **Audit Spool**: Located at `$env:ProgramData\TechnoSupport\VMS\audit_spool`.
 - **Retention**: System enforces a 2557-day (7-year) minimum audit log retention.
 
 ### License Management
@@ -90,3 +90,4 @@ go build -v -o server.exe ./cmd/server
 - **SC Error 1060**: Service not installed. Run `-Action Install`.
 - **DB Connection Error**: Verify `$env:DB_PASSWORD` and Postgres service state.
 - **Failover Mode**: If "Audit Failover" appears in logs, verify DB disk space or connectivity.
+

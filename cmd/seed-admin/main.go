@@ -67,7 +67,7 @@ func main() {
 	}
 
 	// 2. Upsert User
-	passwordHash, err := auth.HashPassword("admin123")
+	passwordHash, err := auth.HashPassword("ts1234")
 	if err != nil {
 		log.Fatalf("Password Hash Failed: %v", err)
 	}
