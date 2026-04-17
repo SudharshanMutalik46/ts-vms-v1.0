@@ -5,8 +5,7 @@ Stop-Process -Name "vms-mosaic", "vms-control", "server", "vms-media", "vms-hlsd
 
 Start-Sleep -Seconds 2
 
-# Calculate Project Root based on script location
-$Root = Split-Path $PSScriptRoot -Parent
+$Root = "c:\Users\sudha\Desktop\ts_vms_1.0"
 $LogDir = "$Root\logs"
 $MediaConfig = "$Root\config\default.yaml"
 if (!(Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
@@ -32,38 +31,11 @@ $env:TS_VMS_DSN = "postgres://postgres:ts1234@localhost:5432/ts_vms?sslmode=disa
 
 Write-Host "Starting Redis..." -ForegroundColor Cyan
 if (!(Get-Process redis-server -ErrorAction SilentlyContinue)) {
-    # Attempt to find redis-server.exe
-    $RedisPath = Get-Command redis-server -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-    if (!$RedisPath) {
-        $PossibleRedisPaths = @(
-            "$env:ProgramFiles\Redis\redis-server.exe"
-            "$env:ProgramFiles (x86)\Redis\redis-server.exe"
-            "$env:LOCALAPPDATA\Redis\redis-server.exe"
-            "$env:USERPROFILE\Downloads\Redis-x64-5.0.14.1\redis-server.exe"
-        )
-        foreach ($p in $PossibleRedisPaths) {
-            if (Test-Path $p) { $RedisPath = $p; break }
-        }
-    }
-
-    if ($RedisPath) {
-        Start-Process $RedisPath -WindowStyle Hidden -RedirectStandardOutput "$LogDir\redis.log" -RedirectStandardError "$LogDir\redis_err.log"
-    } else {
-        Write-Warning "Redis-server not found in PATH or common locations. Please ensure Redis is installed."
-    }
+    Start-Process "c:\Users\sudha\Downloads\Redis-x64-5.0.14.1\redis-server.exe" -WindowStyle Hidden -RedirectStandardOutput "$LogDir\redis.log" -RedirectStandardError "$LogDir\redis_err.log"
 }
 
 Write-Host "Starting NATS..." -ForegroundColor Cyan
-if (Test-Path "$Root\src\vms-ai\nats-server.exe") {
-    Start-Process "$Root\src\vms-ai\nats-server.exe" -WindowStyle Minimized
-} else {
-    $NatsCmd = Get-Command nats-server -ErrorAction SilentlyContinue
-    if ($NatsCmd) {
-        Start-Process $NatsCmd.Source -WindowStyle Minimized
-    } else {
-        Write-Warning "NATS server not found."
-    }
-}
+Start-Process "$Root\src\vms-ai\nats-server.exe" -WindowStyle Minimized
 
 Start-Sleep -Seconds 2
 
@@ -113,18 +85,14 @@ else {
 
 Write-Host "Starting SFU..." -ForegroundColor Cyan
 Write-Host "Rebuilding SFU..." -ForegroundColor DarkGray
-if (Test-Path "$Root\sfu") {
-    pushd "$Root\sfu"
-    npm run build
-    popd
-    Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:SFU_SECRET='sfu-internal-secret'; `$env:PORT='8085'; Set-Location `"$Root\sfu`"; node dist/main.js > '..\logs\sfu.log' 2>&1"
-} else {
-    Write-Warning "SFU directory not found."
-}
+pushd "$Root\sfu"
+npm run build
+popd
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:SFU_SECRET='sfu-internal-secret'; `$env:PORT='8085'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0\sfu'; node dist/main.js > '..\logs\sfu.log' 2>&1"
 
 
 Write-Host "Starting AI Service (Go Mock)..." -ForegroundColor Cyan
-Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location `"$Root`"; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "`$env:NATS_URL='nats://localhost:4222'; `$env:CP_BASE_URL='http://localhost:8080'; Set-Location 'c:\Users\sudha\Desktop\ts_vms_1.0'; go run ./cmd/ai-service > 'logs\ai_mock.log' 2>&1"
 
 Write-Host "Starting HLSD..." -ForegroundColor Cyan
 $HlsdCandidates = @(
@@ -156,4 +124,3 @@ else {
 
 Write-Host "All Services Restarted." -ForegroundColor Green
 Get-Process -Name "vms-mosaic", "server", "vms-control", "vms-media", "vms-hlsd", "node", "vms-ai", "nats-server", "vms-recording-bin" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
-

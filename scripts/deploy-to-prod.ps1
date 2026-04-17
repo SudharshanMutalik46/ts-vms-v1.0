@@ -1,5 +1,5 @@
 # deploy-to-prod.ps1
-# Automates the movement of binaries to $env:ProgramFiles\TechnoSupport\VMS 
+# Automates the movement of binaries to C:\Program Files\TechnoSupport\VMS 
 # and runs the service manager to install/start the stack.
 
 $ErrorActionPreference = "Stop"
@@ -13,21 +13,15 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 }
 
 # --- Configuration ---
-$DevRoot = Split-Path $PSScriptRoot -Parent
-$InstallRoot = "$env:ProgramFiles\TechnoSupport\VMS"
-$SvcManager = Join-Path $PSScriptRoot "service-manager.ps1"
+$DevRoot = "c:\Users\sudha\Desktop\ts_vms_1.0"
+$InstallRoot = "C:\Program Files\TechnoSupport\VMS"
+$SvcManager = Join-Path $DevRoot "scripts\service-manager.ps1"
 
 # Binary Sources
 $ControlSrc = Join-Path $DevRoot "vms-control.exe"
-if (-not (Test-Path $ControlSrc)) { $ControlSrc = Join-Path $DevRoot "bin\vms-control.exe" }
-if (-not (Test-Path $ControlSrc)) { $ControlSrc = Join-Path $DevRoot "server.exe" }
-
 $MediaSrc = Join-Path $DevRoot "media-plane\build\Release\vms-media.exe"
 $SfuSrcDir = Join-Path $DevRoot "sfu"
-
-
-$NodeExeSrc = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if (!$NodeExeSrc) { $NodeExeSrc = "$env:ProgramFiles\nodejs\node.exe" }
+$NodeExeSrc = "C:\Program Files\nodejs\node.exe"
 
 Write-Host "--- Starting Deployment to $InstallRoot ---" -ForegroundColor Cyan
 
@@ -37,52 +31,33 @@ if (-not (Test-Path $InstallRoot)) {
 }
 
 # 2. Stop Services (if running)
-if (Test-Path $SvcManager) {
-    Write-Host "Stopping existing services..."
-    powershell -ExecutionPolicy Bypass -File $SvcManager Stop
-}
+Write-Host "Stopping existing services..."
+powershell -ExecutionPolicy Bypass -File $SvcManager Stop
 
 # 3. Copy Binaries
 Write-Host "Copying Control Plane..."
-if (Test-Path $ControlSrc) {
-    Copy-Item $ControlSrc (Join-Path $InstallRoot "server.exe") -Force
-} else {
-    Write-Warning "Control Plane binary not found at $ControlSrc"
-}
+Copy-Item $ControlSrc (Join-Path $InstallRoot "server.exe") -Force
 
 Write-Host "Copying Media Plane..."
-if (Test-Path $MediaSrc) {
-    Copy-Item $MediaSrc (Join-Path $InstallRoot "vms-media.exe") -Force
-} else {
-    Write-Warning "Media Plane binary not found at $MediaSrc"
-}
+Copy-Item $MediaSrc (Join-Path $InstallRoot "vms-media.exe") -Force
 
 Write-Host "Copying Node.js runtime..."
-if (Test-Path $NodeExeSrc) {
-    Copy-Item $NodeExeSrc (Join-Path $InstallRoot "node.exe") -Force
-}
+Copy-Item $NodeExeSrc (Join-Path $InstallRoot "node.exe") -Force
 
 Write-Host "Copying SFU Service (dist/node_modules)..."
 $SfuDest = Join-Path $InstallRoot "sfu"
-if (Test-Path $SfuSrcDir) {
-    if (-not (Test-Path $SfuDest)) { New-Item -ItemType Directory -Path $SfuDest -Force | Out-Null }
-    if (Test-Path (Join-Path $SfuSrcDir "dist")) {
-        Copy-Item -Path (Join-Path $SfuSrcDir "dist") -Destination $SfuDest -Recurse -Force
-    }
-    if (Test-Path (Join-Path $SfuSrcDir "node_modules")) {
-        Copy-Item -Path (Join-Path $SfuSrcDir "node_modules") -Destination $SfuDest -Recurse -Force
-    }
-}
+if (-not (Test-Path $SfuDest)) { New-Item -ItemType Directory -Path $SfuDest -Force | Out-Null }
+Copy-Item -Path (Join-Path $SfuSrcDir "dist") -Destination $SfuDest -Recurse -Force
+Copy-Item -Path (Join-Path $SfuSrcDir "node_modules") -Destination $SfuDest -Recurse -Force
 
 # 4. Install & Start
-if (Test-Path $SvcManager) {
-    Write-Host "Registering Services..." -ForegroundColor Yellow
-    powershell -ExecutionPolicy Bypass -File $SvcManager Install
-    
-    Write-Host "Starting VMS Stack..." -ForegroundColor Green
-    powershell -ExecutionPolicy Bypass -File $SvcManager Start
-}
+Write-Host "Registering Services..." -ForegroundColor Yellow
+powershell -ExecutionPolicy Bypass -File $SvcManager Install
+
+Write-Host "Starting VMS Stack..." -ForegroundColor Green
+powershell -ExecutionPolicy Bypass -File $SvcManager Start
 
 Write-Host "--- Deployment Complete ---" -ForegroundColor Green
+Write-Host "You can now test WebRTC at: http://localhost:8082/test/webrtc_test.html (if served by VMS Web)"
+Write-Host "Or open the local file: $DevRoot\test\webrtc_test.html"
 pause
-

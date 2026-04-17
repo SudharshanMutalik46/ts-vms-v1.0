@@ -13,7 +13,7 @@ func main() {
 	fmt.Println("=== ONVIF Discovery Implementation Verification ===")
 
 	// 1. Verify shared client instantiation
-	client, err := onvif.NewOnvifClient("http://127.0.0.1:8080/onvif/device_service", "admin", "pass")
+	client, err := onvif.NewOnvifClient("http://192.168.1.100/onvif/device_service", "admin", "pass")
 	if err != nil {
 		log.Fatalf("Failed to create ONVIF client: %v", err)
 	}

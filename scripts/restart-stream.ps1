@@ -1,28 +1,66 @@
-# restart-stream.ps1
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
-$Root = Split-Path $PSScriptRoot -Parent
-$LogFile = Join-Path $Root "gst_launch.log"
+# Configuration
+$HlsRoot = "C:\ProgramData\TechnoSupport\VMS\hls"
+$CameraID = "8b579ed0-aaca-4c19-945c-bf48454b92a6"
+$SessionID = [Guid]::NewGuid().ToString("N").Substring(0, 10) # Simulating NanoID
+$RtspUrl = "rtsp://192.168.1.7:554/live/stream1"
 
-# Use environment variable for test source, fallback to a public demo stream if not set
-$Source = $env:VMS_TEST_RTSP_URL
-if (!$Source) {
-    Write-Host "VMS_TEST_RTSP_URL not set. Using built-in pattern generator." -ForegroundColor Gray
-    $Source = "videotestsrc is-live=true ! x264enc bitrate=1000 tune=zerolatency ! rtph264pay"
+# Paths
+$SessionDir = Join-Path $HlsRoot "live\$CameraID\$SessionID"
+$LogFile = "C:\Users\sudha\Desktop\ts_vms_1.0\gst_launch.log"
+
+Write-Host "Starting HLS Stream..."
+Write-Host "Camera: $CameraID"
+Write-Host "Session: $SessionID"
+Write-Host "Output: $SessionDir"
+
+# 1. Kill existing
+Write-Host "Killing existing gst-launch..."
+Get-Process gst-launch-1.0 -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Create Directory
+if (!(Test-Path $SessionDir)) {
+    New-Item -ItemType Directory -Force -Path $SessionDir | Out-Null
 }
 
-Write-Host "Starting GStreamer Test Stream..." -ForegroundColor Yellow
-Stop-Process -Name "gst-launch-1.0" -Force -ErrorAction SilentlyContinue
+# 3. Construct GStreamer Command
+# Note: hlssink3 sometimes better, but splitmuxsink was used. 
+# We use splitmuxsink for playlist generation if configured, but hlssink3 is standard for HLS.
+# Based on project stack, we used splitmuxsink with a playlist signal or hlssink3?
+# The C++ code used splitmuxsink.
+# Let's use hlssink3 for simplicity in this script if available, OR splitmuxsink replicating the command.
+# Actually, the user's manual command worked previously.
+# Let's try standard hlssink3 first as it handles playlist management automatically.
 
-Start-Sleep -Seconds 1
+# Command for hlssink3 (standard HLS)
+# location is segment pattern, playlist-location is m3u8 path
+$SegmentLocation = "$SessionDir\segment_%05d.mp4"
+$PlaylistLocation = "$SessionDir\playlist.m3u8"
 
-# If it's a real URL, we use rtspsrc. If it's a pattern, we use the string directly.
-if ($Source -match "^rtsp://") {
-    $pipeline = "rtspsrc location=$Source latency=200 ! decodebin ! videoconvert ! autovideosink"
-} else {
-    $pipeline = "$Source ! decodebin ! videoconvert ! autovideosink"
-}
+$Bt709 = "video/x-raw,colorimetry=bt709"
 
-Start-Process "gst-launch-1.0" -ArgumentList $pipeline -WindowStyle Hidden -RedirectStandardOutput $LogFile -RedirectStandardError $LogFile
+$Args = @(
+    "rtspsrc", "location=$RtspUrl", "latency=200", 
+    "!", "rtph264depay", 
+    "!", "h264parse", 
+    "!", "splitmuxsink", 
+    "location=$SegmentLocation", 
+    "max-size-time=2000000000", # 2s segments
+    "muxer=mp4mux", 
+    "template=segment_%05d.mp4" # This might need full path depending on cwd, but let's stick to location
+)
 
-Write-Host "Stream started with pipeline: $pipeline"
+# Wait! splitmuxsink does NOT generate playlist.m3u8 automatically unless we enable `generate-playlist` property (if available) or handle messages.
+# Standard GStreamer splitmuxsink doesn't generate m3u8 easily from CLI without helper.
+# hlssink3 IS designed for this.
+# Let's check `gst-inspect-1.0 hlssink3`. If available, use it.
+# Assuming it is available (installed via vcpkg/gstreamer).
+
+$GstArgs = "rtspsrc location=$RtspUrl latency=200 ! rtph264depay ! h264parse ! hlssink3 location=$SessionDir\segment_%05d.ts playlist-location=$SessionDir\playlist.m3u8 target-duration=2 max-files=5"
+
+Write-Host "Executing: gst-launch-1.0 $GstArgs"
+
+Start-Process -FilePath "gst-launch-1.0" -ArgumentList $GstArgs -RedirectStandardOutput "${LogFile}_out.txt" -RedirectStandardError "${LogFile}_err.txt" -WindowStyle Hidden
+
+Write-Host "Stream started. Verify at: $SessionDir"

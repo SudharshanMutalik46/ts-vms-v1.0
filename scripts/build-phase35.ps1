@@ -1,6 +1,6 @@
 # build-phase35.ps1
 $ErrorActionPreference = "Stop"
-$Root = Split-Path $PSScriptRoot -Parent
+$Root = "c:\Users\sudha\Desktop\ts_vms_1.0"
 
 Write-Host "=== Phase 3.5 Build & Deploy ===" -ForegroundColor Cyan
 
@@ -18,31 +18,18 @@ Pop-Location
 
 # 3. Build Media Plane
 Write-Host "Building Media Plane (C++ Release)..." -ForegroundColor Yellow
-if (Test-Path "$Root\media-plane\build") {
-    Push-Location "$Root\media-plane\build"
-    cmake --build . --config Release
-    if ($LASTEXITCODE -ne 0) { Write-Error "Media Plane Build Failed"; exit 1 }
-    Pop-Location
-} else {
-    Write-Warning "media-plane\build directory not found. Skipping CMake build."
-}
+Push-Location "$Root\media-plane\build"
+cmake --build . --config Release
+if ($LASTEXITCODE -ne 0) { Write-Error "Media Plane Build Failed"; exit 1 }
+Pop-Location
 
 # 4. Build SFU
 Write-Host "Building SFU (TypeScript)..." -ForegroundColor Yellow
-if (Test-Path "$Root\sfu") {
-    Push-Location "$Root\sfu"
-    npm run build
-    if ($LASTEXITCODE -ne 0) { Write-Error "SFU Build Failed"; exit 1 }
-    Pop-Location
-} else {
-    Write-Warning "sfu directory not found. Skipping SFU build."
-}
+Push-Location "$Root\sfu"
+npm run build
+if ($LASTEXITCODE -ne 0) { Write-Error "SFU Build Failed"; exit 1 }
+Pop-Location
 
 # 5. Restart Services
 Write-Host "Starting Services..." -ForegroundColor Green
-$DevRestartScript = Join-Path $PSScriptRoot "dev-restart.ps1"
-if (Test-Path $DevRestartScript) {
-    & $DevRestartScript
-} else {
-    Write-Warning "dev-restart.ps1 not found in scripts folder."
-}
+& "$Root\scripts\dev-restart.ps1"

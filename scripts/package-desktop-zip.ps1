@@ -70,7 +70,6 @@ Ensure-Directory $binOut
 Ensure-Directory $sfuOut
 Ensure-Directory $scriptsOut
 
-# 1. Desktop Application
 if (-not $SkipDesktopPublish) {
     Push-Location $repoRoot
     dotnet publish .\desktop\TSVmsDesktop\TSVmsDesktop.csproj -c Release -r win-x64 --self-contained true -o $desktopOut
@@ -79,24 +78,10 @@ if (-not $SkipDesktopPublish) {
 else {
     $existingDesktop = Join-Path $repoRoot "desktop\TSVmsDesktop\bin\Release\net8.0-windows"
     if (-not (Copy-TreeIfExists -Source $existingDesktop -Destination $desktopOut)) {
-        Write-Warning "Desktop binaries not found at $existingDesktop. You may need to run dotnet publish."
+        throw "Desktop output not found at $existingDesktop"
     }
 }
 
-# 2. Tool discovery for packaging
-$NodeExe = Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if (!$NodeExe) { $NodeExe = "$env:ProgramFiles\nodejs\node.exe" }
-
-$RedisExe = Get-Command redis-server -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if (!$RedisExe) {
-    $PossibleRedis = @(
-        "$env:USERPROFILE\Downloads\Redis-x64-5.0.14.1\redis-server.exe"
-        "$env:ProgramFiles\Redis\redis-server.exe"
-    )
-    foreach ($p in $PossibleRedis) { if (Test-Path $p) { $RedisExe = $p; break } }
-}
-
-# 3. Binary Sources
 $binCandidates = @(
     @{ Source = (Join-Path $repoRoot "server.exe"); Destination = (Join-Path $binOut "server.exe") },
     @{ Source = (Join-Path $repoRoot "vms-control.exe"); Destination = (Join-Path $binOut "vms-control.exe") },
@@ -105,8 +90,8 @@ $binCandidates = @(
     @{ Source = (Join-Path $repoRoot "bin\vms-recording-bin.exe"); Destination = (Join-Path $binOut "vms-recording-bin.exe") },
     @{ Source = (Join-Path $repoRoot "vms-recording.exe"); Destination = (Join-Path $binOut "vms-recording.exe") },
     @{ Source = (Join-Path $repoRoot "src\vms-ai\nats-server.exe"); Destination = (Join-Path $binOut "nats-server.exe") },
-    @{ Source = $NodeExe; Destination = (Join-Path $binOut "node.exe") },
-    @{ Source = $RedisExe; Destination = (Join-Path $binOut "redis-server.exe") }
+    @{ Source = "C:\Program Files\nodejs\node.exe"; Destination = (Join-Path $binOut "node.exe") },
+    @{ Source = "C:\Users\sudha\Downloads\Redis-x64-5.0.14.1\redis-server.exe"; Destination = (Join-Path $binOut "redis-server.exe") }
 )
 
 foreach ($candidate in $binCandidates) {
@@ -128,8 +113,9 @@ Files:
 - package\: runtime files copied by the installer.
 
 Notes:
-- This package bundles local copies of node.exe, nats-server.exe, and redis-server.exe when available.
-- Requirements: PostgreSQL, GStreamer runtime, and camera access.
+- This package tries to include local copies of node.exe, nats-server.exe, and redis-server.exe when available.
+- PostgreSQL, Redis, GStreamer, camera/network access, and driver-level dependencies may still need to exist on the target machine.
+- The desktop app expects GStreamer at C:\Program Files\gstreamer\1.0\msvc_x86_64\bin in the current codebase.
 '@
 Set-Content -LiteralPath (Join-Path $setupRoot "README.txt") -Value $readme
 
@@ -150,4 +136,3 @@ Compress-Archive -Path (Join-Path $setupRoot "*") -DestinationPath $zipPath
 
 Write-Host "Portable package created:" -ForegroundColor Green
 Write-Host $zipPath
-

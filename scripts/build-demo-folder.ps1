@@ -1,5 +1,5 @@
 param(
-    [string]$Destination = (Join-Path $env:USERPROFILE "Desktop\TS-VMS-Demo")
+    [string]$Destination = "C:\Users\sudha\Desktop\TS-VMS-Demo"
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,12 +17,8 @@ function Copy-TreeContents {
         [string]$Destination
     )
 
-    if (Test-Path -LiteralPath $Source) {
-        Ensure-Directory $Destination
-        Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
-    } else {
-        Write-Warning "Source directory not found: $Source"
-    }
+    Ensure-Directory $Destination
+    Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -50,7 +46,6 @@ $sfuRoot = Join-Path $appRoot "sfu"
 $toolsRoot = Join-Path $Destination "tools"
 $scriptsRoot = Join-Path $Destination "scripts"
 $dataRoot = Join-Path $Destination "data"
-
 Ensure-Directory $binRoot
 Ensure-Directory $desktopRoot
 Ensure-Directory $configRoot
@@ -60,25 +55,12 @@ Ensure-Directory $toolsRoot
 Ensure-Directory $scriptsRoot
 Ensure-Directory $dataRoot
 
-# 1. Desktop Client
-$desktopBin = Join-Path $repoRoot "desktop\TSVmsDesktop\bin\Release\net8.0-windows"
-if (Test-Path $desktopBin) {
-    Copy-TreeContents -Source $desktopBin -Destination $desktopRoot
-} else {
-    Write-Warning "Desktop Release binaries not found. Build Desktop in Release mode first."
-}
-
-# 2. Config & Migrations
+Copy-TreeContents -Source (Join-Path $repoRoot "desktop\TSVmsDesktop\bin\Release\net8.0-windows") -Destination $desktopRoot
 Copy-TreeContents -Source (Join-Path $repoRoot "config") -Destination $configRoot
 Copy-TreeContents -Source (Join-Path $repoRoot "db\migrations") -Destination $dbMigrationsRoot
+Copy-TreeContents -Source (Join-Path $repoRoot "sfu\dist") -Destination (Join-Path $sfuRoot "dist")
+Copy-TreeContents -Source (Join-Path $repoRoot "sfu\node_modules") -Destination (Join-Path $sfuRoot "node_modules")
 
-# 3. SFU
-if (Test-Path (Join-Path $repoRoot "sfu\dist")) {
-    Copy-TreeContents -Source (Join-Path $repoRoot "sfu\dist") -Destination (Join-Path $sfuRoot "dist")
-    Copy-TreeContents -Source (Join-Path $repoRoot "sfu\node_modules") -Destination (Join-Path $sfuRoot "node_modules")
-}
-
-# 4. Binaries
 $binMap = @{
     "server.exe" = (Join-Path $repoRoot "server.exe")
     "vms-control.exe" = (Join-Path $repoRoot "vms-control.exe")
@@ -104,109 +86,62 @@ if (Test-Path -LiteralPath $mediaRuntimeDir) {
     }
 }
 
-# 5. Build Migrator
+if (-not (Test-Path -LiteralPath (Join-Path $binRoot "vms-media.exe"))) {
+    throw "Missing Release media binary at media-plane\\build\\Release\\vms-media.exe. Build Release first."
+}
+
 Push-Location $repoRoot
 go build -o (Join-Path $binRoot "migrator.exe") .\cmd\migrator
 Pop-Location
 
-# 6. Scripts
 Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\demo\Start-TSVmsDemo.ps1") -Destination (Join-Path $scriptsRoot "Start-TSVmsDemo.ps1") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\demo\Start-TSVmsDemo.cmd") -Destination (Join-Path $scriptsRoot "Start-TSVmsDemo.cmd") -Force
 
-# 7. PostgreSQL Tools
-$PgPath = $env:POSTGRESQL_ROOT
-if (!$PgPath) {
-    $PossiblePgPaths = @(
-        "$env:ProgramFiles\PostgreSQL\18"
-        "$env:ProgramFiles\PostgreSQL\17"
-        "$env:ProgramFiles\PostgreSQL\16"
-        "$env:ProgramFiles\PostgreSQL\15"
-        "$env:ProgramFiles\PostgreSQL\14"
-    )
-    foreach ($p in $PossiblePgPaths) {
-        if (Test-Path $p) { $PgPath = $p; break }
-    }
+Copy-TreeContents -Source "C:\Program Files\PostgreSQL\18\bin" -Destination (Join-Path $toolsRoot "postgres\bin")
+Copy-TreeContents -Source "C:\Program Files\PostgreSQL\18\lib" -Destination (Join-Path $toolsRoot "postgres\lib")
+Copy-TreeContents -Source "C:\Program Files\PostgreSQL\18\share" -Destination (Join-Path $toolsRoot "postgres\share")
+
+Copy-TreeContents -Source "C:\Program Files\gstreamer\1.0\msvc_x86_64\bin" -Destination (Join-Path $toolsRoot "gstreamer\bin")
+Copy-TreeContents -Source "C:\Program Files\gstreamer\1.0\msvc_x86_64\lib" -Destination (Join-Path $toolsRoot "gstreamer\lib")
+if (Test-Path -LiteralPath "C:\Program Files\gstreamer\1.0\msvc_x86_64\libexec") {
+    Copy-TreeContents -Source "C:\Program Files\gstreamer\1.0\msvc_x86_64\libexec" -Destination (Join-Path $toolsRoot "gstreamer\libexec")
 }
-if ($PgPath) {
-    Copy-TreeContents -Source (Join-Path $PgPath "bin") -Destination (Join-Path $toolsRoot "postgres\bin")
-    Copy-TreeContents -Source (Join-Path $PgPath "lib") -Destination (Join-Path $toolsRoot "postgres\lib")
-    Copy-TreeContents -Source (Join-Path $PgPath "share") -Destination (Join-Path $toolsRoot "postgres\share")
+if (Test-Path -LiteralPath "C:\Program Files\gstreamer\1.0\msvc_x86_64\share") {
+    Copy-TreeContents -Source "C:\Program Files\gstreamer\1.0\msvc_x86_64\share" -Destination (Join-Path $toolsRoot "gstreamer\share")
+}
+if (Test-Path -LiteralPath "C:\Program Files\gstreamer\1.0\msvc_x86_64\etc") {
+    Copy-TreeContents -Source "C:\Program Files\gstreamer\1.0\msvc_x86_64\etc" -Destination (Join-Path $toolsRoot "gstreamer\etc")
 }
 
-# 8. GStreamer Tools
-$GstPath = $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
-if (!$GstPath -or !(Test-Path $GstPath)) {
-    $GstPath = "$env:ProgramFiles\gstreamer\1.0\msvc_x86_64"
-}
-if (Test-Path $GstPath) {
-    Copy-TreeContents -Source (Join-Path $GstPath "bin") -Destination (Join-Path $toolsRoot "gstreamer\bin")
-    Copy-TreeContents -Source (Join-Path $GstPath "lib") -Destination (Join-Path $toolsRoot "gstreamer\lib")
-    foreach($sub in @("libexec", "share", "etc")) {
-        if (Test-Path (Join-Path $GstPath $sub)) {
-            Copy-TreeContents -Source (Join-Path $GstPath $sub) -Destination (Join-Path $toolsRoot "gstreamer\$sub")
-        }
-    }
+Ensure-Directory (Join-Path $toolsRoot "redis")
+Copy-Item -LiteralPath "C:\Users\sudha\Downloads\Redis-x64-5.0.14.1\redis-server.exe" -Destination (Join-Path $toolsRoot "redis\redis-server.exe") -Force
+if (Test-Path -LiteralPath "C:\Users\sudha\Downloads\Redis-x64-5.0.14.1\redis.windows.conf") {
+    Copy-Item -LiteralPath "C:\Users\sudha\Downloads\Redis-x64-5.0.14.1\redis.windows.conf" -Destination (Join-Path $toolsRoot "redis\redis.windows.conf") -Force
 }
 
-# 9. Redis
-$RedisExe = Get-Command redis-server -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if (!$RedisExe) {
-    $PossibleRedis = @(
-        "$env:USERPROFILE\Downloads\Redis-x64-5.0.14.1\redis-server.exe"
-        "$env:ProgramFiles\Redis\redis-server.exe"
-    )
-    foreach ($p in $PossibleRedis) { if (Test-Path $p) { $RedisExe = $p; break } }
-}
-if ($RedisExe) {
-    Ensure-Directory (Join-Path $toolsRoot "redis")
-    Copy-Item -LiteralPath $RedisExe -Destination (Join-Path $toolsRoot "redis\redis-server.exe") -Force
-    $RedisDir = Split-Path $RedisExe -Parent
-    if (Test-Path (Join-Path $RedisDir "redis.windows.conf")) {
-        Copy-Item -LiteralPath (Join-Path $RedisDir "redis.windows.conf") -Destination (Join-Path $toolsRoot "redis\redis.windows.conf") -Force
-    }
-}
-
-# 10. NATS
 Ensure-Directory (Join-Path $toolsRoot "nats")
-if (Test-Path (Join-Path $repoRoot "src\vms-ai\nats-server.exe")) {
-    Copy-Item -LiteralPath (Join-Path $repoRoot "src\vms-ai\nats-server.exe") -Destination (Join-Path $toolsRoot "nats\nats-server.exe") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "src\vms-ai\nats-server.exe") -Destination (Join-Path $toolsRoot "nats\nats-server.exe") -Force
+
+Ensure-Directory (Join-Path $toolsRoot "node")
+Copy-Item -LiteralPath "C:\Program Files\nodejs\node.exe" -Destination (Join-Path $toolsRoot "node\node.exe") -Force
+
+Ensure-Directory (Join-Path $toolsRoot "ffmpeg")
+if (Test-Path -LiteralPath "C:\ffmpeg\bin\ffmpeg.exe") {
+    Copy-Item -LiteralPath "C:\ffmpeg\bin\ffmpeg.exe" -Destination (Join-Path $toolsRoot "ffmpeg\ffmpeg.exe") -Force
 }
 
-# 11. Node.js
-$NodeExe = Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if ($NodeExe) {
-    Ensure-Directory (Join-Path $toolsRoot "node")
-    Copy-Item -LiteralPath $NodeExe -Destination (Join-Path $toolsRoot "node\node.exe") -Force
-}
-
-# 12. FFmpeg
-$FfmpegExe = Get-Command ffmpeg -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-if ($FfmpegExe) {
-    Ensure-Directory (Join-Path $toolsRoot "ffmpeg")
-    Copy-Item -LiteralPath $FfmpegExe -Destination (Join-Path $toolsRoot "ffmpeg\ffmpeg.exe") -Force
-}
-
-# 13. Installer Compilation
 $installerSource = Join-Path $repoRoot "packaging\TSVmsDemoInstaller\Program.cs"
 $installerExe = Join-Path $Destination "Install-TS-VMS-Demo.exe"
 $uninstallerSource = Join-Path $repoRoot "packaging\TSVmsDemoUninstaller\Program.cs"
 $uninstallerExe = Join-Path $Destination "Uninstall-TS-VMS-Demo.exe"
-
-$cscExe = Join-Path $env:SystemRoot "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-if (!(Test-Path $cscExe)) {
-    # Try alternate location or PATH
-    $cscExe = Join-Path $env:SystemRoot "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+$cscExe = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+& $cscExe /nologo /target:exe /out:$installerExe $installerSource
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to compile installer exe."
 }
-if (!(Test-Path $cscExe)) {
-    # Try current MSBuild/Roslyn location
-    $cscExe = Get-Command csc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-}
-
-if ($cscExe -and (Test-Path $installerSource)) {
-    & $cscExe /nologo /target:exe /out:$installerExe $installerSource
-    if ($LASTEXITCODE -eq 0) {
-        & $cscExe /nologo /target:exe /out:$uninstallerExe $uninstallerSource
-    }
+& $cscExe /nologo /target:exe /out:$uninstallerExe $uninstallerSource
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to compile uninstaller exe."
 }
 
 $readme = @'
@@ -216,8 +151,20 @@ TS-VMS Demo
 2. It creates a Desktop shortcut: TS VMS Demo
 3. The shortcut starts the full demo stack from this folder
 4. Use Uninstall-TS-VMS-Demo.exe to remove the shortcut and demo folder
+
+This folder bundles:
+- Desktop client
+- Control plane
+- Media plane
+- Recording service
+- HLSD
+- PostgreSQL tools and local data bootstrap
+- Redis
+- NATS
+- Node.js
+- GStreamer runtime
+- FFmpeg runtime if present on the build machine
 '@
 Set-Content -LiteralPath (Join-Path $Destination "README.txt") -Value $readme
 
 Write-Host "Demo folder created at $Destination" -ForegroundColor Green
-

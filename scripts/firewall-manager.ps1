@@ -3,7 +3,7 @@ param(
     [ValidateSet("Install", "Uninstall", "Status")]
     [string]$Action,
 
-    [string]$ConfigPath = (Join-Path $env:ProgramData "TechnoSupport\VMS\config\default.yaml"),
+    [string]$ConfigPath = "C:\ProgramData\TechnoSupport\VMS\config\default.yaml",
 
     [switch]$DryRun
 )

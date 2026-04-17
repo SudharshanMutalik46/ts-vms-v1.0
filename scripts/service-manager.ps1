@@ -24,9 +24,9 @@ $ErrorActionPreference = "Stop"
 
 # --- Constants & Configuration ---
 
-$InstallRoot = Join-Path $env:ProgramFiles "TechnoSupport\VMS"
-$DataRoot = Join-Path $env:ProgramData "TechnoSupport\VMS"
-$ConfigPath = Join-Path $DataRoot "config\default.yaml"
+$InstallRoot = "C:\Program Files\TechnoSupport\VMS"
+$DataRoot = "C:\ProgramData\TechnoSupport\VMS"
+$ConfigPath = "$DataRoot\config\default.yaml"
 
 # Service Definitions
 $Services = @(

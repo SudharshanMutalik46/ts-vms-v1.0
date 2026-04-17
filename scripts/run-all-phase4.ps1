@@ -1,35 +1,79 @@
-# run-all-phase4.ps1
 $ErrorActionPreference = "Continue"
-$Root = Split-Path $PSScriptRoot -Parent
-$ReportPath = Join-Path $Root "docs\phase4\audit_report.md"
 
-if (!(Test-Path (Split-Path $ReportPath))) { New-Item -ItemType Directory -Path (Split-Path $ReportPath) -Force }
-
-$Header = @"
-# TS-VMS Phase 4 Integration Audit Report
-Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
----
-"@
-$Header | Out-File -FilePath $ReportPath -Encoding utf8
+$ReportPath = "C:\Users\sudha\Desktop\ts_vms_1.0\docs\phase4\audit_report.md"
 
 $Scripts = @(
-    "vms-service-audit.ps1",
-    "vms-storage-audit.ps1",
-    "vms-api-health.ps1",
-    "verify-phase-4.2.ps1",
-    "verify-phase-4.2.5.ps1",
-    "verify-phase-4.3.ps1",
-    "verify-phase-4.4.ps1"
+    "verify-phase-4.1-storage.ps1",
+    "verify-phase-4.2-recording.ps1",
+    "verify-phase-4.3-segment-writer.ps1",
+    "verify-phase-4.4-retention.ps1",
+    "verify-phase-4.5-metadata.ps1",
+    "verify-phase-4.6-prebuffer.ps1",
+    "verify-phase-4.7-recording-apis.ps1",
+    "verify-phase-4.8-diskio.ps1",
+    "verify-phase-4.9-health.ps1",
+    "verify-phase-4.10-failover.ps1",
+    "run-phase-4.11-perf.ps1"
 )
 
+$DateStr = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+$ReportContent = @"
+# TS-VMS Phase 4 Audit Report
+**Date:** $DateStr
+
+This document contains the automated verification results for all Phase 4 modules.
+
+| Phase | Script Name | Status |
+|---|---|---|
+"@
+
+$PassCount = 0
+$FailCount = 0
+
 foreach ($Script in $Scripts) {
-    Write-Host "Running $Script..." -ForegroundColor Cyan
-    $ScriptPath = Join-Path $PSScriptRoot $Script
-    if (Test-Path $ScriptPath) {
-        & $ScriptPath | Out-File -FilePath $ReportPath -Append -Encoding utf8
-    } else {
-        "## Missed: $Script (File not found)" | Out-File -FilePath $ReportPath -Append -Encoding utf8
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "Running $Script..." -ForegroundColor Yellow
+    Write-Host "========================================" -ForegroundColor Cyan
+    
+    $ScriptPath = "C:\Users\sudha\Desktop\ts_vms_1.0\scripts\$Script"
+    
+    # Run script and capture both output and error
+    $Output = & powershell.exe -ExecutionPolicy Bypass -File $ScriptPath *>&1
+    
+    $ExitCode = $LASTEXITCODE
+
+    if ($ExitCode -eq 0) {
+        Write-Host "[PASS] $Script" -ForegroundColor Green
+        $ReportContent += "`n| $($Script.Split('-')[2]) | $Script | ✅ PASS |"
+        $PassCount++
+    }
+    else {
+        Write-Host "[FAIL] $Script" -ForegroundColor Red
+        Write-Host "Output:"
+        $Output | Out-String | Write-Host
+        $ReportContent += "`n| $($Script.Split('-')[2]) | $Script | ❌ FAIL |"
+        $FailCount++
     }
 }
 
-Write-Host "All audits complete. Report at $ReportPath" -ForegroundColor Green
+$TotalCount = $PassCount + $FailCount
+
+$ReportContent += @"
+
+## Summary
+* **Total Tests Executed:** $TotalCount
+* **Passed:** $PassCount
+* **Failed:** $FailCount
+
+"@
+
+if ($FailCount -eq 0) {
+    $ReportContent += "**Status:** All Phase 4 requirements successfully verified."
+}
+else {
+    $ReportContent += "**Status:** Some tests failed. Check logs for details."
+}
+
+Set-Content -Path $ReportPath -Value $ReportContent
+Write-Host "`nAudit Report generated at: $ReportPath" -ForegroundColor Green
