@@ -163,16 +163,6 @@ namespace TSVmsDesktop.Services
                     return candidate;
             }
 
-            // MSVC-based GStreamer standard env var
-            string? gstMsvcRoot = Environment.GetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64");
-            if (!string.IsNullOrWhiteSpace(gstMsvcRoot))
-            {
-                string candidate = System.IO.Path.Combine(gstMsvcRoot, "bin", "gst-discoverer-1.0.exe");
-                if (System.IO.File.Exists(candidate))
-                    return candidate;
-            }
-
-            // MinGW-based GStreamer standard env var
             string? gstRoot = Environment.GetEnvironmentVariable("GSTREAMER_1_0_ROOT_X86_64");
             if (!string.IsNullOrWhiteSpace(gstRoot))
             {
@@ -181,27 +171,9 @@ namespace TSVmsDesktop.Services
                     return candidate;
             }
 
-            // Fallback to searching PATH
-            try
-            {
-                var proc = new System.Diagnostics.Process {
-                    StartInfo = {
-                        FileName = "where",
-                        Arguments = "gst-discoverer-1.0.exe",
-                        RedirectStandardOutput = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-                proc.Start();
-                string output = proc.StandardOutput.ReadToEnd();
-                proc.WaitForExit();
-                if (proc.ExitCode == 0)
-                {
-                    string path = output.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries)[0];
-                    if (System.IO.File.Exists(path)) return path;
-                }
-            } catch { }
+            string defaultPath = @"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin\gst-discoverer-1.0.exe";
+            if (System.IO.File.Exists(defaultPath))
+                return defaultPath;
 
             return "gst-discoverer-1.0.exe";
         }

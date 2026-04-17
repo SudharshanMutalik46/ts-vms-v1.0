@@ -16,18 +16,45 @@ namespace TSVmsDesktop.Services
         private bool _initialized;
         private readonly object _sync = new();
 
+        private int _lastWidth = -1;
+        private int _lastHeight = -1;
+        private string _lastMediaPath = string.Empty;
+        private string _lastPlaylistSignature = string.Empty;
+        private int _lastPlaylistStartIndex = -1;
+
+        private void ResetCachedState()
+        {
+            _lastWidth = -1;
+            _lastHeight = -1;
+            _lastMediaPath = string.Empty;
+            _lastPlaylistSignature = string.Empty;
+            _lastPlaylistStartIndex = -1;
+        }
+
         public void AttachHost(IntPtr hwnd)
         {
             lock (_sync)
             {
+                if (_hostHandle == hwnd && (hwnd == IntPtr.Zero || _initialized))
+                    return;
+
                 _hostHandle = hwnd;
                 EnsureCreated();
-                if (_hostHandle != IntPtr.Zero)
+
+                if (_hostHandle == IntPtr.Zero)
                 {
-                    ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
-                    ThrowIfFailed(NativePlayback.tsplay_set_window_handle(_engine, _hostHandle));
-                    _initialized = true;
+                    _initialized = false;
+                    ResetCachedState();
+                    return;
                 }
+
+                ThrowIfFailed(NativePlayback.tsplay_initialize(_engine, _hostHandle));
+                ThrowIfFailed(NativePlayback.tsplay_set_window_handle(_engine, _hostHandle));
+                _initialized = true;
+
+                // Force next size push after host changes.
+                _lastWidth = -1;
+                _lastHeight = -1;
             }
         }
 
@@ -47,7 +74,17 @@ namespace TSVmsDesktop.Services
             lock (_sync)
             {
                 EnsureReady();
-                ThrowIfFailed(NativePlayback.tsplay_set_window_size(_engine, Math.Max(1, width), Math.Max(1, height)));
+
+                width = Math.Max(1, width);
+                height = Math.Max(1, height);
+
+                if (_lastWidth == width && _lastHeight == height)
+                    return;
+
+                ThrowIfFailed(NativePlayback.tsplay_set_window_size(_engine, width, height));
+
+                _lastWidth = width;
+                _lastHeight = height;
             }
         }
 
@@ -72,9 +109,18 @@ namespace TSVmsDesktop.Services
             lock (_sync)
             {
                 EnsureReady();
+
                 if (string.IsNullOrWhiteSpace(mediaPath))
                     throw new ArgumentException("Media path is empty.", nameof(mediaPath));
+
+                if (string.Equals(_lastMediaPath, mediaPath, StringComparison.OrdinalIgnoreCase))
+                    return;
+
                 ThrowIfFailed(NativePlayback.tsplay_set_media_path(_engine, mediaPath));
+
+                _lastMediaPath = mediaPath;
+                _lastPlaylistSignature = string.Empty;
+                _lastPlaylistStartIndex = -1;
             }
         }
 
@@ -91,11 +137,26 @@ namespace TSVmsDesktop.Services
             lock (_sync)
             {
                 EnsureReady();
+
                 if (playlist.Length == 0)
                     throw new InvalidOperationException("Playback session contains no archive segments.");
+
                 if (startIndex < 0 || startIndex >= playlist.Length)
                     startIndex = 0;
+
+                string playlistSignature = string.Join("\n", playlist);
+
+                if (_lastPlaylistSignature == playlistSignature &&
+                    _lastPlaylistStartIndex == startIndex)
+                {
+                    return;
+                }
+
                 ThrowIfFailed(NativePlayback.tsplay_set_playlist(_engine, playlist, playlist.Length, startIndex));
+
+                _lastPlaylistSignature = playlistSignature;
+                _lastPlaylistStartIndex = startIndex;
+                _lastMediaPath = string.Empty;
             }
         }
 
@@ -146,6 +207,15 @@ namespace TSVmsDesktop.Services
             {
                 EnsureReady();
                 NativePlayback.tsplay_force_expose(_engine);
+            }
+        }
+
+        public void WaitForPreroll(int timeoutMs = 2000)
+        {
+            lock (_sync)
+            {
+                EnsureReady();
+                ThrowIfFailed(NativePlayback.tsplay_wait_for_preroll(_engine, timeoutMs));
             }
         }
 
@@ -295,6 +365,7 @@ namespace TSVmsDesktop.Services
                     NativePlayback.tsplay_reset_engine(_engine);
                     _initialized = false;
                 }
+                ResetCachedState();
             }
         }
     }

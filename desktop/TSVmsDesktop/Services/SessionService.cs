@@ -9,6 +9,7 @@ namespace TSVmsDesktop.Services
         string? AccessToken { get; }
         string? RefreshToken { get; }
         UserIdentity? CurrentUser { get; } // New
+        event Action? SessionCleared;
         void SetTokens(string access, string refresh);
         void SetIdentity(UserIdentity user);
         bool HasPermission(string permission);
@@ -23,6 +24,7 @@ namespace TSVmsDesktop.Services
         private readonly ISecureStorageService _storage;
         private string? _accessToken;
         private string? _refreshToken;
+        public event Action? SessionCleared;
         public string? AccessToken => _accessToken;
         public string? RefreshToken => _refreshToken;
         public UserIdentity? CurrentUser { get; private set; }
@@ -88,6 +90,7 @@ namespace TSVmsDesktop.Services
             _refreshToken = null;
             CurrentUser = null;
             _storage.ClearToken();
+            SessionCleared?.Invoke();
         }
 
         private void Load()

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/technosupport/ts-vms/internal/platform/paths"
 )
 
 type Config struct {
@@ -155,17 +153,19 @@ func (c *Config) ApplyDefaults() {
 	if c.Global.StorageRoot == "" {
 		if v := os.Getenv("TS_VMS_RECORDING_ROOT"); v != "" {
 			c.Global.StorageRoot = v
+		} else if runtime.GOOS == "windows" {
+			c.Global.StorageRoot = `C:\ProgramData\TechnoSupport\VMS\recordings`
 		} else {
-			root := paths.ResolveDataRoot()
-			c.Global.StorageRoot = filepath.Join(root, "recordings")
+			c.Global.StorageRoot = "/var/lib/ts-vms/recordings"
 		}
 	}
 	if c.Global.ExportRoot == "" {
 		if v := os.Getenv("TS_VMS_EXPORT_ROOT"); v != "" {
 			c.Global.ExportRoot = v
+		} else if runtime.GOOS == "windows" {
+			c.Global.ExportRoot = `C:\ProgramData\TechnoSupport\VMS\exports`
 		} else {
-			root := paths.ResolveDataRoot()
-			c.Global.ExportRoot = filepath.Join(root, "exports")
+			c.Global.ExportRoot = "/var/lib/ts-vms/exports"
 		}
 	}
 	for i := range c.Cameras {

@@ -29,6 +29,7 @@ TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine);
 TSVMS_PLAYBACK_API int   tsplay_set_last_sample_enabled(void* engine, int enabled);
 TSVMS_PLAYBACK_API int   tsplay_force_expose(void* engine);
 
+TSVMS_PLAYBACK_API int   tsplay_wait_for_preroll(void* engine, int timeoutMs);
 
 TSVMS_PLAYBACK_API double tsplay_get_position_seconds(void* engine);
 TSVMS_PLAYBACK_API double tsplay_get_duration_seconds(void* engine);

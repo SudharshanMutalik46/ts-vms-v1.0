@@ -46,6 +46,8 @@ namespace TSVmsDesktop.ViewModels
             _secureStorageService = secureStorageService;
             _session = session;
             LiveVM = liveVm; // Injected Singleton
+
+            _session.SessionCleared += OnSessionCleared;
             
             _configService.Load();
             
@@ -54,6 +56,19 @@ namespace TSVmsDesktop.ViewModels
             startupVm.OnStartupSuccess = this.OnStartupComplete;
 
             CurrentView = startupVm;
+        }
+
+        private void OnSessionCleared()
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (!IsLoggedIn)
+                    return;
+
+                IsLoggedIn = false;
+                RefreshRbacUI();
+                NavigateToLogin();
+            });
         }
 
         public void OnStartupComplete()

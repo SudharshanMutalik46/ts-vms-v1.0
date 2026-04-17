@@ -17,12 +17,12 @@ rate_limit:
       window: 1m
 
 license:
-  path: "./data/license/license.lic"
-  public_key_path: "./data/license/license_pub.pem"
+  path: "C:\\ProgramData\\TechnoSupport\\VMS\\license\\license.lic"
+  public_key_path: "C:\\ProgramData\\TechnoSupport\\VMS\\license\\license_pub.pem"
   check_interval: "1h"
 
 audit:
-  spool_dir: "./data/audit_spool"
+  spool_dir: "C:\\ProgramData\\TechnoSupport\\VMS\\audit_spool"
   retention_years: 7
   max_spool_size_mb: 1024
 

@@ -45,6 +45,9 @@ namespace TSVmsDesktop.Interop
         internal static extern int tsplay_force_expose(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int tsplay_wait_for_preroll(IntPtr engine, int timeoutMs);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int tsplay_play(IntPtr engine);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

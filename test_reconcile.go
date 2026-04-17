@@ -18,7 +18,7 @@ func inferCameraIDFromPath(path string) string {
 }
 
 func main() {
-	path := filepath.Join("data", "recordings", "tenant-default", "site-default", "cam-test-01", "2026-03-10", "11", "segment_00001.mp4")
+	path := `C:\ProgramData\TechnoSupport\VMS\recordings\tenant-default\site-default\cam-test-01\2026-03-10\11\segment_00001.mp4`
 	id := inferCameraIDFromPath(path)
 	fmt.Printf("Path: %s\nDetected ID: %s (Expected: cam-test-01)\n", path, id)
 

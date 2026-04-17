@@ -144,6 +144,81 @@ public:
         return 0;
     }
 
+    int WaitForPreroll(int timeoutMs)
+    {
+        GstElement* pipelineRef = nullptr;
+
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            if (!_pipeline || !_mediaLoaded)
+            {
+                SetErrorLocked(L"Load a recorded segment first");
+                return 0;
+            }
+
+            if (timeoutMs <= 0)
+                timeoutMs = 2000;
+
+            pipelineRef = GST_ELEMENT(gst_object_ref(_pipeline));
+        }
+
+        GstState state = GST_STATE_NULL;
+        GstState pending = GST_STATE_VOID_PENDING;
+
+        GstStateChangeReturn sc = gst_element_get_state(
+            pipelineRef,
+            &state,
+            &pending,
+            static_cast<GstClockTime>(timeoutMs) * GST_MSECOND);
+
+        gst_object_unref(pipelineRef);
+
+        if (sc == GST_STATE_CHANGE_FAILURE)
+        {
+            SetErrorLocked(L"Playback preroll failed");
+            return 0;
+        }
+
+        const ULONGLONG deadline = GetTickCount64() + static_cast<ULONGLONG>(timeoutMs);
+
+        while (GetTickCount64() < deadline)
+        {
+            bool frameReady = false;
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+
+                // Caps probe updates these when decoded video is really flowing.
+                frameReady = (_sourceWidth > 0 && _sourceHeight > 0);
+
+                if (frameReady)
+                {
+                    auto hwndValue = _overlayHwnd.load(std::memory_order_acquire);
+                    if (hwndValue != 0)
+                    {
+                        if (_videoSink)
+                            ApplyOverlayHandleLocked(_videoSink, hwndValue);
+
+                        ApplyOverlayHandleToPlaybinLocked(hwndValue);
+                        ApplyRenderRectangleUnlocked();
+                    }
+                }
+            }
+
+            if (frameReady)
+            {
+                ForceExpose();
+                return 1;
+            }
+
+            Sleep(15);
+        }
+
+        // Best effort: expose whatever the sink currently has.
+        ForceExpose();
+        return 1;
+    }
+
     int GetRotationDegrees() const
     {
         return _rotationDegrees;
@@ -282,6 +357,7 @@ public:
                 nullptr);
         }
 
+        ApplyRenderRectangleUnlocked();
         return 1;
     }
 
@@ -1762,6 +1838,12 @@ TSVMS_PLAYBACK_API int tsplay_force_expose(void* engine)
 {
     if (!engine) return 0;
     return static_cast<PlaybackEngine*>(engine)->ForceExpose();
+}
+
+TSVMS_PLAYBACK_API int tsplay_wait_for_preroll(void* engine, int timeoutMs)
+{
+    if (!engine) return 0;
+    return static_cast<PlaybackEngine*>(engine)->WaitForPreroll(timeoutMs);
 }
 
 TSVMS_PLAYBACK_API double tsplay_get_rate(void* engine)

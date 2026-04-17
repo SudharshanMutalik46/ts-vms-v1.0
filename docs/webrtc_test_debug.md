@@ -11,7 +11,7 @@ As of Phase 3.4, usage of WebSocket signaling is **optional** and **disabled by 
 
 Run a local HTTP server:
 ```powershell
-cd .\test
+cd c:\Users\sudha\Desktop\ts_vms_1.0\test
 python -m http.server 8000
 ```
 Then open: [http://localhost:8000/webrtc_test.html](http://localhost:8000/webrtc_test.html)

@@ -4,10 +4,10 @@ global:
   api_base_url: "http://localhost:8082"
   sfu_base_url: "http://localhost:8085"
   dev_rbac_bypass: true
-  storage_root: "./data/recordings"
-  export_root: "./data/exports"
-  ffmpeg_path: "ffmpeg"
-  gst_launch_path: "gst-launch-1.0.exe"
+  storage_root: "C:\\ts_vms_storage"
+  export_root: "C:\\ts_vms_exports"
+  ffmpeg_path: "C:\\ffmpeg\\bin\\ffmpeg.exe"
+  gst_launch_path: "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\bin\\gst-launch-1.0.exe"
   default_tenant_id: "tenant_sys"
   default_site_id: "site_hq"
 
@@ -72,7 +72,7 @@ recording:
   force_main_stream: true
   storage_tiers:
     - name: "hot"
-      path: "./data/recordings/hot"
+      path: "C:\\ts_vms_storage\\hot"
       max_size_gb: 1000
       pressure_threshold_pct: 85
   retention:

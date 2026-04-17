@@ -11,9 +11,13 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using TSVmsDesktop.Models;
 using TSVmsDesktop.Services;
-
 namespace TSVmsDesktop.ViewModels
 {
+    public enum PlaybackLayoutMode
+    {
+        Single = 1,
+        Quad = 4
+    }
     public partial class PlaybackTileSlot : ObservableObject
     {
         [ObservableProperty] private int _slotIndex;
@@ -58,8 +62,8 @@ namespace TSVmsDesktop.ViewModels
         private int _suspendPolling;
         private int _attachInFlight;
         private int _loadToken;
-        private int _lastHostWidth;
-        private int _lastHostHeight;
+        private int _lastHostWidth = 1280;
+        private int _lastHostHeight = 720;
         private CancellationTokenSource? _loadCts;
         private CancellationTokenSource? _switchCts;
         private int _switchToken;
@@ -68,14 +72,25 @@ namespace TSVmsDesktop.ViewModels
         private static readonly TimeSpan SegmentCacheTtl = TimeSpan.FromMinutes(2);
         private readonly List<PlaybackEngineService> _secondaryPlaybackEngines = new();
         private readonly List<SemaphoreSlim> _secondaryNativeOpGates = new();
-        private readonly List<PlaybackSessionModel?> _secondarySessions = new();
+        private readonly List<PlaybackSessionModel?> _secondarySessions = new() { null, null, null };
         private readonly List<int> _secondaryHostWidths = new();
         private readonly List<int> _secondaryHostHeights = new();
         private readonly List<bool> _secondaryHostsAttached = new();
         private readonly List<CameraModel> _selectedPlaybackCameras = new();
         private readonly List<bool> _secondaryPendingReload = new() { false, false, false };
+        private int _secondaryReloadQueued = 0;
         private readonly SemaphoreSlim _selectionChangeGate = new(1, 1);
+        private readonly SemaphoreSlim _stableSelectionRefreshGate = new(1, 1);
+        private int _selectionRefreshVersion;
         private readonly SemaphoreSlim _loadSegmentsGate = new(1, 1);
+        private readonly string?[] _secondaryLastOpenKeys = new string?[3];
+        private readonly DateTime[] _secondaryLastOpenUtc = new DateTime[3];
+        private readonly int[] _secondaryOpenGeneration = new int[3];
+        private readonly bool[] _secondaryRetryOnce = new bool[3];
+        private int _secondaryLayoutEpoch;
+        private int _secondaryLoadInFlight;
+        private readonly int[] _secondaryPendingReloadEpoch = new int[3];
+        private string _lastClickedPlaybackCameraId = string.Empty;
         private List<string> _lastLoadedPlaybackCameraIds = new();
         private string _lastLoadedCameraId = string.Empty;
         private DateTime _lastLoadedDayLocal = DateTime.MinValue;
@@ -85,6 +100,10 @@ namespace TSVmsDesktop.ViewModels
         private double _lastUiTimelineSeconds = -1;
         private string _lastUiWallClock = string.Empty;
         private bool _suppressSelectedCameraChangedLoad;
+        private bool _pendingSelectionReloadAfterLayout;
+        private double _pendingSelectionWindowSeconds;
+        private bool _pendingSelectionAutoPlay;
+        private bool _pendingPrimaryLoadAfterLayout;
 
         private double _lastEnginePositionSeconds = -1;
         private int _lastEnginePlaylistIndex = -1;
@@ -109,10 +128,14 @@ namespace TSVmsDesktop.ViewModels
 
         private bool _isUpdatingUI = false; // Slider Re-entrancy protection
         private DateTime _lastTransitionTime = DateTime.Now;
+        private DateTime _lastSeekRequestUtc = DateTime.MinValue;
 
         private PlaybackSessionModel? _currentSession;
-
-
+        private PlaybackSessionModel? _loadedPrimarySession;
+        private int _loadedPrimarySegmentIndex = -1;
+        private readonly PlaybackSessionModel?[] _loadedSecondarySessions = new PlaybackSessionModel?[3];
+        private readonly int[] _loadedSecondarySegmentIndices = new int[3] { -1, -1, -1 };
+        private readonly CameraModel?[] _secondarySlotSelections = new CameraModel?[3];
 
 
         // Stronger validation so we don't restore the wrong session
@@ -138,6 +161,8 @@ namespace TSVmsDesktop.ViewModels
         public ObservableCollection<TimelineTickItem> TimelineTicks { get; } = new();
         public ObservableCollection<PlaybackTimelineRow> PlaybackTimelines { get; } = new();
 
+        private const int PlaybackPrerollTimeoutMs = 2500;
+        private const int PlaybackPauseExposeTimeoutMs = 800;
         [ObservableProperty] private CameraModel? _selectedCamera;
 
         [ObservableProperty] private string _cameraSearchText = "";
@@ -154,18 +179,179 @@ namespace TSVmsDesktop.ViewModels
         // Overlay
         [ObservableProperty] private bool _showPlayerOverlay = true;
         [ObservableProperty] private string _playerOverlayTitle = "Select a time to start playback";
-        [ObservableProperty] private string _playerOverlaySubtitle = "Use the timeline (green = recording, red = no recording). Double-click to play.";
+        [ObservableProperty] private string _playerOverlaySubtitle = "Click anywhere on the timeline to seek recorded footage. Double-click to start playback.";
 
         // Playback state
         [ObservableProperty] private bool _isPlaying;
+        public bool ShouldResumePlayback => _shouldBePlaying || IsPlaying;
         [ObservableProperty] private bool _hasSegments;
         [ObservableProperty] private bool _hasMediaLoaded;
 
         [ObservableProperty] private string _playbackRateText = "1x";
         [ObservableProperty] private double _videoAspectRatio = 16.0 / 9.0;
 
-        public bool IsSinglePlaybackLayout => SelectedPlaybackCount <= 1;
-        public bool IsMultiPlaybackLayout => SelectedPlaybackCount > 1;
+        [ObservableProperty] private PlaybackLayoutMode _playbackLayoutMode = PlaybackLayoutMode.Single;
+
+        public bool IsSinglePlaybackLayout => PlaybackLayoutMode == PlaybackLayoutMode.Single;
+        public bool IsMultiPlaybackLayout => PlaybackLayoutMode == PlaybackLayoutMode.Quad;
+
+        public bool IsSingleViewSelected
+        {
+            get => PlaybackLayoutMode == PlaybackLayoutMode.Single;
+            set
+            {
+                if (value && PlaybackLayoutMode != PlaybackLayoutMode.Single)
+                    PlaybackLayoutMode = PlaybackLayoutMode.Single;
+            }
+        }
+
+        public bool IsQuadViewSelected
+        {
+            get => PlaybackLayoutMode == PlaybackLayoutMode.Quad;
+            set
+            {
+                if (value && PlaybackLayoutMode != PlaybackLayoutMode.Quad)
+                    PlaybackLayoutMode = PlaybackLayoutMode.Quad;
+            }
+        }
+
+        partial void OnPlaybackLayoutModeChanged(PlaybackLayoutMode value)
+        {
+            OnPropertyChanged(nameof(IsSinglePlaybackLayout));
+            OnPropertyChanged(nameof(IsMultiPlaybackLayout));
+            OnPropertyChanged(nameof(IsSingleViewSelected));
+            OnPropertyChanged(nameof(IsQuadViewSelected));
+        }
+
+        [RelayCommand]
+        private async Task SetSinglePlaybackLayout()
+        {
+            bool resumePlay = ShouldResumePlayback;
+            double resumeWindowSeconds = CurrentTimelineSeconds;
+
+            await _selectionChangeGate.WaitAsync();
+            try
+            {
+                CameraModel? target = ResolvePreferredSingleCamera();
+
+                _suppressSelectedCameraChangedLoad = true;
+                SelectedCamera = target;
+                _suppressSelectedCameraChangedLoad = false;
+
+                for (int i = 0; i < _secondarySlotSelections.Length; i++)
+                {
+                    _secondarySlotSelections[i] = null;
+                    await StopAndClearSecondaryEngineAsync(i);
+                }
+
+                PlaybackLayoutMode = PlaybackLayoutMode.Single;
+                Interlocked.Increment(ref _secondaryLayoutEpoch);
+
+                UpdatePlaybackSlotsFromSelection();
+                RebuildCompactSelectedPlaybackList();
+
+                foreach (var choice in AvailablePlaybackCameras)
+                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
+
+                if (SelectedCamera == null)
+                {
+                    await StopAndClearAllPlaybackEnginesAsync();
+                    ResetLoadedPlaybackStateOnly();
+                    ShowPlayerOverlay = true;
+                    PlayerOverlayTitle = "Select a camera to start playback";
+                    PlayerOverlaySubtitle = "Choose a camera for single playback.";
+                    StatusMessage = "No camera selected.";
+                    return;
+                }
+            }
+            finally
+            {
+                _selectionChangeGate.Release();
+            }
+
+            await Task.Yield();
+            await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay);
+        }
+
+        [RelayCommand]
+        private async Task SetQuadPlaybackLayout()
+        {
+            bool resumePlay = ShouldResumePlayback;
+            double resumeWindowSeconds = CurrentTimelineSeconds;
+
+            await _selectionChangeGate.WaitAsync();
+            try
+            {
+                if (SelectedCamera == null)
+                {
+                    var target = ResolvePreferredSingleCamera();
+                    if (target != null)
+                    {
+                        _suppressSelectedCameraChangedLoad = true;
+                        SelectedCamera = target;
+                        _suppressSelectedCameraChangedLoad = false;
+                    }
+                }
+
+                PlaybackLayoutMode = PlaybackLayoutMode.Quad;
+                Interlocked.Increment(ref _secondaryLayoutEpoch);
+                UpdatePlaybackSlotsFromSelection();
+                RebuildCompactSelectedPlaybackList();
+
+                foreach (var choice in AvailablePlaybackCameras)
+                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
+            }
+            finally
+            {
+                _selectionChangeGate.Release();
+            }
+
+            if (SelectedCamera == null)
+                return;
+
+            bool canReusePrimarySession =
+                _currentSession != null &&
+                string.Equals(_lastLoadedCameraId, SelectedCamera.Id, StringComparison.OrdinalIgnoreCase) &&
+                _lastLoadedDayLocal == SelectedDayLocal.Date &&
+                _lastLoadedWindowFromLocal == WindowFromLocal() &&
+                _lastLoadedWindowToLocal == WindowToLocal();
+
+            if (canReusePrimarySession)
+            {
+                MarkSelectionRefreshPending(resumeWindowSeconds, resumePlay);
+                await RefreshPlaybackSelectionAfterLayoutAsync();
+                return;
+            }
+
+            await Task.Yield();
+            await LoadSegmentsWithStateAsync(SelectedCamera.Id, resumeWindowSeconds, resumePlay);
+        }
+
+        private CameraModel? ResolvePreferredSingleCamera()
+        {
+            if (!string.IsNullOrWhiteSpace(_lastClickedPlaybackCameraId))
+            {
+                if (SameCameraId(SelectedCamera, _lastClickedPlaybackCameraId))
+                    return SelectedCamera;
+
+                for (int i = 0; i < _secondarySlotSelections.Length; i++)
+                {
+                    if (SameCameraId(_secondarySlotSelections[i], _lastClickedPlaybackCameraId))
+                        return _secondarySlotSelections[i];
+                }
+            }
+
+            if (SelectedCamera != null)
+                return SelectedCamera;
+
+            for (int i = 0; i < _secondarySlotSelections.Length; i++)
+            {
+                if (_secondarySlotSelections[i] != null)
+                    return _secondarySlotSelections[i];
+            }
+
+            return null;
+        }
 
         // Window + Calendar
         [ObservableProperty] private DateTime _selectedDayLocal = DateTime.Today;
@@ -186,6 +372,7 @@ namespace TSVmsDesktop.ViewModels
 
         // Timeline sizing/playhead
         [ObservableProperty] private double _timelineWidthPx = 900;
+        [ObservableProperty] private bool _isTimelineScrubbing;
         [ObservableProperty] private double _playheadLeftPx = 0;
 
         // Slider is now wall-clock seconds within window
@@ -230,7 +417,6 @@ namespace TSVmsDesktop.ViewModels
 
                 _secondaryPlaybackEngines.Add(new PlaybackEngineService());
                 _secondaryNativeOpGates.Add(new SemaphoreSlim(1, 1));
-                _secondarySessions.Add(null);
                 _secondaryHostWidths.Add(0);
                 _secondaryHostHeights.Add(0);
                 _secondaryHostsAttached.Add(false);
@@ -287,72 +473,247 @@ namespace TSVmsDesktop.ViewModels
             return _selectedPlaybackCameras.ToList();
         }
 
-        public async Task SetSelectedPlaybackCamerasAsync(IReadOnlyList<CameraModel> cameras)
+
+        private static bool SameCameraId(CameraModel? a, CameraModel? b) =>
+            string.Equals(a?.Id, b?.Id, StringComparison.OrdinalIgnoreCase);
+
+        private static bool SameCameraId(CameraModel? a, string? id) =>
+            !string.IsNullOrWhiteSpace(id) &&
+            string.Equals(a?.Id, id, StringComparison.OrdinalIgnoreCase);
+
+        private IEnumerable<CameraModel> EnumerateSelectedCamerasInSlotOrder()
         {
+            if (SelectedCamera != null)
+                yield return SelectedCamera;
+
+            for (int i = 0; i < _secondarySlotSelections.Length; i++)
+            {
+                if (_secondarySlotSelections[i] != null)
+                    yield return _secondarySlotSelections[i]!;
+            }
+        }
+
+        private CameraModel? GetCameraForSlot(int slotIndex)
+        {
+            if (slotIndex == 0)
+                return SelectedCamera;
+
+            int secondaryIndex = slotIndex - 1;
+            if (secondaryIndex < 0 || secondaryIndex >= _secondarySlotSelections.Length)
+                return null;
+
+            return _secondarySlotSelections[secondaryIndex];
+        }
+
+        private int FindSelectedSlot(string cameraId)
+        {
+            if (SameCameraId(SelectedCamera, cameraId))
+                return 0;
+
+            for (int i = 0; i < _secondarySlotSelections.Length; i++)
+            {
+                if (SameCameraId(_secondarySlotSelections[i], cameraId))
+                    return i + 1;
+            }
+
+            return -1;
+        }
+
+        private void RebuildCompactSelectedPlaybackList()
+        {
+            _selectedPlaybackCameras.Clear();
+            _selectedPlaybackCameras.AddRange(EnumerateSelectedCamerasInSlotOrder());
+        }
+
+        private async Task StopAndClearAllSecondaryPlaybackAsync(bool clearHostBindings = false)
+        {
+            for (int i = 0; i < _secondaryPlaybackEngines.Count; i++)
+                await StopAndClearSecondaryEngineAsync(i, clearHostBindings);
+        }
+
+        private void UpdatePlaybackSlotsFromSelection()
+        {
+            var slotCameras = new CameraModel?[]
+            {
+                SelectedCamera,
+                _secondarySlotSelections[0],
+                _secondarySlotSelections[1],
+                _secondarySlotSelections[2]
+            };
+
+            SelectedPlaybackCount = slotCameras.Count(c => c != null);
+
+            for (int i = 0; i < PlaybackSlots.Count; i++)
+            {
+                var slot = PlaybackSlots[i];
+                var camera = slotCameras[i];
+
+                if (camera != null)
+                {
+                    slot.CameraId = camera.Id;
+                    slot.CameraName = camera.Name;
+                    slot.IpAddress = camera.IpAddress ?? string.Empty;
+                    slot.HasCamera = true;
+                    slot.StatusText = i == 0 ? "Primary playback" : "Ready";
+                }
+                else
+                {
+                    slot.CameraId = string.Empty;
+                    slot.IpAddress = string.Empty;
+                    slot.HasCamera = false;
+
+                    if (i == 0)
+                    {
+                        slot.CameraName = "Select a camera";
+                        slot.StatusText = "No camera selected";
+                    }
+                    else
+                    {
+                        slot.CameraName = $"Camera Slot {i + 1}";
+                        slot.StatusText = "Empty slot";
+                    }
+                }
+            }
+        }
+
+        public async Task SetPlaybackCameraCheckedAsync(CameraModel camera, bool isSelected)
+        {
+            if (camera == null || string.IsNullOrWhiteSpace(camera.Id))
+                return;
+
+            bool resumePlay = ShouldResumePlayback;
+            double resumeWindowSeconds = CurrentTimelineSeconds;
+            string? previousPrimaryId = SelectedCamera?.Id;
+
             await _selectionChangeGate.WaitAsync();
             try
             {
-                var normalized = cameras
-                    .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
-                    .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .Take(MaxPlaybackTiles)
-                    .ToList();
+                int existingSlot = FindSelectedSlot(camera.Id);
 
-                _selectedPlaybackCameras.Clear();
-                _selectedPlaybackCameras.AddRange(normalized);
-                UpdatePlaybackSlotsFromSelection();
-                LogPlaybackDebug(
-                    normalized.Count == 0
-                        ? "PLAYBACK_SELECTION cleared"
-                        : $"PLAYBACK_SELECTION count={normalized.Count} cameras={string.Join(", ", normalized.Select((camera, index) => $"slot{index + 1}:{camera.Name}[{camera.Id}]"))}");
-
-                var primary = normalized.FirstOrDefault();
-                if (primary == null)
+                if (isSelected)
                 {
-                    _suppressSelectedCameraChangedLoad = true;
-                    SelectedCamera = null;
-                    _suppressSelectedCameraChangedLoad = false;
+                    if (existingSlot >= 0)
+                        return;
+
+                    _lastClickedPlaybackCameraId = camera.Id;
+
+                    if (SelectedCamera == null)
+                    {
+                        await StopAndClearEngineAsync();
+
+                        _suppressSelectedCameraChangedLoad = true;
+                        SelectedCamera = camera;
+                        _suppressSelectedCameraChangedLoad = false;
+                    }
+                    else
+                    {
+                        int emptySecondary = Array.FindIndex(_secondarySlotSelections, c => c == null);
+                        if (emptySecondary < 0)
+                            return;
+
+                        _secondarySlotSelections[emptySecondary] = camera;
+                    }
+                }
+                else
+                {
+                    if (existingSlot < 0)
+                        return;
+
+                    if (string.Equals(_lastClickedPlaybackCameraId, camera.Id, StringComparison.OrdinalIgnoreCase))
+                        _lastClickedPlaybackCameraId = string.Empty;
+
+                    if (existingSlot == 0)
+                    {
+                        // Keep slot mapping fixed: unchecking slot 1 clears only slot 1.
+                        await StopAndClearEngineAsync();
+                        _suppressSelectedCameraChangedLoad = true;
+                        SelectedCamera = null;
+                        _suppressSelectedCameraChangedLoad = false;
+                    }
+                    else
+                    {
+                        int secondaryIndex = existingSlot - 1;
+                        _secondarySlotSelections[secondaryIndex] = null;
+                        await StopAndClearSecondaryEngineAsync(secondaryIndex);
+                    }
+                }
+
+                Interlocked.Increment(ref _secondaryLayoutEpoch);
+
+                UpdatePlaybackSlotsFromSelection();
+
+                // Auto-switch to quad layout when more than one camera is selected.
+                if (SelectedPlaybackCount > 1 && PlaybackLayoutMode != PlaybackLayoutMode.Quad)
+                    PlaybackLayoutMode = PlaybackLayoutMode.Quad;
+
+                RebuildCompactSelectedPlaybackList();
+
+                foreach (var choice in AvailablePlaybackCameras)
+                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
+
+                if (SelectedCamera == null)
+                {
+                    if (SelectedPlaybackCount > 0)
+                    {
+                        // Primary can be empty while secondary slots stay fixed and active.
+                        ShowPlayerOverlay = false;
+                        PlayerOverlayTitle = string.Empty;
+                        PlayerOverlaySubtitle = string.Empty;
+                        StatusMessage = "Primary slot is empty. Select a camera to fill slot 1.";
+                        MarkSelectionRefreshPending(resumeWindowSeconds, resumePlay);
+                        await RefreshPlaybackSelectionAfterLayoutAsync();
+                        return;
+                    }
+
                     await StopAndClearAllPlaybackEnginesAsync();
                     ResetLoadedPlaybackStateOnly();
                     ShowPlayerOverlay = true;
                     PlayerOverlayTitle = "Select a camera to start playback";
-                    PlayerOverlaySubtitle = "You can choose up to 4 cameras for synchronized playback.";
-                    StatusMessage = "Select up to 4 cameras for playback.";
+                    PlayerOverlaySubtitle = "Choose 1 camera for single playback or 4 cameras for synchronized playback.";
+                    StatusMessage = "Select 1 camera or 4 cameras for playback.";
                     return;
                 }
 
-                if (!string.Equals(SelectedCamera?.Id, primary.Id, StringComparison.OrdinalIgnoreCase))
-                {
-                    _suppressSelectedCameraChangedLoad = true;
-                    SelectedCamera = primary;
-                    _suppressSelectedCameraChangedLoad = false;
-                }
+                bool primaryChanged = !string.Equals(previousPrimaryId, SelectedCamera?.Id, StringComparison.OrdinalIgnoreCase);
 
                 bool canReusePrimarySession =
+                    !primaryChanged &&
                     _currentSession != null &&
-                    string.Equals(_lastLoadedCameraId, primary.Id, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(_lastLoadedCameraId, SelectedCamera?.Id, StringComparison.OrdinalIgnoreCase) &&
                     _lastLoadedDayLocal == SelectedDayLocal.Date &&
                     _lastLoadedWindowFromLocal == WindowFromLocal() &&
                     _lastLoadedWindowToLocal == WindowToLocal();
 
+                if (PlaybackLayoutMode == PlaybackLayoutMode.Single)
+                {
+                    await StopAndClearAllSecondaryPlaybackAsync();
+
+                    if (canReusePrimarySession)
+                    {
+                        CaptureLoadedPlaybackSelection();
+                        RefreshTimelineUi();
+                        StatusMessage = "Single-camera playback ready.";
+                        return;
+                    }
+
+                    await Task.Yield();
+                    await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay);
+                    return;
+                }
+
+                // Quad mode: load primary and let secondary loading follow.
                 if (canReusePrimarySession)
                 {
                     LogPlaybackDebug(
-                        $"PLAYBACK_SELECTION_REUSE primary={primary.Name}[{primary.Id}] count={normalized.Count} timelineSeconds={CurrentTimelineSeconds:0.###}");
-                    await LoadSecondarySlotsAsync(
-                        _currentSession.WindowStartUtc,
-                        _currentSession.WindowEndUtc,
-                        CurrentTimelineSeconds,
-                        autoPlay: _shouldBePlaying || IsPlaying,
-                        CancellationToken.None,
-                        Volatile.Read(ref _loadToken));
-                    CaptureLoadedPlaybackSelection();
+                        $"PLAYBACK_SELECTION_REUSE mode=Quad primary={SelectedCamera!.Name}[{SelectedCamera!.Id}] count={SelectedPlaybackCount} timelineSeconds={resumeWindowSeconds:0.###}");
+
+                    MarkSelectionRefreshPending(resumeWindowSeconds, resumePlay);
+                    await RefreshPlaybackSelectionAfterLayoutAsync();
                     return;
                 }
 
                 await Task.Yield();
-                await LoadSegmentsAsync(primary.Id);
+                await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay);
             }
             finally
             {
@@ -360,33 +721,113 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
-        private void UpdatePlaybackSlotsFromSelection()
+        public void MarkSelectionRefreshPending(double windowSeconds, bool autoPlay)
         {
-            SelectedPlaybackCount = _selectedPlaybackCameras.Count;
-            OnPropertyChanged(nameof(IsSinglePlaybackLayout));
-            OnPropertyChanged(nameof(IsMultiPlaybackLayout));
+            _pendingSelectionReloadAfterLayout = true;
+            _pendingSelectionWindowSeconds = windowSeconds;
+            _pendingSelectionAutoPlay = autoPlay;
+            Interlocked.Increment(ref _selectionRefreshVersion);
+        }
 
-            for (int i = 0; i < PlaybackSlots.Count; i++)
+        public async Task RunStableSelectionRefreshAsync()
+        {
+            int version = Volatile.Read(ref _selectionRefreshVersion);
+
+            await _stableSelectionRefreshGate.WaitAsync();
+            try
             {
-                var slot = PlaybackSlots[i];
-                if (i < _selectedPlaybackCameras.Count)
+                if (version != Volatile.Read(ref _selectionRefreshVersion))
+                    return;
+
+                await RefreshPrimaryPlaybackAfterLayoutAsync();
+
+                if (version != Volatile.Read(ref _selectionRefreshVersion))
+                    return;
+
+                await RefreshPlaybackSelectionAfterLayoutAsync();
+            }
+            finally
+            {
+                _stableSelectionRefreshGate.Release();
+            }
+        }
+
+        public async Task RefreshPlaybackSelectionAfterLayoutAsync()
+        {
+            while (_pendingSelectionReloadAfterLayout && _currentSession != null && SelectedCamera != null)
+            {
+                var targetWindowSeconds = _pendingSelectionWindowSeconds;
+                var autoPlay = _pendingSelectionAutoPlay;
+                _pendingSelectionReloadAfterLayout = false;
+
+                Interlocked.Exchange(ref _suspendPolling, 1);
+                try
                 {
-                    var camera = _selectedPlaybackCameras[i];
-                    slot.CameraId = camera.Id;
-                    slot.CameraName = camera.Name;
-                    slot.IpAddress = camera.IpAddress ?? string.Empty;
-                    slot.StatusText = i == 0 ? "Primary playback" : "Synchronized playback";
-                    slot.HasCamera = true;
+                    await LoadSecondarySlotsAsync(
+                        _currentSession.WindowStartUtc,
+                        _currentSession.WindowEndUtc,
+                        targetWindowSeconds,
+                        autoPlay,
+                        CancellationToken.None,
+                        Volatile.Read(ref _loadToken),
+                        Volatile.Read(ref _secondaryLayoutEpoch));
+
+                    CaptureLoadedPlaybackSelection();
+                    RefreshTimelineUi();
                 }
-                else
+                finally
                 {
-                    slot.CameraId = string.Empty;
-                    slot.CameraName = "Select a camera";
-                    slot.IpAddress = string.Empty;
-                    slot.StatusText = "No camera selected";
-                    slot.HasCamera = false;
+                    Interlocked.Exchange(ref _suspendPolling, 0);
                 }
             }
+        }
+
+        public async Task RefreshPrimaryPlaybackAfterLayoutAsync()
+        {
+            if (!_pendingPrimaryLoadAfterLayout || SelectedCamera == null)
+                return;
+
+            if (!HasStablePrimaryHostSize())
+                return;
+
+            _pendingPrimaryLoadAfterLayout = false;
+            await LoadSegmentsWithStateAsync(SelectedCamera.Id);
+        }
+
+        private void RefreshTimelineUi()
+        {
+            if (_currentSession != null)
+                TotalTimelineSeconds = Math.Max(1, _currentSession.TotalWindowSeconds);
+            else
+                TotalTimelineSeconds = Math.Max(1, (WindowEndUtc() - WindowStartUtc()).TotalSeconds);
+
+            UpdateCoverageSummary();
+            UpdateWindowSummaryText();
+            RebuildCoverageTimeline();
+            BuildTimelineTicks();
+            UpdatePlayheadPx();
+        }
+
+        private (string cameraName, string cameraId) ResolvePrimaryCameraLogIdentity()
+        {
+            if (SelectedCamera != null && !string.IsNullOrWhiteSpace(SelectedCamera.Id))
+                return (SelectedCamera.Name, SelectedCamera.Id);
+
+            var fallbackId = _currentSession?.CameraId;
+            if (string.IsNullOrWhiteSpace(fallbackId))
+                fallbackId = _lastLoadedCameraId;
+
+            if (!string.IsNullOrWhiteSpace(fallbackId))
+            {
+                var known = AvailableCameras.FirstOrDefault(c =>
+                    string.Equals(c.Id, fallbackId, StringComparison.OrdinalIgnoreCase));
+                if (known != null)
+                    return (known.Name, known.Id);
+
+                return (fallbackId, fallbackId);
+            }
+
+            return ("unknown", "unknown");
         }
 
         private async Task RefreshPlaybackUiFromEngineAsync()
@@ -489,7 +930,7 @@ namespace TSVmsDesktop.ViewModels
                     var seek = _manifestService.Resolve(_currentSession, CurrentTimelineSeconds);
                     if (seek != null)
                     {
-                        if (_shouldBePlaying || IsPlaying)
+                        if (ShouldResumePlayback)
                             await LoadAndPlaySegmentAsync(seek.SegmentIndex, seek.LocalOffsetSeconds);
                         else
                             await LoadSegmentPausedAsync(seek.SegmentIndex, seek.LocalOffsetSeconds);
@@ -511,13 +952,19 @@ namespace TSVmsDesktop.ViewModels
             _ = AttachVideoHostAsync(hwnd);
         }
 
+        private bool HasStablePrimaryHostSize()
+            => _hostAttached && _lastHostWidth >= 200 && _lastHostHeight >= 240;
+
         public async Task UpdateVideoHostSizeAsync(int width, int height)
         {
-            if (width > 0 && height > 0)
+            if (width < 200 || height < 240)
             {
-                _lastHostWidth = width;
-                _lastHostHeight = height;
+                LogPlaybackDebug($"PLAYBACK_HOST_RESIZE_IGNORE slot=1 size={width}x{height}");
+                return;
             }
+
+            _lastHostWidth = width;
+            _lastHostHeight = height;
 
             if (!_hostAttached)
                 return;
@@ -533,67 +980,27 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
-        public async Task AttachSecondaryVideoHostAsync(int slotIndex, IntPtr hwnd)
+        public bool IsPrimaryHostAlreadyAttached(IntPtr handle)
         {
-            int secondaryIndex = slotIndex - 1;
-            if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count || hwnd == IntPtr.Zero)
-                return;
+            if (handle == IntPtr.Zero)
+                return false;
 
-            try
-            {
-                LogPlaybackDebug($"PLAYBACK_HOST_ATTACH slot={slotIndex + 1} hwnd={hwnd}");
-                await Task.Run(() => _secondaryPlaybackEngines[secondaryIndex].AttachHost(hwnd));
-                _secondaryHostsAttached[secondaryIndex] = true;
-
-                int width = _secondaryHostWidths[secondaryIndex];
-                int height = _secondaryHostHeights[secondaryIndex];
-                if (width > 0 && height > 0)
-                {
-                    await RunSecondaryNativeAsync(
-                        secondaryIndex,
-                        () =>
-                        {
-                            _secondaryPlaybackEngines[secondaryIndex].RebindHost(width, height);
-                            _secondaryPlaybackEngines[secondaryIndex].ForceExpose();
-                        },
-                        $"AttachSecondary_{slotIndex}_Rebind");
-                }
-
-                await RunSecondaryNativeAsync(
-                    secondaryIndex,
-                    () => _secondaryPlaybackEngines[secondaryIndex].ForceExpose(),
-                    $"AttachSecondary_{slotIndex}_ForceExpose");
-
-                if (_secondaryPendingReload[secondaryIndex])
-                {
-                    LogPlaybackDebug(
-                        $"PLAYBACK_HOST_ATTACH_RELOAD slot={slotIndex + 1} pendingReload={_secondaryPendingReload[secondaryIndex]} hasSession={_secondarySessions[secondaryIndex] != null}");
-                    await LoadSecondarySlotAtWindowSecondsAsync(
-                        slotIndex,
-                        CurrentTimelineSeconds,
-                        _shouldBePlaying || IsPlaying);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogPlaybackDebug($"PLAYBACK_HOST_ATTACH_ERROR slot={slotIndex + 1} error={ex.Message}");
-                // Secondary panes should not block primary playback.
-            }
+            return _hostAttached && _playbackEngineService.HostHandle == handle;
         }
 
-        public async Task UpdateSecondaryVideoHostSizeAsync(int slotIndex, int width, int height)
+        public bool IsSecondaryHostAlreadyAttached(int slotIndex, IntPtr handle)
         {
             int secondaryIndex = slotIndex - 1;
             if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count)
-                return;
+                return false;
 
-            if (width > 0 && height > 0)
-            {
-                _secondaryHostWidths[secondaryIndex] = width;
-                _secondaryHostHeights[secondaryIndex] = height;
-            }
+            return _secondaryHostsAttached[secondaryIndex] && _secondaryPlaybackEngines[secondaryIndex].HostHandle == handle;
+        }
 
-            if (!_secondaryHostsAttached[secondaryIndex])
+        public async Task AttachSecondaryVideoHostAsync(int slotIndex, IntPtr hwnd)
+        {
+            int secondaryIndex = slotIndex - 1;
+            if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count)
                 return;
 
             try
@@ -602,15 +1009,111 @@ namespace TSVmsDesktop.ViewModels
                     secondaryIndex,
                     () =>
                     {
-                        _secondaryPlaybackEngines[secondaryIndex].RebindHost(width, height);
-                        _secondaryPlaybackEngines[secondaryIndex].ForceExpose();
+                        var engine = _secondaryPlaybackEngines[secondaryIndex];
+                        engine.AttachHost(hwnd);
+                        engine.SetHostSize(_secondaryHostWidths[secondaryIndex], _secondaryHostHeights[secondaryIndex]);
+                        _secondaryHostsAttached[secondaryIndex] = true;
                     },
-                    $"ResizeSecondary_{slotIndex}_Rebind");
+                    $"AttachSecondary_{slotIndex}");
+
+                _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore layout churn on secondary panes.
+                LogPlaybackDebug($"PLAYBACK_HOST_ATTACH_ERROR slot={slotIndex} error={ex.Message}");
+                // Secondary panes should not block primary playback.
             }
+        }
+
+        public Task UpdateSecondaryVideoHostSizeAsync(int slotIndex, int width, int height)
+        {
+            int secondaryIndex = slotIndex - 1;
+            if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count)
+                return Task.CompletedTask;
+
+            if (height < 240 || width < 200)
+            {
+                LogPlaybackDebug($"PLAYBACK_HOST_RESIZE_IGNORE slot={slotIndex + 1} size={width}x{height}");
+                return Task.CompletedTask;
+            }
+
+            int nextWidth = Math.Max(200, width);
+            int nextHeight = Math.Max(180, height);
+
+            bool sizeChanged =
+                _secondaryHostWidths[secondaryIndex] != nextWidth ||
+                _secondaryHostHeights[secondaryIndex] != nextHeight;
+
+            _secondaryHostWidths[secondaryIndex] = nextWidth;
+            _secondaryHostHeights[secondaryIndex] = nextHeight;
+
+            if (sizeChanged)
+            {
+                LogPlaybackDebug($"PLAYBACK_HOST_RESIZE_APPLY slot={slotIndex + 1} size={nextWidth}x{nextHeight}");
+
+                // Retry secondary loading whenever host size becomes valid/changes.
+                if (_secondaryHostsAttached[secondaryIndex])
+                    _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private async Task QueueSecondaryReloadAsync(int epoch)
+        {
+            if (Interlocked.Exchange(ref _secondaryReloadQueued, 1) == 1)
+                return;
+
+            try
+            {
+                await Task.Delay(120);
+
+                if (_currentSession == null || IsTimelineScrubbing)
+                    return;
+
+                if (epoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                {
+                    LogPlaybackDebug($"PLAYBACK_SLOT_RELOAD_DROP reason=epoch_changed queued={epoch} current={Volatile.Read(ref _secondaryLayoutEpoch)}");
+                    return;
+                }
+
+                if (_currentSession == null || PlaybackLayoutMode != PlaybackLayoutMode.Quad)
+                    return;
+
+                await LoadSecondarySlotsAsync(
+                    _currentSession.WindowStartUtc,
+                    _currentSession.WindowEndUtc,
+                    CurrentTimelineSeconds,
+                    ShouldResumePlayback,
+                    CancellationToken.None,
+                    Volatile.Read(ref _loadToken),
+                    epoch);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _secondaryReloadQueued, 0);
+
+                // If a reload request arrived while this worker was running,
+                // immediately queue one more pass so secondary slots don't get stuck black.
+                if (_currentSession != null &&
+                    PlaybackLayoutMode == PlaybackLayoutMode.Quad &&
+                    AnySecondaryReloadPending() &&
+                    AreActiveSecondaryHostsReady())
+                {
+                    _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
+                }
+            }
+        }
+
+        private bool AnySecondaryReloadPending()
+        {
+            for (int i = 0; i < _secondaryPendingReload.Count; i++)
+            {
+                if (_secondaryPendingReload[i])
+                    return true;
+            }
+
+            return false;
         }
 
         private async Task ScheduleLoadForCameraAsync(string cameraId)
@@ -628,7 +1131,7 @@ namespace TSVmsDesktop.ViewModels
                 if (switchToken != Volatile.Read(ref _switchToken))
                     return;
 
-                await LoadSegmentsAsync(cameraId, _switchCts.Token);
+                await LoadSegmentsWithStateAsync(cameraId, externalToken: _switchCts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -710,10 +1213,12 @@ namespace TSVmsDesktop.ViewModels
             }
             catch
             {
-                // Engine may not be initialized yet; that's fine.
             }
             finally
             {
+                _loadedPrimarySession = null;
+                _loadedPrimarySegmentIndex = -1;
+
                 if (clearHostBinding)
                 {
                     _hostAttached = false;
@@ -754,12 +1259,14 @@ namespace TSVmsDesktop.ViewModels
             }
             catch
             {
-                // Secondary pane may not be initialized yet.
             }
             finally
             {
                 _secondarySessions[secondaryIndex] = null;
                 _secondaryPendingReload[secondaryIndex] = false;
+                _loadedSecondarySessions[secondaryIndex] = null;
+                _loadedSecondarySegmentIndices[secondaryIndex] = -1;
+
                 if (clearHostBinding)
                 {
                     _secondaryHostsAttached[secondaryIndex] = false;
@@ -811,6 +1318,21 @@ namespace TSVmsDesktop.ViewModels
 
             _lastLoadedPlaybackCameraIds.Clear();
 
+            RecordingSegments.Clear();
+            TimelineSegments.Clear();
+            TimelineTicks.Clear();
+
+            foreach (var row in PlaybackTimelines)
+            {
+                row.Segments.Clear();
+                row.Ticks.Clear();
+                row.IsVisible = false;
+                row.CameraName = string.Empty;
+            }
+
+            TotalTimelineSeconds = Math.Max(1, (WindowEndUtc() - WindowStartUtc()).TotalSeconds);
+            UpdateCoverageSummary();
+
             for (int i = 0; i < _secondaryPendingReload.Count; i++)
             {
                 _secondaryPendingReload[i] = false;
@@ -849,7 +1371,7 @@ namespace TSVmsDesktop.ViewModels
 
         private void CaptureLoadedPlaybackSelection()
         {
-            _lastLoadedPlaybackCameraIds = _selectedPlaybackCameras
+            _lastLoadedPlaybackCameraIds = EnumerateSelectedCamerasInSlotOrder()
                 .Select(c => c.Id)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToList();
@@ -985,7 +1507,7 @@ namespace TSVmsDesktop.ViewModels
             }
 
             // Otherwise always do a clean load.
-            await LoadSegmentsAsync(SelectedCamera.Id);
+            await LoadSegmentsWithStateAsync(SelectedCamera.Id);
         }
 
         partial void OnSelectedCameraChanged(CameraModel? value)
@@ -998,6 +1520,12 @@ namespace TSVmsDesktop.ViewModels
 
         private async Task HandleSelectedCameraChangedAsync(CameraModel? value)
         {
+            if (_secondarySlotSelections.Any(c => c != null))
+            {
+                // Keep fixed slot mapping in quad mode; only checkbox toggles should change slots.
+                return;
+            }
+
             ClearResumeState();
 
             SafeCancel(_switchCts);
@@ -1027,7 +1555,7 @@ namespace TSVmsDesktop.ViewModels
             BuildTimelineTicks();
 
             if (SelectedCamera != null)
-                _ = LoadSegmentsAsync(SelectedCamera.Id);
+                _ = LoadSegmentsWithStateAsync(SelectedCamera.Id);
         }
 
         partial void OnWindowFromTimeTextChanged(string value)
@@ -1050,7 +1578,7 @@ namespace TSVmsDesktop.ViewModels
                 WindowSummaryText = err;
                 return;
             }
-            WindowSummaryText = $"Window: {startLocal:yyyy-MM-dd HH:mm:ss}  →  {endLocal:HH:mm:ss}";
+            WindowSummaryText = $"Window: {startLocal:yyyy-MM-dd HH:mm:ss}  â†’  {endLocal:HH:mm:ss}";
         }
 
         partial void OnHasMediaLoadedChanged(bool value)
@@ -1196,7 +1724,12 @@ namespace TSVmsDesktop.ViewModels
                 await _cameraService.LoadCamerasAsync();
                 AvailableCameras.Clear();
                 AvailablePlaybackCameras.Clear();
-                foreach (var camera in _cameraService.AllCameras)
+                var uniqueCameras = _cameraService.AllCameras
+                    .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
+                    .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First());
+
+                foreach (var camera in uniqueCameras)
                 {
                     AvailableCameras.Add(camera);
                     AvailablePlaybackCameras.Add(new PlaybackCameraChoice
@@ -1205,6 +1738,9 @@ namespace TSVmsDesktop.ViewModels
                         IsSelected = _selectedPlaybackCameras.Any(c => string.Equals(c.Id, camera.Id, StringComparison.OrdinalIgnoreCase))
                     });
                 }
+
+                VideoService.Log($"[PlaybackViewModel] LoadCamerasAsync finished. Count={AvailablePlaybackCameras.Count}");
+
 
                 if (AvailableCameras.Count == 0)
                 {
@@ -1222,6 +1758,10 @@ namespace TSVmsDesktop.ViewModels
                     PlayerOverlayTitle = "Select a camera to start playback";
                     PlayerOverlaySubtitle = "You can choose up to 4 cameras for synchronized playback.";
                     StatusMessage = "Select up to 4 cameras for playback.";
+                }
+                else
+                {
+                    StatusMessage = $"{AvailablePlaybackCameras.Count} cameras loaded.";
                 }
             }
             catch (Exception ex)
@@ -1244,7 +1784,7 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
-            await LoadSegmentsAsync(SelectedCamera.Id);
+            await LoadSegmentsWithStateAsync(SelectedCamera.Id);
         }
 
         public async Task RefreshPlaybackSurfacesAsync()
@@ -1254,11 +1794,14 @@ namespace TSVmsDesktop.ViewModels
 
             if (_currentSession == null || !HasSegments)
             {
-                await LoadSegmentsAsync(SelectedCamera.Id);
+                await LoadSegmentsWithStateAsync(SelectedCamera.Id);
                 return;
             }
 
-            await SeekToWindowSecondsAsync(CurrentTimelineSeconds, autoPlay: IsPlaying || _shouldBePlaying);
+            if (!IsTimelineScrubbing)
+            {
+                await SeekToWindowSecondsAsync(CurrentTimelineSeconds, autoPlay: ShouldResumePlayback);
+            }
         }
 
         // Presets (relative to now, but keeps SelectedDayLocal aligned to today)
@@ -1298,170 +1841,115 @@ namespace TSVmsDesktop.ViewModels
             WindowFromTimeText = now.AddHours(-24).ToString("HH:mm");
         }
 
-        // Main loader (keeps existing command name binding)
         [RelayCommand]
-        public async Task LoadSegmentsAsync(string cameraId, CancellationToken externalToken = default)
+        private async Task LoadSegmentsAsync(string cameraId, CancellationToken token)
+        {
+            await LoadSegmentsWithStateAsync(cameraId, externalToken: token);
+        }
+
+        // Main loader implementation
+        public async Task LoadSegmentsWithStateAsync(string cameraId, double? requestedWindowSeconds = null, bool autoPlay = false, CancellationToken externalToken = default)
         {
             if (string.IsNullOrWhiteSpace(cameraId))
-                return;
-
-            try
             {
-                await _loadSegmentsGate.WaitAsync(externalToken);
-            }
-            catch (OperationCanceledException)
-            {
+                StatusMessage = "Select a camera first.";
                 return;
             }
 
+            if (!HasStablePrimaryHostSize())
+            {
+                _pendingPrimaryLoadAfterLayout = true;
+                LogPlaybackDebug(
+                    $"PLAYBACK_PRIMARY_WAIT_HOST camera={cameraId} size={_lastHostWidth}x{_lastHostHeight}");
+                return;
+            }
+
+            var requestedCameraId = cameraId;
+            var selectedCameraAtStart = SelectedCamera;
+
+            await _loadSegmentsGate.WaitAsync(externalToken);
             try
             {
-                var primarySelection = AvailableCameras.FirstOrDefault(c => string.Equals(c.Id, cameraId, StringComparison.OrdinalIgnoreCase));
-                if (primarySelection != null)
-                {
-                    _selectedPlaybackCameras.RemoveAll(c => string.Equals(c.Id, cameraId, StringComparison.OrdinalIgnoreCase));
-                    _selectedPlaybackCameras.Insert(0, primarySelection);
-                    while (_selectedPlaybackCameras.Count > MaxPlaybackTiles)
-                        _selectedPlaybackCameras.RemoveAt(_selectedPlaybackCameras.Count - 1);
-                    UpdatePlaybackSlotsFromSelection();
-                }
-
-                bool cameraChanged = !string.Equals(_lastLoadedCameraId, cameraId, StringComparison.Ordinal);
                 int generation = Interlocked.Increment(ref _loadToken);
+                _loadCts?.Cancel();
+                _loadCts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
 
-                ClearResumeState();
-
-                // Clear old engine frame/session before building the new request.
-                await StopAndClearAllPlaybackEnginesAsync();
-                ResetLoadedPlaybackStateOnly();
-
-                Interlocked.Exchange(ref _suspendPolling, 1);
-                if (externalToken.IsCancellationRequested)
-                {
-                    Interlocked.Exchange(ref _suspendPolling, 0);
-                    return;
-                }
-
-                var (startLocal, endLocal, ok, err) = GetWindowLocal();
-                if (!ok)
-                {
-                    StatusMessage = err;
-                    Interlocked.Exchange(ref _suspendPolling, 0);
-                    return;
-                }
+                var cameraNameForLogs = selectedCameraAtStart?.Name ?? requestedCameraId;
+                var cameraIdForLogs = selectedCameraAtStart?.Id ?? requestedCameraId;
 
                 try
                 {
+                    Interlocked.Exchange(ref _suspendPolling, 1);
                     IsLoading = true;
-                    ShowPlayerOverlay = true;
-                    PlayerOverlayTitle = "Loading...";
-                    PlayerOverlaySubtitle = "Fetching recording coverage...";
-                    _loadCts?.Cancel();
-                    _loadCts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
-                    _loadCts.CancelAfter(TimeSpan.FromSeconds(45));
-                    try
-                    {
-                        await RunNativeAsync(() =>
-                        {
-                            // Prevent stale frames when switching cameras or reloads.
-                            _playbackEngineService.SetLastSampleEnabled(false);
-                            _playbackEngineService.Stop();
-                            if (cameraChanged)
-                                _playbackEngineService.ResetEngine();
-                        }, "Load_Reset");
-                    }
-                    catch
-                    {
-                        // If stop fails, continue loading; we just want to clear stale frames.
-                    }
+                    ShowPlayerOverlay = false;
+                    var fromLocal = WindowFromLocal();
+                    var toLocal = WindowToLocal();
+                    var fromUtc = fromLocal.ToUniversalTime();
+                    var toUtc = toLocal.ToUniversalTime();
 
-                    RecordingSegments.Clear();
-                    TimelineSegments.Clear();
-                    HasSegments = false;
-                    HasMediaLoaded = false;
-
-                    _shouldBePlaying = false;
-                    _desiredPlaybackRate = 1.0;
-                    PlaybackRateText = "1x";
-
-                    SelectedCameraDebugId = cameraId;
-
-                    var fromUtc = DateTime.SpecifyKind(startLocal, DateTimeKind.Local).ToUniversalTime();
-                    var toUtc = DateTime.SpecifyKind(endLocal, DateTimeKind.Local).ToUniversalTime();
-                    _lastLoadedCameraId = cameraId;
-                    _lastLoadedDayLocal = SelectedDayLocal.Date;
-                    _lastLoadedWindowFromLocal = WindowFromLocal();
-                    _lastLoadedWindowToLocal = WindowToLocal();
-
+                    SelectedCameraDebugId = requestedCameraId;
                     QueryFromUtc = fromUtc.ToString("o");
                     QueryToUtc = toUtc.ToString("o");
+                    SegmentsApiUri = $"api/v1/recording/cameras/{requestedCameraId}/segments?from={QueryFromUtc}&to={QueryToUtc}";
 
-                    SegmentsApiUri = $"api/v1/recording/cameras/{cameraId}/segments?from={QueryFromUtc}&to={QueryToUtc}";
                     LogPlaybackDebug(
-                        $"LOAD_START camera={cameraId} day={SelectedDayLocal:yyyy-MM-dd} " +
-                        $"window={startLocal:yyyy-MM-dd HH:mm:ss}->{endLocal:yyyy-MM-dd HH:mm:ss} " +
-                        $"utc={QueryFromUtc}->{QueryToUtc} uri={SegmentsApiUri}");
-                    try
-                    {
-                        _currentSession = await GetOrBuildSessionAsync(cameraId, fromUtc, toUtc, _loadCts.Token, generation);
-                        if (_currentSession == null)
-                            return;
+                        $"LOAD_START camera={cameraNameForLogs}[{cameraIdForLogs}] day={SelectedDayLocal:yyyy-MM-dd} " +
+                        $"window={fromLocal:yyyy-MM-dd HH:mm:ss}->{toLocal:yyyy-MM-dd HH:mm:ss} " +
+                        $"utc={fromUtc:o}->{toUtc:o} uri={SegmentsApiUri}");
 
-                        HttpStatusText = _segmentCache.ContainsKey($"{cameraId}|{fromUtc:o}|{toUtc:o}") ? "200 OK" : "200 OK";
-                        ApiRowCount = _currentSession.Segments.Count.ToString();
-                        LogPlaybackDebug($"LOAD_RESPONSE camera={cameraId} status=200 segments={_currentSession.Segments.Count}");
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        HttpStatusText = "ERROR";
-                        ApiRowCount = "0";
-                        LogPlaybackDebug($"LOAD_ERROR camera={cameraId} exception={ex}");
-                        if (generation != Volatile.Read(ref _loadToken))
-                            return;
-                        StatusMessage = $"Segments API failed: {ex.Message}";
-                        ShowPlayerOverlay = true;
-                        PlayerOverlayTitle = "No Recording Available";
-                        PlayerOverlaySubtitle = $"API error: {ex.Message}";
-                        return;
-                    }
+                    _currentSession = await GetOrBuildSessionAsync(requestedCameraId, fromUtc, toUtc, _loadCts.Token, generation);
+                    
                     if (generation != Volatile.Read(ref _loadToken))
                         return;
 
-                    ApiRowCount = _currentSession.Segments.Count.ToString();
-
-                    foreach (var s in _currentSession.Segments)
-                        RecordingSegments.Add(s.Segment);
-
-                    HasSegments = _currentSession.Segments.Count > 0;
-                    TotalTimelineSeconds = _currentSession.TotalWindowSeconds;
-
-                    UpdatePlayheadPx();
-                    RebuildCoverageTimeline();
-                    BuildTimelineTicks();
-                    UpdateCoverageSummary();
-
-                    if (!HasSegments)
+                    if (!string.Equals(SelectedCamera?.Id, requestedCameraId, StringComparison.OrdinalIgnoreCase))
                     {
-                        _currentSegmentIndex = -1;
-                        IsPlaying = false;
-                        ShowPlayerOverlay = true;
-                        PlayerOverlayTitle = "No Recording Available";
-                        PlayerOverlaySubtitle = "No footage exists in the selected day/time window. Pick another date from the calendar.";
-                        StatusMessage = "No recording for selected window.";
-                        CurrentWallClockText = "--:--:--";
-                        LogPlaybackDebug($"LOAD_EMPTY camera={cameraId} day={SelectedDayLocal:yyyy-MM-dd} no_segments");
+                        LogPlaybackDebug($"LOAD_DROP camera={requestedCameraId} reason=selection_changed");
                         return;
                     }
 
-                    var seek = _manifestService.Resolve(_currentSession, CurrentTimelineSeconds);
+                    if (_currentSession == null || _currentSession.Segments.Count == 0)
+                    {
+                        RecordingSegments.Clear();
+                        HasSegments = false;
+                        HasMediaLoaded = false;
+                        await StopAndClearAllPlaybackEnginesAsync();
+                        ResetLoadedPlaybackStateOnly();
+                        ShowPlayerOverlay = true;
+                        PlayerOverlayTitle = "No Recording Found";
+                        PlayerOverlaySubtitle = "No recorded footage exists for this camera in the selected window.";
+                        StatusMessage = "No recording available for this window.";
+                        LogPlaybackDebug($"LOAD_RESPONSE camera={cameraIdForLogs} status=200 segments=0");
+                        return;
+                    }
+
+                    RecordingSegments.Clear();
+                    foreach (var s in _currentSession.Segments.Select(x => x.Segment))
+                        RecordingSegments.Add(s);
+
+                    HasSegments = RecordingSegments.Count > 0;
+                    HasMediaLoaded = true;
+                    TotalTimelineSeconds = _currentSession.TotalWindowSeconds;
+
+                    _lastLoadedCameraId = requestedCameraId;
+                    _lastLoadedDayLocal = SelectedDayLocal.Date;
+                    _lastLoadedWindowFromLocal = fromLocal;
+                    _lastLoadedWindowToLocal = toLocal;
+
+                    double targetWindowSeconds = requestedWindowSeconds ?? CurrentTimelineSeconds;
+                    if (targetWindowSeconds < 0)
+                        targetWindowSeconds = 0;
+
+                    var seek = _manifestService.Resolve(_currentSession, targetWindowSeconds);
                     if (seek != null)
                     {
                         _currentSegmentIndex = seek.SegmentIndex;
-                        await LoadSegmentPausedAsync(_currentSegmentIndex, seek.LocalOffsetSeconds);
+
+                        if (autoPlay)
+                            await LoadAndPlaySegmentAsync(_currentSegmentIndex, seek.LocalOffsetSeconds);
+                        else
+                            await LoadSegmentPausedAsync(_currentSegmentIndex, seek.LocalOffsetSeconds);
+
                         if (generation != Volatile.Read(ref _loadToken))
                             return;
 
@@ -1473,28 +1961,51 @@ namespace TSVmsDesktop.ViewModels
                     else
                     {
                         _currentSegmentIndex = 0;
-                        await LoadSegmentPausedAsync(0, 0);
+
+                        if (autoPlay)
+                            await LoadAndPlaySegmentAsync(0, 0);
+                        else
+                            await LoadSegmentPausedAsync(0, 0);
+
                         if (generation != Volatile.Read(ref _loadToken))
                             return;
                     }
 
-                    await LoadSecondarySlotsAsync(fromUtc, toUtc, CurrentTimelineSeconds, autoPlay: false, _loadCts.Token, generation);
+                    await LoadSecondarySlotsAsync(
+                        fromUtc,
+                        toUtc,
+                        CurrentTimelineSeconds,
+                        autoPlay,
+                        _loadCts.Token,
+                        generation,
+                        Volatile.Read(ref _secondaryLayoutEpoch));
 
                     CaptureLoadedPlaybackSelection();
-                    UpdatePlayheadPx();
+                    RefreshTimelineUi();
+
                     ShowPlayerOverlay = false;
-                    StatusMessage = $"Loaded recording coverage for {startLocal:yyyy-MM-dd} ({_currentSession.Segments.Count} segments).";
+                    StatusMessage = $"Loaded recording coverage for {fromLocal:yyyy-MM-dd} ({_currentSession.Segments.Count} segments).";
+
                     LogPlaybackDebug(
-                        $"LOAD_DONE camera={cameraId} segments={_currentSession.Segments.Count} " +
-                        $"timelineSeconds={_currentSession.TotalWindowSeconds:0.##} selectedIndex={_currentSegmentIndex}");
+                        $"LOAD_DONE camera={cameraNameForLogs}[{cameraIdForLogs}] segments={_currentSession.Segments.Count} " +
+                        $"timelineSeconds={CurrentTimelineSeconds:0.###} selectedIndex={_currentSegmentIndex}");
+                }
+                catch (TaskCanceledException)
+                {
+                    LogPlaybackDebug($"LOAD_CANCELED camera={requestedCameraId}");
+                }
+                catch (OperationCanceledException)
+                {
+                    LogPlaybackDebug($"LOAD_CANCELED camera={requestedCameraId}");
                 }
                 catch (Exception ex)
                 {
                     HttpStatusText = "EXCEPTION";
                     ApiRowCount = "0";
-                    LogPlaybackDebug($"LOAD_EXCEPTION camera={cameraId} exception={ex}");
+                    LogPlaybackDebug($"LOAD_EXCEPTION camera={requestedCameraId} exception={ex}");
                     if (generation != Volatile.Read(ref _loadToken))
                         return;
+
                     StatusMessage = $"Failed to load recording: {ex.Message}";
                     ShowPlayerOverlay = true;
                     PlayerOverlayTitle = "Playback Error";
@@ -1502,12 +2013,8 @@ namespace TSVmsDesktop.ViewModels
                 }
                 finally
                 {
-                    if (generation == Volatile.Read(ref _loadToken))
-                    {
-                        IsLoading = false;
-                        UpdateWindowSummaryText();
-                        Interlocked.Exchange(ref _suspendPolling, 0);
-                    }
+                    IsLoading = false;
+                    Interlocked.Exchange(ref _suspendPolling, 0);
                 }
             }
             finally
@@ -1580,14 +2087,22 @@ namespace TSVmsDesktop.ViewModels
             if (_segmentCache.TryGetValue(cacheKey, out var cached) &&
                 (DateTime.UtcNow - cached.CachedAtUtc) < SegmentCacheTtl)
             {
+                LogPlaybackDebug(
+                    $"SESSION_CACHE_HIT camera={cameraId} from={fromUtc:o} to={toUtc:o} segments={cached.Session?.Segments.Count ?? 0}");
                 return cached.Session;
             }
 
             var rawSegments = await _recordingService.GetSegmentsAsync(cameraId, fromUtc, toUtc, token);
+            LogPlaybackDebug(
+                $"SESSION_FETCH camera={cameraId} from={fromUtc:o} to={toUtc:o} rawSegments={rawSegments?.Count ?? 0}");
+
             if (generation != Volatile.Read(ref _loadToken))
                 return null;
 
             var session = _manifestService.Build(cameraId, fromUtc, toUtc, rawSegments);
+            LogPlaybackDebug(
+                $"SESSION_BUILD camera={cameraId} from={fromUtc:o} to={toUtc:o} builtSegments={session?.Segments.Count ?? 0}");
+
             _segmentCache[cacheKey] = new CachedSession
             {
                 CameraId = cameraId,
@@ -1596,7 +2111,42 @@ namespace TSVmsDesktop.ViewModels
                 Session = session,
                 CachedAtUtc = DateTime.UtcNow
             };
+
             return session;
+        }
+
+        private bool AreActiveSecondaryHostsReady()
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (_secondarySlotSelections[i] != null)
+                {
+                    if (!_secondaryHostsAttached[i])
+                        return false;
+
+                    if (_secondaryHostWidths[i] < 64 || _secondaryHostHeights[i] < 64)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool ShouldSkipDuplicateSecondaryOpen(int secondaryIndex, int segmentIndex, double offsetSeconds, int width, int height)
+        {
+            string key = $"{segmentIndex}|{Math.Round(offsetSeconds, 3)}|{width}x{height}";
+            var now = DateTime.UtcNow;
+
+            if (_secondaryLastOpenKeys[secondaryIndex] == key &&
+                (now - _secondaryLastOpenUtc[secondaryIndex]) < TimeSpan.FromMilliseconds(400))
+            {
+                LogPlaybackDebug($"PLAYBACK_SLOT_SKIP_DUPLICATE slot={secondaryIndex + 2} key={key}");
+                return true;
+            }
+
+            _secondaryLastOpenKeys[secondaryIndex] = key;
+            _secondaryLastOpenUtc[secondaryIndex] = now;
+            return false;
         }
 
         private async Task LoadSecondarySlotsAsync(
@@ -1605,8 +2155,42 @@ namespace TSVmsDesktop.ViewModels
             double windowSeconds,
             bool autoPlay,
             CancellationToken token,
-            int generation)
+            int generation,
+            int expectedEpoch)
         {
+            if (Interlocked.CompareExchange(ref _secondaryLoadInFlight, 1, 0) != 0)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    _secondaryPendingReload[i] = true;
+                    _secondaryPendingReloadEpoch[i] = expectedEpoch;
+                }
+
+                LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=load_in_flight");
+                _ = QueueSecondaryReloadAsync(expectedEpoch);
+                return;
+            }
+
+            try
+            {
+            if (PlaybackLayoutMode != PlaybackLayoutMode.Quad)
+            {
+                await StopAndClearAllSecondaryPlaybackAsync();
+                return;
+            }
+
+            if (!AreActiveSecondaryHostsReady())
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    _secondaryPendingReload[i] = true;
+                    _secondaryPendingReloadEpoch[i] = expectedEpoch;
+                }
+
+                LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=hosts_not_ready");
+                return;
+            }
+
             for (int slotIndex = 1; slotIndex < MaxPlaybackTiles; slotIndex++)
             {
                 int secondaryIndex = slotIndex - 1;
@@ -1614,7 +2198,8 @@ namespace TSVmsDesktop.ViewModels
                 if (generation != Volatile.Read(ref _loadToken))
                     return;
 
-                if (slotIndex >= _selectedPlaybackCameras.Count)
+                var camera = _secondarySlotSelections[secondaryIndex];
+                if (camera == null)
                 {
                     _secondaryPendingReload[secondaryIndex] = false;
                     LogPlaybackDebug($"PLAYBACK_SLOT_CLEAR slot={slotIndex + 1}");
@@ -1622,10 +2207,9 @@ namespace TSVmsDesktop.ViewModels
                     continue;
                 }
 
-                var camera = _selectedPlaybackCameras[slotIndex];
-
                 try
                 {
+
                     if (_secondarySessions[secondaryIndex] != null &&
                         !string.Equals(_secondarySessions[secondaryIndex]!.CameraId, camera.Id, StringComparison.OrdinalIgnoreCase))
                     {
@@ -1640,6 +2224,11 @@ namespace TSVmsDesktop.ViewModels
 
                     _secondarySessions[secondaryIndex] = session;
 
+                    LogPlaybackDebug(
+                        $"PLAYBACK_SLOT_SESSION slot={slotIndex + 1} camera={camera.Name}[{camera.Id}] " +
+                        $"sessionSegments={session?.Segments.Count ?? 0} window={fromUtc:o}->{toUtc:o} " +
+                        $"timelineSeconds={windowSeconds:0.###}");
+
                     if (session == null || session.Segments.Count == 0)
                     {
                         _secondaryPendingReload[secondaryIndex] = false;
@@ -1652,26 +2241,98 @@ namespace TSVmsDesktop.ViewModels
                     PlaybackSlots[slotIndex].StatusText = autoPlay ? "Playing in sync" : "Ready";
                     LogPlaybackDebug(
                         $"PLAYBACK_SLOT_READY slot={slotIndex + 1} camera={camera.Name}[{camera.Id}] segments={session.Segments.Count} autoPlay={autoPlay}");
-                    await LoadSecondarySlotAtWindowSecondsAsync(slotIndex, windowSeconds, autoPlay);
+                    await LoadSecondarySlotAtWindowSecondsAsync(slotIndex, windowSeconds, autoPlay, expectedEpoch);
                 }
                 catch (Exception ex)
                 {
+                    bool canRetry =
+                        !_secondaryRetryOnce[secondaryIndex] &&
+                        (
+                            ex.Message.IndexOf("External component", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            ex.Message.IndexOf("Failed to start playback", StringComparison.OrdinalIgnoreCase) >= 0
+                        );
+
+                    LogPlaybackDebug(
+                        $"PLAYBACK_SLOT_ERROR slot={slotIndex + 1} camera={camera.Name}[{camera.Id}] " +
+                        $"error={ex.Message} retry={canRetry} epoch={expectedEpoch}");
+
+                    await StopAndClearSecondaryEngineAsync(secondaryIndex);
+
+                    if (canRetry)
+                    {
+                        _secondaryRetryOnce[secondaryIndex] = true;
+                        PlaybackSlots[slotIndex].StatusText = "Retrying...";
+
+                        // Give the native pipeline a brief cooldown before retrying this slot.
+                        await Task.Delay(220, token);
+
+                        if (generation != Volatile.Read(ref _loadToken))
+                            return;
+
+                        if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                            return;
+
+                        // Force a clean reopen attempt.
+                        _secondaryLastOpenKeys[secondaryIndex] = null;
+                        _loadedSecondarySessions[secondaryIndex] = null;
+                        _loadedSecondarySegmentIndices[secondaryIndex] = -1;
+
+                        try
+                        {
+                            await LoadSecondarySlotAtWindowSecondsAsync(
+                                slotIndex,
+                                windowSeconds,
+                                autoPlay,
+                                expectedEpoch);
+                        }
+                        catch (Exception retryEx)
+                        {
+                            LogPlaybackDebug(
+                                $"PLAYBACK_SLOT_RETRY_ERROR slot={slotIndex + 1} camera={camera.Name}[{camera.Id}] error={retryEx.Message} epoch={expectedEpoch}");
+                        }
+
+                        // If the immediate retry still could not open, queue one more deferred reload.
+                        if (_loadedSecondarySessions[secondaryIndex] == null || _loadedSecondarySegmentIndices[secondaryIndex] < 0)
+                        {
+                            _secondaryPendingReload[secondaryIndex] = true;
+                            _secondaryPendingReloadEpoch[secondaryIndex] = expectedEpoch;
+                            _ = QueueSecondaryReloadAsync(expectedEpoch);
+                        }
+
+                        continue;
+                    }
+
+                    _secondaryRetryOnce[secondaryIndex] = false;
                     _secondaryPendingReload[secondaryIndex] = false;
                     PlaybackSlots[slotIndex].StatusText = "Failed to load";
-                    LogPlaybackDebug($"PLAYBACK_SLOT_ERROR slot={slotIndex + 1} camera={camera.Name}[{camera.Id}] error={ex.Message}");
-                    await StopAndClearSecondaryEngineAsync(secondaryIndex);
                 }
             }
 
             CaptureLoadedPlaybackSelection();
+            RefreshTimelineUi();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _secondaryLoadInFlight, 0);
+            }
         }
 
-        private async Task LoadSecondarySlotAtWindowSecondsAsync(int slotIndex, double windowSeconds, bool autoPlay)
+
+        // Secondary slot load implementation
+        private async Task LoadSecondarySlotAtWindowSecondsAsync(int slotIndex, double windowSeconds, bool autoPlay, int expectedEpoch)
         {
+            if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+            {
+                LogPlaybackDebug($"PLAYBACK_SLOT_DROP slot={slotIndex + 1} reason=epoch_changed expected={expectedEpoch} current={Volatile.Read(ref _secondaryLayoutEpoch)}");
+                return;
+            }
+
             int generation = Volatile.Read(ref _loadToken);
             int secondaryIndex = slotIndex - 1;
             if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count)
                 return;
+
+            int openGeneration = Interlocked.Increment(ref _secondaryOpenGeneration[secondaryIndex]);
 
             if (generation != Volatile.Read(ref _loadToken))
                 return;
@@ -1683,6 +2344,7 @@ namespace TSVmsDesktop.ViewModels
             if (!_secondaryHostsAttached[secondaryIndex])
             {
                 _secondaryPendingReload[secondaryIndex] = true;
+                _secondaryPendingReloadEpoch[secondaryIndex] = expectedEpoch;
                 LogPlaybackDebug($"PLAYBACK_SLOT_WAIT_HOST slot={slotIndex + 1}");
                 return;
             }
@@ -1697,98 +2359,160 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
-            _secondaryPendingReload[secondaryIndex] = false;
-
             double safeOffset = Math.Max(0, seek.LocalOffsetSeconds);
             if (seek.Segment.Segment.DurationSeconds > 0.25)
                 safeOffset = Math.Min(safeOffset, seek.Segment.Segment.DurationSeconds - 0.25);
             else
                 safeOffset = 0;
 
+            // Secondary seek can intermittently stall native playback on some streams/codecs.
+            // Prefer reliable rendering at segment start over exact intra-segment offset.
+            double loadOffset = safeOffset > 0.05 ? 0 : safeOffset;
+            if (loadOffset != safeOffset)
+            {
+                LogPlaybackDebug(
+                    $"PLAYBACK_SLOT_SEEK_BYPASS slot={slotIndex + 1} requestedOffset={safeOffset:0.###} appliedOffset={loadOffset:0.###}");
+            }
+
             int width = _secondaryHostWidths[secondaryIndex];
             int height = _secondaryHostHeights[secondaryIndex];
+
+            if (width < 200 || height < 180)
+            {
+                _secondaryPendingReload[secondaryIndex] = true;
+                _secondaryPendingReloadEpoch[secondaryIndex] = expectedEpoch;
+                LogPlaybackDebug($"PLAYBACK_SLOT_WAIT_SIZE slot={slotIndex + 1} size={width}x{height}");
+                return;
+            }
+
+            if (_secondaryPendingReload[secondaryIndex] &&
+                _secondaryPendingReloadEpoch[secondaryIndex] != expectedEpoch)
+            {
+                LogPlaybackDebug($"PLAYBACK_SLOT_DROP slot={slotIndex + 1} reason=slot_epoch_changed expected={expectedEpoch} current={_secondaryPendingReloadEpoch[secondaryIndex]}");
+                return;
+            }
+
+            _secondaryPendingReload[secondaryIndex] = false;
+            _secondaryPendingReloadEpoch[secondaryIndex] = expectedEpoch;
+
+            if (ShouldSkipDuplicateSecondaryOpen(secondaryIndex, seek.SegmentIndex, safeOffset, width, height))
+                return;
+
             double requestedRate = Math.Clamp(_desiredPlaybackRate <= 0 ? 1.0 : _desiredPlaybackRate, 0.25, 4.0);
+
             LogPlaybackDebug(
-                $"PLAYBACK_SLOT_LOAD_START slot={slotIndex + 1} camera={PlaybackSlots[slotIndex].CameraName} segmentStart={seek.Segment.Segment.StartTs:o} offsetSeconds={safeOffset:0.###} autoPlay={autoPlay} size={width}x{height}");
-
-                await RunSecondaryNativeAsync(secondaryIndex, () =>
-                {
-                    var engine = _secondaryPlaybackEngines[secondaryIndex];
-                    engine.SetLastSampleEnabled(true);
-                    engine.LoadSession(session, seek.SegmentIndex);
-                    engine.RebindHost(width, height);
-                    engine.ForceExpose();
-                    engine.Play();
-                }, $"LoadSecondarySlot_{slotIndex}_Init");
-            LogPlaybackDebug($"PLAYBACK_SLOT_LOAD_INIT_DONE slot={slotIndex + 1}");
-
-            if (generation != Volatile.Read(ref _loadToken))
-                return;
-
-            await Task.Delay(120);
-
-            if (generation != Volatile.Read(ref _loadToken))
-                return;
+                $"PLAYBACK_SLOT_LOAD_START slot={slotIndex + 1} camera={PlaybackSlots[slotIndex].CameraName} " +
+                $"segmentStart={seek.Segment.Segment.StartTs:o} offsetSeconds={loadOffset:0.###} autoPlay={autoPlay} size={width}x{height} epoch={expectedEpoch}");
 
             await RunSecondaryNativeAsync(secondaryIndex, () =>
             {
                 var engine = _secondaryPlaybackEngines[secondaryIndex];
-                engine.Pause();
-                engine.ForceExpose();
-            }, $"LoadSecondarySlot_{slotIndex}_Pause");
-            LogPlaybackDebug($"PLAYBACK_SLOT_LOAD_PAUSE_DONE slot={slotIndex + 1}");
+                engine.SetLastSampleEnabled(true);
 
-            bool shouldSeekSecondary = safeOffset > 0.05 && safeOffset <= SecondarySeekSafetyThresholdSeconds;
-            if (safeOffset > 0.05 && !shouldSeekSecondary)
-            {
-                LogPlaybackDebug(
-                    $"PLAYBACK_SLOT_SEEK_SKIPPED slot={slotIndex + 1} offsetSeconds={safeOffset:0.###} threshold={SecondarySeekSafetyThresholdSeconds:0.###}");
-            }
+                bool needsLoad =
+                    _loadedSecondarySessions[secondaryIndex] != session ||
+                    _loadedSecondarySegmentIndices[secondaryIndex] != seek.SegmentIndex;
 
-            if (shouldSeekSecondary)
-            {
-                if (generation != Volatile.Read(ref _loadToken))
-                    return;
-
-                await Task.Delay(120);
-
-                if (generation != Volatile.Read(ref _loadToken))
-                    return;
-
-                await RunSecondaryNativeAsync(secondaryIndex, () =>
+                if (needsLoad)
                 {
-                    var engine = _secondaryPlaybackEngines[secondaryIndex];
-                    engine.Seek(safeOffset);
-                    engine.ForceExpose();
-                }, $"LoadSecondarySlot_{slotIndex}_Seek");
-                LogPlaybackDebug($"PLAYBACK_SLOT_LOAD_SEEK_DONE slot={slotIndex + 1}");
-            }
+                    engine.LoadSession(session, seek.SegmentIndex);
+                    _loadedSecondarySessions[secondaryIndex] = session;
+                    _loadedSecondarySegmentIndices[secondaryIndex] = seek.SegmentIndex;
+                }
+
+                engine.RebindHost(width, height);
+            }, $"LoadSecondarySlot_{slotIndex}_Init");
+
+            await Task.Delay(180);
+
+            if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                return;
 
             if (generation != Volatile.Read(ref _loadToken))
                 return;
+
+            if (loadOffset > 0.05)
+            {
+                await RunSecondaryNativeAsync(secondaryIndex, () =>
+                {
+                    var engine = _secondaryPlaybackEngines[secondaryIndex];
+                    engine.Seek(loadOffset);
+                    if (!autoPlay)
+                        engine.Pause();
+                    engine.ForceExpose();
+                }, $"LoadSecondarySlot_{slotIndex}_Seek");
+
+                await Task.Delay(120);
+
+                if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                    return;
+
+                if (generation != Volatile.Read(ref _loadToken))
+                    return;
+            }
 
             await RunSecondaryNativeAsync(secondaryIndex, () =>
             {
                 var engine = _secondaryPlaybackEngines[secondaryIndex];
                 engine.SetRate(requestedRate);
+
                 if (autoPlay)
+                {
                     engine.Play();
+                }
                 else
+                {
                     engine.Pause();
+                }
 
                 engine.ForceExpose();
             }, $"LoadSecondarySlot_{slotIndex}_Finalize");
+
+            if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                return;
+
+            _secondaryRetryOnce[secondaryIndex] = false;
+
+            if (openGeneration != Volatile.Read(ref _secondaryOpenGeneration[secondaryIndex]))
+                return;
+
+            // If layout changed while opening, immediately reopen at the final size.
+            int finalWidth = _secondaryHostWidths[secondaryIndex];
+            int finalHeight = _secondaryHostHeights[secondaryIndex];
+            if (finalWidth != width || finalHeight != height)
+            {
+                LogPlaybackDebug(
+                    $"PLAYBACK_SLOT_REOPEN_ON_RESIZE slot={slotIndex + 1} old={width}x{height} new={finalWidth}x{finalHeight}");
+
+                await RunSecondaryNativeAsync(secondaryIndex, () =>
+                {
+                    var engine = _secondaryPlaybackEngines[secondaryIndex];
+                    engine.RebindHost(finalWidth, finalHeight);
+                    engine.ForceExpose();
+                    if (autoPlay)
+                        engine.Play();
+                    else
+                        engine.Pause();
+                }, $"LoadSecondarySlot_{slotIndex}_RebindAfterResize");
+            }
+
+            if (openGeneration != Volatile.Read(ref _secondaryOpenGeneration[secondaryIndex]))
+                return;
+
             LogPlaybackDebug(
-                $"PLAYBACK_SLOT_OPENED slot={slotIndex + 1} camera={PlaybackSlots[slotIndex].CameraName} segmentStart={seek.Segment.Segment.StartTs:o} offsetSeconds={safeOffset:0.###} autoPlay={autoPlay}");
+                $"PLAYBACK_SLOT_OPENED slot={slotIndex + 1} camera={PlaybackSlots[slotIndex].CameraName} " +
+                $"segmentStart={seek.Segment.Segment.StartTs:o} offsetSeconds={loadOffset:0.###} autoPlay={autoPlay}");
         }
 
         private void RebuildCoverageTimeline()
         {
+            bool isQuad = PlaybackLayoutMode == PlaybackLayoutMode.Quad;
+
             // Primary row (C1)
             var pRow = PlaybackTimelines[0];
             pRow.Segments.Clear();
-            pRow.IsVisible = SelectedCamera != null;
-            pRow.CameraName = SelectedCamera?.Name ?? "Select a camera";
+            pRow.IsVisible = isQuad || SelectedCamera != null;
+            pRow.CameraName = SelectedCamera?.Name ?? "Camera Slot 1";
 
             if (_currentSession != null)
             {
@@ -1810,11 +2534,11 @@ namespace TSVmsDesktop.ViewModels
             {
                 var row = PlaybackTimelines[i + 1];
                 var session = _secondarySessions[i];
-                var camera = (i + 1 < _selectedPlaybackCameras.Count) ? _selectedPlaybackCameras[i + 1] : null;
+                var camera = GetCameraForSlot(i + 1);
 
                 row.Segments.Clear();
-                row.IsVisible = camera != null;
-                row.CameraName = camera?.Name ?? "";
+                row.IsVisible = isQuad;
+                row.CameraName = camera?.Name ?? $"Camera Slot {i + 2}";
 
                 if (session != null && camera != null)
                 {
@@ -1843,8 +2567,12 @@ namespace TSVmsDesktop.ViewModels
             if (_isUpdatingUI || _currentSession == null)
                 return;
 
-            if ((DateTime.Now - _lastTransitionTime).TotalSeconds < 1.0)
+            var now = DateTime.UtcNow;
+            if ((now - _lastSeekRequestUtc) < TimeSpan.FromMilliseconds(150))
                 return;
+
+            _lastSeekRequestUtc = now;
+            _lastTransitionTime = now;
 
             var seek = _manifestService.Resolve(_currentSession, windowSeconds);
             if (seek == null)
@@ -1855,6 +2583,7 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
+            _shouldBePlaying = autoPlay;
             _currentSegmentIndex = seek.SegmentIndex;
 
             if (autoPlay)
@@ -1869,17 +2598,18 @@ namespace TSVmsDesktop.ViewModels
             CurrentTimelineSeconds = Math.Max(0, (landedUtc - _currentSession.WindowStartUtc).TotalSeconds);
             _isUpdatingUI = false;
 
+
             await LoadSecondarySlotsAsync(
                 _currentSession.WindowStartUtc,
                 _currentSession.WindowEndUtc,
                 CurrentTimelineSeconds,
                 autoPlay,
                 CancellationToken.None,
-                Volatile.Read(ref _loadToken));
+                Volatile.Read(ref _loadToken),
+                Volatile.Read(ref _secondaryLayoutEpoch));
 
             CaptureLoadedPlaybackSelection();
-
-            UpdatePlayheadPx();
+            RefreshTimelineUi();
             ShowPlayerOverlay = false;
 
             if (seek.LandedAfterGap)
@@ -2012,7 +2742,7 @@ namespace TSVmsDesktop.ViewModels
 
                 await LoadSegmentPausedAsync(_currentSegmentIndex, 0);
                 if (_currentSession != null)
-                    await LoadSecondarySlotsAsync(_currentSession.WindowStartUtc, _currentSession.WindowEndUtc, CurrentTimelineSeconds, autoPlay: false, CancellationToken.None, Volatile.Read(ref _loadToken));
+                    await LoadSecondarySlotsAsync(_currentSession.WindowStartUtc, _currentSession.WindowEndUtc, CurrentTimelineSeconds, autoPlay: false, CancellationToken.None, Volatile.Read(ref _loadToken), Volatile.Read(ref _secondaryLayoutEpoch));
                 await RefreshPlaybackUiFromEngineAsync();
             }
             catch (Exception ex)
@@ -2035,7 +2765,7 @@ namespace TSVmsDesktop.ViewModels
             try
             {
                 Interlocked.Exchange(ref _suspendPolling, 1);
-                await SeekToWindowSecondsAsync(CurrentTimelineSeconds + delta, autoPlay: IsPlaying);
+                await SeekToWindowSecondsAsync(CurrentTimelineSeconds + delta, autoPlay: ShouldResumePlayback);
             }
             finally
             {
@@ -2070,7 +2800,7 @@ namespace TSVmsDesktop.ViewModels
                     return;
                 }
 
-                bool resumeAfter = IsPlaying || _shouldBePlaying;
+                bool resumeAfter = ShouldResumePlayback;
 
                 await RunNativeAsync(() => _playbackEngineService.Pause(), "SetRate_Pause");
                 await ApplyDesiredRateAsync(resumeAfter);
@@ -2146,7 +2876,7 @@ namespace TSVmsDesktop.ViewModels
                         await RunSecondaryNativeAsync(i, () => _secondaryPlaybackEngines[i].SetRotationDegrees(RotationDegrees), $"RotateLeft_Secondary_{i + 1}");
                 }
                 await RefreshPlaybackUiFromEngineAsync();
-                StatusMessage = $"Playback rotation: {RotationDegrees}°";
+                StatusMessage = $"Playback rotation: {RotationDegrees}Â°";
             }
             catch (Exception ex)
             {
@@ -2167,7 +2897,7 @@ namespace TSVmsDesktop.ViewModels
                         await RunSecondaryNativeAsync(i, () => _secondaryPlaybackEngines[i].SetRotationDegrees(RotationDegrees), $"RotateRight_Secondary_{i + 1}");
                 }
                 await RefreshPlaybackUiFromEngineAsync();
-                StatusMessage = $"Playback rotation: {RotationDegrees}°";
+                StatusMessage = $"Playback rotation: {RotationDegrees}Â°";
             }
             catch (Exception ex)
             {
@@ -2250,7 +2980,7 @@ namespace TSVmsDesktop.ViewModels
 
             var utc = DateTime.SpecifyKind(local, DateTimeKind.Local).ToUniversalTime();
             double windowSeconds = (utc - _currentSession.WindowStartUtc).TotalSeconds;
-            await SeekToWindowSecondsAsync(windowSeconds, autoPlay: IsPlaying);
+            await SeekToWindowSecondsAsync(windowSeconds, autoPlay: ShouldResumePlayback);
         }
 
         // Export (desktop-side unchanged; backend still needs route)
@@ -2294,37 +3024,69 @@ namespace TSVmsDesktop.ViewModels
                 await RunNativeAsync(() =>
                 {
                     _playbackEngineService.SetLastSampleEnabled(true);
-                    if (_currentSession != null)
-                        _playbackEngineService.LoadSession(_currentSession, index);
-                    else
-                        _playbackEngineService.Load(segment.Path);
+
+                    bool needsLoad = _loadedPrimarySession != _currentSession || _loadedPrimarySegmentIndex != index;
+                    if (needsLoad)
+                    {
+                        if (_currentSession != null)
+                            _playbackEngineService.LoadSession(_currentSession, index);
+                        else
+                            _playbackEngineService.Load(segment.Path);
+                            
+                        _loadedPrimarySession = _currentSession;
+                        _loadedPrimarySegmentIndex = index;
+                    }
 
                     _playbackEngineService.RebindHost(_lastHostWidth, _lastHostHeight);
-                    _playbackEngineService.ForceExpose();
-
-                    // Re-bind the sink to the current host to avoid stale frames.
-                    // Give the native pipeline a chance to preroll and paint a frame
-                    // before we settle back into paused state.
                     _playbackEngineService.Play();
                 }, "LoadPaused_Init");
 
-                await Task.Delay(120);
-
                 await RunNativeAsync(() =>
                 {
-                    _playbackEngineService.Pause();
+                    _playbackEngineService.WaitForPreroll(PlaybackPrerollTimeoutMs);
                     _playbackEngineService.ForceExpose();
-                }, "LoadPaused_Pause");
+                }, "LoadPaused_InitPreroll");
 
+                // Step 2: seek while still preroll-capable, then preroll again
                 if (safeOffset > 0.05)
                 {
-                    await Task.Delay(120);
                     await RunNativeAsync(() =>
                     {
                         _playbackEngineService.Seek(safeOffset);
-                        _playbackEngineService.ForceExpose();
+                        _playbackEngineService.Play();
                     }, "LoadPaused_Seek");
+
+                    await RunNativeAsync(() =>
+                    {
+                        _playbackEngineService.WaitForPreroll(PlaybackPrerollTimeoutMs);
+                        _playbackEngineService.ForceExpose();
+                    }, "LoadPaused_SeekPreroll");
                 }
+
+                // Step 3: settle into paused state only after preroll landed
+                await RunNativeAsync(() =>
+                {
+                    try
+                    {
+                        _playbackEngineService.Pause();
+                    }
+                    catch
+                    {
+                        // ONVIF/H265 paused-open can throw here even after preroll landed.
+                        // Do not fail the whole paused load for that.
+                    }
+
+                    try
+                    {
+                        _playbackEngineService.WaitForPreroll(PlaybackPauseExposeTimeoutMs);
+                    }
+                    catch
+                    {
+                        // Best effort only.
+                    }
+
+                    _playbackEngineService.ForceExpose();
+                }, "LoadPaused_FinalPause");
 
                 await ApplyDesiredRateAsync(false, alreadyPaused: true);
 
@@ -2334,13 +3096,15 @@ namespace TSVmsDesktop.ViewModels
                 UpdatePlayheadPx();
 
                 ShowPlayerOverlay = false;
+                var (cameraNameForLogs, cameraIdForLogs) = ResolvePrimaryCameraLogIdentity();
                 LogPlaybackDebug(
-                    $"PLAYBACK_PRIMARY_OPENED mode=paused slot=1 camera={SelectedCamera?.Name}[{SelectedCamera?.Id}] segmentIndex={index} segmentStart={segment.StartTs:o} offsetSeconds={safeOffset:0.###} wallClock={CurrentWallClockText}");
+                    $"PLAYBACK_PRIMARY_OPENED mode=paused slot=1 camera={cameraNameForLogs}[{cameraIdForLogs}] segmentIndex={index} segmentStart={segment.StartTs:o} offsetSeconds={safeOffset:0.###} wallClock={CurrentWallClockText}");
             }
             catch (Exception ex)
             {
                 StatusMessage = $"Failed to load paused segment: {ex.Message}";
-                LogPlaybackDebug($"PLAYBACK_PRIMARY_ERROR mode=paused camera={SelectedCamera?.Name}[{SelectedCamera?.Id}] error={ex.Message}");
+                var (cameraNameForLogs, cameraIdForLogs) = ResolvePrimaryCameraLogIdentity();
+                LogPlaybackDebug($"PLAYBACK_PRIMARY_ERROR mode=paused camera={cameraNameForLogs}[{cameraIdForLogs}] error={ex.Message}");
             }
             finally
             {
@@ -2371,25 +3135,42 @@ namespace TSVmsDesktop.ViewModels
                 await RunNativeAsync(() =>
                 {
                     _playbackEngineService.SetLastSampleEnabled(true);
-                    if (_currentSession != null)
-                        _playbackEngineService.LoadSession(_currentSession, index);
-                    else
-                        _playbackEngineService.Load(segment.Path);
+
+                    bool needsLoad = _loadedPrimarySession != _currentSession || _loadedPrimarySegmentIndex != index;
+                    if (needsLoad)
+                    {
+                        if (_currentSession != null)
+                            _playbackEngineService.LoadSession(_currentSession, index);
+                        else
+                            _playbackEngineService.Load(segment.Path);
+                            
+                        _loadedPrimarySession = _currentSession;
+                        _loadedPrimarySegmentIndex = index;
+                    }
 
                     _playbackEngineService.RebindHost(_lastHostWidth, _lastHostHeight);
-                    _playbackEngineService.ForceExpose();
-
-                    _playbackEngineService.Pause();
+                    _playbackEngineService.Play();
                 }, "LoadAndPlay_Init");
+
+                await RunNativeAsync(() =>
+                {
+                    _playbackEngineService.WaitForPreroll(PlaybackPrerollTimeoutMs);
+                    _playbackEngineService.ForceExpose();
+                }, "LoadAndPlay_InitPreroll");
 
                 if (safeOffset > 0.05)
                 {
-                    await Task.Delay(120);
                     await RunNativeAsync(() =>
                     {
                         _playbackEngineService.Seek(safeOffset);
-                        _playbackEngineService.ForceExpose();
+                        _playbackEngineService.Play();
                     }, "LoadAndPlay_Seek");
+
+                    await RunNativeAsync(() =>
+                    {
+                        _playbackEngineService.WaitForPreroll(PlaybackPrerollTimeoutMs);
+                        _playbackEngineService.ForceExpose();
+                    }, "LoadAndPlay_SeekPreroll");
                 }
 
                 await ApplyPlaybackOptionsAfterLoadAsync(true);
@@ -2400,13 +3181,15 @@ namespace TSVmsDesktop.ViewModels
                 UpdatePlayheadPx();
 
                 ShowPlayerOverlay = false;
+                var (cameraNameForLogs, cameraIdForLogs) = ResolvePrimaryCameraLogIdentity();
                 LogPlaybackDebug(
-                    $"PLAYBACK_PRIMARY_OPENED mode=play slot=1 camera={SelectedCamera?.Name}[{SelectedCamera?.Id}] segmentIndex={index} segmentStart={segment.StartTs:o} offsetSeconds={safeOffset:0.###} wallClock={CurrentWallClockText}");
+                    $"PLAYBACK_PRIMARY_OPENED mode=play slot=1 camera={cameraNameForLogs}[{cameraIdForLogs}] segmentIndex={index} segmentStart={segment.StartTs:o} offsetSeconds={safeOffset:0.###} wallClock={CurrentWallClockText}");
             }
             catch (Exception ex)
             {
                 StatusMessage = $"Failed to load segment: {ex.Message}";
-                LogPlaybackDebug($"PLAYBACK_PRIMARY_ERROR mode=play camera={SelectedCamera?.Name}[{SelectedCamera?.Id}] error={ex.Message}");
+                var (cameraNameForLogs, cameraIdForLogs) = ResolvePrimaryCameraLogIdentity();
+                LogPlaybackDebug($"PLAYBACK_PRIMARY_ERROR mode=play camera={cameraNameForLogs}[{cameraIdForLogs}] error={ex.Message}");
             }
             finally
             {
@@ -2488,7 +3271,7 @@ namespace TSVmsDesktop.ViewModels
                         wallClock != _lastUiWallClock ||
                         Math.Abs(timelineSeconds - _lastUiTimelineSeconds) >= 0.25;
 
-                    if (shouldUpdate)
+                    if (shouldUpdate && !IsTimelineScrubbing)
                     {
                         CurrentWallClockText = wallClock;
                         _lastUiWallClock = wallClock;
@@ -2505,12 +3288,6 @@ namespace TSVmsDesktop.ViewModels
 
                 // FIX: visible playback state must follow actual engine playback, not user intent
                 IsPlaying = actualPlaying;
-
-                // Optional: if playback was requested but engine is no longer progressing, clear intent
-                if (_shouldBePlaying && !actualPlaying && !snapshot.eosReached)
-                {
-                    _shouldBePlaying = false;
-                }
 
                 if (_shouldBePlaying && snapshot.eosReached)
                 {
