@@ -10,8 +10,15 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <Style x:Key="ModernPlaybackCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#D9E2EC"/>
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#13263F" Offset="0"/>
+                        <GradientStop Color="#0E1D31" Offset="1"/>
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="BorderBrush" Value="#2A4467"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="18"/>
         </Style>
@@ -23,9 +30,9 @@
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#334155"/>
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#D6DEE8"/>
+            <Setter Property="Foreground" Value="#D5E7FF"/>
+            <Setter Property="Background" Value="#1A3556"/>
+            <Setter Property="BorderBrush" Value="#2A4D78"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
@@ -42,11 +49,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FFF7ED"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FDBA74"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#24456D"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4A78AC"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FFEDD5"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#1D395B"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -60,9 +67,9 @@
         <Style x:Key="ModernPlaybackPrimaryButtonStyle"
                TargetType="Button"
                BasedOn="{StaticResource ModernPlaybackButtonStyle}">
-            <Setter Property="Background" Value="#F97316"/>
+            <Setter Property="Background" Value="#F58A28"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#EA580C"/>
+            <Setter Property="BorderBrush" Value="#DD7416"/>
         </Style>
 
         <Style x:Key="ModernRateChipStyle"
@@ -72,6 +79,48 @@
             <Setter Property="MinWidth" Value="42"/>
             <Setter Property="Padding" Value="10,0"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Background" Value="#112A45"/>
+            <Setter Property="BorderBrush" Value="#355986"/>
+            <Setter Property="Foreground" Value="#BFD8F6"/>
+        </Style>
+
+        <Style x:Key="TimelineIconButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource ModernPlaybackButtonStyle}">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="TimelineRoundControlButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource TimelineIconButtonStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="14">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#24456D"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4A78AC"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1D395B"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="PlaybackLaneLabelBorderStyle" TargetType="Border">
@@ -104,9 +153,9 @@
                                             <ControlTemplate TargetType="Thumb">
                                                 <Grid x:Name="ThumbVisual" Background="Transparent">
                                                     <!-- Vertical Line -->
-                                                    <Border Width="2" Height="48" Background="#F97316" VerticalAlignment="Center"/>
+                                                    <Border Width="2" Height="52" Background="#F58A28" VerticalAlignment="Center"/>
                                                     <!-- Circle Handle -->
-                                                    <Ellipse Width="14" Height="14" Fill="White" Stroke="#F97316" StrokeThickness="2" VerticalAlignment="Center" Margin="0,-1,0,1"/>
+                                                    <Ellipse Width="12" Height="12" Fill="#F58A28" Stroke="#FFCF99" StrokeThickness="1.4" VerticalAlignment="Center" Margin="0,-1,0,1"/>
                                                 </Grid>
                                             </ControlTemplate>
                                         </Thumb.Template>
@@ -141,7 +190,7 @@
         </Style>
 
         <Style x:Key="PlaybackMetaStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="Foreground" Value="#9DB7D7"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
@@ -191,14 +240,18 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Background="Transparent" Margin="0">
+    <Grid Background="#081423" Margin="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="182"/>
             <ColumnDefinition Width="8"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Grid Grid.Column="0">
+        <Grid Grid.Row="0" Grid.Column="0" Background="#0D1B2D">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="10"/>
@@ -206,14 +259,15 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
-                    Background="Transparent"
+                    Background="#0F2138"
+                    BorderThickness="0"
                     CornerRadius="0"
                     Padding="12,8,8,8">
                 <StackPanel>
                     <TextBlock Text="Common"
                                FontSize="14"
                                FontWeight="SemiBold"
-                               Foreground="#0F172A"/>
+                               Foreground="#DCEAFE"/>
                     <DatePicker Margin="0,10,0,0"
                                 SelectedDate="{Binding SelectedDayLocal, Mode=TwoWay}"
                                 SelectedDateFormat="Short"/>
@@ -221,7 +275,8 @@
             </Border>
 
             <Border Grid.Row="2"
-                    Background="Transparent"
+                    Background="#0F2138"
+                    BorderThickness="0"
                     CornerRadius="0"
                     Padding="12,8,8,8">
                 <Grid>
@@ -239,7 +294,7 @@
                         <TextBlock Text="Playback Cameras"
                                    FontSize="18"
                                    FontWeight="Bold"
-                                   Foreground="#0F172A"/>
+                                   Foreground="#E2EEFF"/>
                         <TextBlock Text="Select up to 4 cameras to review archived footage."
                                    Margin="0,6,0,0"
                                    TextWrapping="Wrap"
@@ -255,9 +310,9 @@
                              Padding="10,0"
                              VerticalContentAlignment="Center"
                              Text="{Binding CameraSearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Background="#F8FAFC"
-                             BorderBrush="#E2E8F0"
-                             BorderThickness="1"/>
+                             Foreground="#D8E9FF"
+                             Background="#102640"
+                             BorderThickness="0"/>
 
                     <ListBox x:Name="PlaybackCameraList"
                              Grid.Row="4"
@@ -275,16 +330,15 @@
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
                                             <Border x:Name="Bd"
-                                                    Background="#F8FAFC"
-                                                    BorderBrush="#E2E8F0"
-                                                    BorderThickness="1"
-                                                    CornerRadius="12"
+                                                    Background="#132A44"
+                                                    BorderThickness="0"
+                                                    CornerRadius="0"
                                                     Padding="12,10">
                                                 <ContentPresenter/>
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#94A3B8"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#4A78AC"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -299,7 +353,7 @@
                                           Checked="PlaybackCameraCheckBox_Changed"
                                           Unchecked="PlaybackCameraCheckBox_Changed"
                                           FontWeight="SemiBold"
-                                          Foreground="#0F172A"/>
+                                          Foreground="#DCEAFE"/>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -324,17 +378,16 @@
                     </TextBlock>
 
                     <Border Grid.Row="6"
-                            Background="#FFFFFF"
-                            BorderBrush="#E2E8F0"
-                            BorderThickness="1"
-                            CornerRadius="12"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="0"
                             Padding="10"
                             Margin="0,8,0,0">
                         <StackPanel>
                             <TextBlock Text="Export Clip"
                                        FontSize="14"
                                        FontWeight="SemiBold"
-                                       Foreground="#0F172A"/>
+                                       Foreground="#E2EEFF"/>
 
                             <TextBox Height="32"
                                      Margin="0,8,0,0"
@@ -350,6 +403,9 @@
 
                             <Button Content="Export Range"
                                     Height="34"
+                                    Foreground="#DCEAFE"
+                                    Background="#1A3556"
+                                    BorderThickness="0"
                                     Margin="0,8,0,0"
                                     Command="{Binding ExportRangeCommand}"/>
 
@@ -363,11 +419,10 @@
             </Border>
         </Grid>
 
-            <Grid Grid.Column="2" x:Name="PlaybackContentGrid" ClipToBounds="True">
+            <Grid Grid.Row="0" Grid.Column="2" x:Name="PlaybackContentGrid" ClipToBounds="True">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="0"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <StackPanel x:Name="PlaybackTopBar"
@@ -408,7 +463,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border x:Name="PlaybackTile1" Grid.Row="0" Grid.Column="0" Margin="2" Background="#000000" BorderBrush="#1E293B" BorderThickness="1">
+                        <Border x:Name="PlaybackTile1" Grid.Row="0" Grid.Column="0" Margin="2" Background="#000000" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost1"
                                                       Tag="0"
@@ -442,7 +497,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile2" Grid.Row="0" Grid.Column="1" Margin="2" Background="#000000" BorderBrush="#1E293B" BorderThickness="1">
+                        <Border x:Name="PlaybackTile2" Grid.Row="0" Grid.Column="1" Margin="2" Background="#000000" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost2"
                                                       Tag="1"
@@ -476,7 +531,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile3" Grid.Row="1" Grid.Column="0" Margin="2" Background="#000000" BorderBrush="#1E293B" BorderThickness="1">
+                        <Border x:Name="PlaybackTile3" Grid.Row="1" Grid.Column="0" Margin="2" Background="#000000" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost3"
                                                       Tag="2"
@@ -510,7 +565,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile4" Grid.Row="1" Grid.Column="1" Margin="2" Background="#000000" BorderBrush="#1E293B" BorderThickness="1">
+                        <Border x:Name="PlaybackTile4" Grid.Row="1" Grid.Column="1" Margin="2" Background="#000000" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost4"
                                                       Tag="3"
@@ -604,20 +659,24 @@
 
 
 
-            <Border x:Name="PlaybackTimelinePanel"
-                    Grid.Row="2"
+        </Grid>
+
+        <Border x:Name="PlaybackTimelinePanel"
+                    Grid.Row="1"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="3"
                     Background="Transparent"
-                    Padding="8,2,8,0"
-                    MinHeight="180">
-                <Border Style="{StaticResource ModernPlaybackCardStyle}"
-                        Padding="10">
+                    Padding="2,2,2,2"
+                    MinHeight="150">
+                <Border Background="Transparent"
+                        BorderThickness="0"
+                        CornerRadius="0"
+                        Padding="10,8,10,8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="8"/>
-                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
                             <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
 
@@ -628,14 +687,15 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal"
+                                        VerticalAlignment="Center">
                                 <Button Content="|&lt;"
                                         Command="{Binding PreviousCommand}"
-                                        Style="{StaticResource ModernPlaybackButtonStyle}"/>
+                                        Style="{StaticResource TimelineRoundControlButtonStyle}"/>
 
                                 <Button Content="&lt;&lt;"
                                         Command="{Binding SeekBackCommand}"
-                                        Style="{StaticResource ModernPlaybackButtonStyle}"/>
+                                        Style="{StaticResource TimelineRoundControlButtonStyle}"/>
 
                                 <Button Content="Play/Pause"
                                         Command="{Binding TogglePlayPauseCommand}"
@@ -651,18 +711,19 @@
 
                                 <Button Content="&gt;&gt;"
                                         Command="{Binding SeekForwardCommand}"
-                                        Style="{StaticResource ModernPlaybackButtonStyle}"/>
+                                        Style="{StaticResource TimelineRoundControlButtonStyle}"/>
 
                                 <Button Content="&gt;|"
                                         Command="{Binding NextCommand}"
-                                        Style="{StaticResource ModernPlaybackButtonStyle}"/>
+                                        Style="{StaticResource TimelineRoundControlButtonStyle}"/>
 
-                                <Border Width="1" Height="20" Background="#E2E8F0" Margin="8,0,12,0"/>
+                                <Border Width="1" Height="20" Background="#2A4467" Margin="8,0,12,0"/>
 
                                 <Button Content="1x"
                                         Command="{Binding SetRate1xCommand}"
                                         IsEnabled="{Binding HasMediaLoaded}"
-                                        Style="{StaticResource ModernRateChipStyle}"/>
+                                        Style="{StaticResource ModernRateChipStyle}"
+                                        MinWidth="54"/>
 
                                 <Button Content="2x"
                                         Command="{Binding SetRate2xCommand}"
@@ -676,197 +737,203 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="1"
-                                        Orientation="Vertical"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center"
                                         HorizontalAlignment="Right">
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Border Background="#FFF7ED"
-                                            BorderBrush="#FDBA74"
-                                            BorderThickness="1"
-                                            CornerRadius="14"
-                                            Padding="8,3"
-                                            Margin="0,0,10,0">
-                                        <TextBlock Text="{Binding PlaybackRateText}"
-                                                   Foreground="#C2410C"
-                                                   FontWeight="SemiBold"/>
-                                    </Border>
-
-                                    <TextBlock Text="{Binding CurrentWallClockText}"
-                                               FontSize="22"
-                                               FontWeight="Bold"
-                                               Foreground="#0F172A"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="8" Height="8" Fill="#22C55E" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Motion" Foreground="#A8C2DF" FontSize="12" Margin="0,0,16,0"/>
+                                    <Ellipse Width="8" Height="8" Fill="#F58A28" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Event" Foreground="#A8C2DF" FontSize="12"/>
                                 </StackPanel>
 
-                                <TextBlock Text="{Binding CoverageSummaryText}"
-                                           Margin="0,6,0,0"
-                                           Foreground="#334155"
-                                           FontWeight="SemiBold"
-                                           HorizontalAlignment="Right"/>
-
-                                <TextBlock Text="{Binding WindowSummaryText}"
-                                           Margin="0,2,0,0"
-                                           Foreground="#64748B"
-                                           FontSize="12"
-                                           HorizontalAlignment="Right"/>
+                                <Border Width="1" Height="20" Background="#2A4467" Margin="12,0,10,0"/>
+                                <Button Content="&#xE722;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource TimelineIconButtonStyle}" ToolTip="Zoom Out" Command="{Binding ZoomTimelineOutCommand}"/>
+                                <Button Content="&#xE71E;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource TimelineIconButtonStyle}" ToolTip="Zoom In" Command="{Binding ZoomTimelineInCommand}"/>
+                                <Button Content="&#xE70F;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource TimelineIconButtonStyle}" ToolTip="Fit" Command="{Binding FitTimelineCommand}"/>
+                                <Button Content="&#xE7A7;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource TimelineIconButtonStyle}" ToolTip="Snapshot"/>
                             </StackPanel>
                         </Grid>
 
-                        <!-- Legend -->
-                        <StackPanel Grid.Row="4"
-                                    Orientation="Horizontal"
-                                    VerticalAlignment="Center">
-                            <Ellipse Width="8" Height="8" Fill="#22C55E" Margin="0,0,6,0"/>
-                            <TextBlock Text="Recorded" Foreground="#64748B" FontSize="12" Margin="0,0,16,0"/>
-
-                            <Ellipse Width="8" Height="8" Fill="#FBEDEE" Stroke="#E7B9BC" StrokeThickness="1" Margin="0,0,6,0"/>
-                            <TextBlock Text="No recording" Foreground="#64748B" FontSize="12" Margin="0,0,16,0"/>
-
-                            <Ellipse Width="8" Height="8" Fill="#F97316" Margin="0,0,6,0"/>
-                            <TextBlock Text="Playhead" Foreground="#64748B" FontSize="12"/>
-                        </StackPanel>
-
-                        <!-- Ruler -->
+                        <!-- Integrated playback lanes: compact strip style -->
                         <Border Grid.Row="2"
-                                Background="#FFFFFF"
-                                BorderBrush="#E2E8F0"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="84,6,12,6"
-                                Margin="0,0,0,8">
-                            <ItemsControl ItemsSource="{Binding TimelineTicks}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Canvas Height="22"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
+                                Background="#0F2138"
+                                BorderThickness="0"
+                                CornerRadius="0"
+                                Padding="0,2,0,3">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="2"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
 
-                                <ItemsControl.ItemContainerStyle>
-                                    <Style TargetType="ContentPresenter">
-                                        <Setter Property="Canvas.Left" Value="{Binding LeftPx}"/>
-                                    </Style>
-                                </ItemsControl.ItemContainerStyle>
-
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel>
-                                            <Border Width="1"
-                                                    Height="6"
-                                                    Background="#CBD5E1"
-                                                    HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Label}"
-                                                       FontSize="10"
-                                                       Foreground="#64748B"
-                                                       Margin="-12,2,0,0"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </Border>
-
-                        <!-- Integrated playback lanes: lane itself is the scrubber -->
-                        <ItemsControl Grid.Row="3"
-                                      ItemsSource="{Binding PlaybackTimelines}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,8"
-                                            Background="#FFFFFF"
-                                            BorderBrush="#E2E8F0"
-                                            BorderThickness="1"
-                                            CornerRadius="12"
-                                            Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
-                                        <Grid Height="38">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="58"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <!-- camera label -->
-                                            <Border Grid.Column="0"
-                                                    Background="#F8FAFC"
-                                                    BorderBrush="#E2E8F0"
-                                                    BorderThickness="0,0,1,0"
-                                                    CornerRadius="12,0,0,12">
-                                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Border Grid.Row="0"
+                                        Background="Transparent"
+                                        Padding="132,2,24,2"
+                                        Margin="0,0,0,0">
+                                    <ItemsControl ItemsSource="{Binding TimelineTicks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <Canvas Height="24"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding LeftPx}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel>
+                                                    <Border Width="1"
+                                                            Height="5"
+                                                            Background="#6489B7"
+                                                            HorizontalAlignment="Center"/>
                                                     <TextBlock Text="{Binding Label}"
-                                                               FontWeight="Bold"
-                                                               FontSize="13"
-                                                               Foreground="#0F172A"
-                                                               HorizontalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding CameraName}"
-                                                               FontSize="8"
-                                                               Foreground="#64748B"
-                                                               HorizontalAlignment="Center"
-                                                               TextAlignment="Center"
-                                                               TextWrapping="Wrap"
-                                                               MaxWidth="46"/>
-                                                </StackPanel>
-                                            </Border>
-
-                                            <!-- integrated timeline -->
-                                            <Border Grid.Column="1"
-                                                    x:Name="TimelineHost"
-                                                    Background="Transparent"
-                                                    Tag="{Binding SlotIndex}"
-                                                    Padding="8,8,8,8"
-                                                    SizeChanged="PlaybackTimelineHost_OnSizeChanged"
-                                                    MouseLeftButtonDown="TimelineHost_MouseLeftButtonDown"
-                                                    MouseMove="TimelineHost_MouseMove"
-                                                    MouseLeftButtonUp="TimelineHost_MouseLeftButtonUp">
-                                                <Grid>
-                                                    <!-- full lane background -->
-                                                    <Border Height="20"
-                                                            VerticalAlignment="Center"
-                                                            Background="#FBEDEE"
-                                                            CornerRadius="8"/>
-
-                                                    <!-- recorded coverage -->
-                                                    <ItemsControl ItemsSource="{Binding Segments}">
-                                                        <ItemsControl.ItemsPanel>
-                                                            <ItemsPanelTemplate>
-                                                                <Canvas Height="20"/>
-                                                            </ItemsPanelTemplate>
-                                                        </ItemsControl.ItemsPanel>
-
-                                                        <ItemsControl.ItemContainerStyle>
-                                                            <Style TargetType="ContentPresenter">
-                                                                <Setter Property="Canvas.Left" Value="{Binding LeftPx}"/>
-                                                                <Setter Property="Canvas.Top" Value="0"/>
+                                                               FontSize="11"
+                                                               Foreground="#95B6D8"
+                                                               Margin="-12,2,0,0">
+                                                        <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Margin" Value="-12,2,0,0"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsRightEdge}" Value="True">
+                                                                        <Setter Property="Margin" Value="-52,2,0,0"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
                                                             </Style>
-                                                        </ItemsControl.ItemContainerStyle>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
 
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Border Width="{Binding WidthPx}"
-                                                                        Height="20"
-                                                                        Background="#22C55E"
-                                                                        BorderBrush="#16A34A"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="6"/>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
+                                <ItemsControl Grid.Row="2" ItemsSource="{Binding PlaybackTimelines}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,4"
+                                                  Height="24"
+                                                  Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="124"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
 
-                                                    <!-- purely visual integrated timeline playhead overlay -->
-                                                    <Slider Minimum="0"
-                                                            Maximum="{Binding DataContext.TotalTimelineSeconds, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            Value="{Binding DataContext.CurrentTimelineSeconds, Mode=OneWay, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            IsEnabled="{Binding DataContext.HasSegments, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            Style="{StaticResource ModernTimelineSliderStyle}"
-                                                            HorizontalAlignment="Stretch"
-                                                            VerticalAlignment="Center"
-                                                            Padding="0"
-                                                            IsHitTestVisible="False"/>
-                                                </Grid>
-                                            </Border>
-                                        </Grid>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding CameraName}"
+                                                           Foreground="#C9DDF8"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"
+                                                           Margin="12,0,0,0"/>
+
+                                                <Border Grid.Column="1"
+                                                        x:Name="TimelineHost"
+                                                        Background="Transparent"
+                                                        Tag="{Binding SlotIndex}"
+                                                        Padding="6,2,6,2"
+                                                        SizeChanged="PlaybackTimelineHost_OnSizeChanged"
+                                                        MouseLeftButtonDown="TimelineHost_MouseLeftButtonDown"
+                                                        MouseMove="TimelineHost_MouseMove"
+                                                        MouseLeftButtonUp="TimelineHost_MouseLeftButtonUp"
+                                                        MouseWheel="TimelineHost_MouseWheel">
+                                                    <Grid>
+                                                        <Border Height="14"
+                                                                VerticalAlignment="Center"
+                                                                Background="#1A2F48"
+                                                                CornerRadius="2"/>
+
+                                                        <ItemsControl ItemsSource="{Binding Segments}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <Canvas Height="14"/>
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemContainerStyle>
+                                                                <Style TargetType="ContentPresenter">
+                                                                    <Setter Property="Canvas.Left" Value="{Binding LeftPx}"/>
+                                                                    <Setter Property="Canvas.Top" Value="0"/>
+                                                                </Style>
+                                                            </ItemsControl.ItemContainerStyle>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Grid>
+                                                                        <Border Width="{Binding WidthPx}"
+                                                                                Height="14"
+                                                                                Background="#1FA34A"
+                                                                                BorderBrush="#157A38"
+                                                                                BorderThickness="0.8"/>
+                                                                        <Border Width="2"
+                                                                                Height="14"
+                                                                                Background="#F5A33A"
+                                                                                HorizontalAlignment="Left"
+                                                                                Visibility="Collapsed">
+                                                                            <Border.Style>
+                                                                                <Style TargetType="Border">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding HasGapBefore}" Value="True">
+                                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Border.Style>
+                                                                        </Border>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </Grid>
+                                                </Border>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Canvas Grid.RowSpan="3"
+                                        IsHitTestVisible="False"
+                                        Margin="132,0,24,0">
+                                    <Border Canvas.Left="{Binding PlayheadLeftPx}"
+                                            Canvas.Top="8"
+                                            Background="#F58A28"
+                                            CornerRadius="3"
+                                            Padding="4,1"
+                                            Visibility="{Binding IsTimelineScrubbing, Converter={StaticResource BoolToVis}}">
+                                        <Border.RenderTransform>
+                                            <TranslateTransform X="-18"/>
+                                        </Border.RenderTransform>
+                                        <TextBlock Text="{Binding ScrubPreviewTimeText}"
+                                                   Foreground="White"
+                                                   FontSize="9"
+                                                   FontWeight="SemiBold"/>
                                     </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
+                                    <Border Canvas.Left="{Binding PlayheadLeftPx}"
+                                            Canvas.Top="34"
+                                            Width="2"
+                                            Height="130"
+                                            Background="#F58A28">
+                                        <Border.RenderTransform>
+                                            <TranslateTransform X="-1"/>
+                                        </Border.RenderTransform>
+                                    </Border>
+                                    <Ellipse Canvas.Left="{Binding PlayheadLeftPx}"
+                                             Canvas.Top="30"
+                                             Width="6"
+                                             Height="6"
+                                             Fill="#F58A28">
+                                        <Ellipse.RenderTransform>
+                                            <TranslateTransform X="-3"/>
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                </Canvas>
+                            </Grid>
+                        </Border>
 
                     </Grid>
                 </Border>
-            </Border>
-        </Grid>
+        </Border>
     </Grid>
 </UserControl>

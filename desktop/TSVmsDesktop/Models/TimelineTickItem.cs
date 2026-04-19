@@ -4,5 +4,6 @@ namespace TSVmsDesktop.Models
     {
         public double LeftPx { get; set; }
         public string Label { get; set; } = "";
+        public bool IsRightEdge { get; set; }
     }
 }

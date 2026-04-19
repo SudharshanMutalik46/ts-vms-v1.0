@@ -67,10 +67,8 @@ namespace TSVmsDesktop.Views
                 : (ActualHeight > 0 ? ActualHeight : PlaybackContentGrid.ActualHeight);
 
             double topBarHeight = PlaybackTopBar?.ActualHeight ?? 0;
-            double measuredTimelineHeight = PlaybackTimelinePanel?.ActualHeight ?? 0;
-            double timelineHeight = measuredTimelineHeight > 80 ? measuredTimelineHeight : 180;
-            double chromePadding = 8; // row gaps + card paddings
-            double maxStageHeight = Math.Max(260, totalHeight - topBarHeight - timelineHeight - chromePadding);
+            double chromePadding = 8;
+            double maxStageHeight = Math.Max(260, totalHeight - topBarHeight - chromePadding);
 
             double targetAspect = DefaultPlaybackAspect;
 
@@ -199,12 +197,28 @@ namespace TSVmsDesktop.Views
         private void UpdateScrubberPosition(FrameworkElement fe, System.Windows.Input.MouseEventArgs e, PlaybackViewModel vm)
         {
             var pos = e.GetPosition(fe);
-            double paddingX = 12.0; // Math TimelineHost padding
+            double paddingX = 6.0; // TimelineHost horizontal padding
             double trackWidth = Math.Max(1, fe.ActualWidth - (paddingX * 2));
             double mouseX = pos.X - paddingX;
             double ratio = Math.Max(0, Math.Min(1, mouseX / trackWidth));
             
             vm.CurrentTimelineSeconds = ratio * Math.Max(1, vm.TotalTimelineSeconds);
+        }
+
+        private async void TimelineHost_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || DataContext is not PlaybackViewModel vm)
+                return;
+
+            var pos = e.GetPosition(fe);
+            double paddingX = 6.0;
+            double trackWidth = Math.Max(1, fe.ActualWidth - (paddingX * 2));
+            double mouseX = pos.X - paddingX;
+            double ratio = Math.Max(0, Math.Min(1, mouseX / trackWidth));
+            double targetSeconds = ratio * Math.Max(1, vm.TotalTimelineSeconds);
+
+            await vm.ZoomTimelineAtWindowSecondsAsync(targetSeconds, zoomIn: e.Delta > 0);
+            e.Handled = true;
         }
 
 

@@ -52,6 +52,7 @@ namespace TSVmsDesktop.ViewModels
     {
         private const int MaxPlaybackTiles = 4;
         private const double SecondarySeekSafetyThresholdSeconds = 0.0;
+        private const double SecondaryClockSkewToleranceSeconds = 8.0;
         private readonly ApiClient _apiClient;
         private readonly CameraService _cameraService;
         private readonly PlaybackEngineService _playbackEngineService;
@@ -66,6 +67,7 @@ namespace TSVmsDesktop.ViewModels
         private int _lastHostHeight = 720;
         private CancellationTokenSource? _loadCts;
         private CancellationTokenSource? _switchCts;
+        private CancellationTokenSource? _zoomTimelineCts;
         private int _switchToken;
         private string _pendingCameraId = string.Empty;
         private readonly Dictionary<string, CachedSession> _segmentCache = new();
@@ -76,6 +78,7 @@ namespace TSVmsDesktop.ViewModels
         private readonly List<int> _secondaryHostWidths = new();
         private readonly List<int> _secondaryHostHeights = new();
         private readonly List<bool> _secondaryHostsAttached = new();
+        private readonly DateTime[] _secondaryLastResizeUtc = new DateTime[3];
         private readonly List<CameraModel> _selectedPlaybackCameras = new();
         private readonly List<bool> _secondaryPendingReload = new() { false, false, false };
         private int _secondaryReloadQueued = 0;
@@ -99,6 +102,10 @@ namespace TSVmsDesktop.ViewModels
         private DateTime _lastUiUpdateUtc = DateTime.MinValue;
         private double _lastUiTimelineSeconds = -1;
         private string _lastUiWallClock = string.Empty;
+        private DateTime _lastSecondaryDeferInFlightLogUtc = DateTime.MinValue;
+        private DateTime _lastSecondaryDeferHostsLogUtc = DateTime.MinValue;
+        private int _secondaryDeferInFlightLatched = 0;
+        private int _secondaryDeferHostsLatched = 0;
         private bool _suppressSelectedCameraChangedLoad;
         private bool _pendingSelectionReloadAfterLayout;
         private double _pendingSelectionWindowSeconds;
@@ -173,8 +180,25 @@ namespace TSVmsDesktop.ViewModels
 
         // Wall-clock time display
         [ObservableProperty] private string _currentWallClockText = "--:--:--";
+        public string CurrentWallClockTimeOnlyText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(CurrentWallClockText) || CurrentWallClockText == "--:--:--")
+                    return string.Empty;
+
+                if (DateTime.TryParse(CurrentWallClockText, out var parsed))
+                    return parsed.ToString("HH:mm");
+
+                if (CurrentWallClockText.Length >= 8)
+                    return CurrentWallClockText.Substring(CurrentWallClockText.Length - 8, 5);
+
+                return CurrentWallClockText;
+            }
+        }
         [ObservableProperty] private string _coverageSummaryText = "Coverage: - | Gaps: -";
         [ObservableProperty] private string _windowSummaryText = "";
+        [ObservableProperty] private string _scrubPreviewTimeText = string.Empty;
 
         // Overlay
         [ObservableProperty] private bool _showPlayerOverlay = true;
@@ -221,6 +245,20 @@ namespace TSVmsDesktop.ViewModels
             OnPropertyChanged(nameof(IsMultiPlaybackLayout));
             OnPropertyChanged(nameof(IsSingleViewSelected));
             OnPropertyChanged(nameof(IsQuadViewSelected));
+        }
+
+        partial void OnCurrentWallClockTextChanged(string value)
+        {
+            OnPropertyChanged(nameof(CurrentWallClockTimeOnlyText));
+        }
+
+        partial void OnCurrentTimelineSecondsChanged(double value)
+        {
+            DateTime baseUtc = _currentSession?.WindowStartUtc ?? WindowStartUtc();
+            ScrubPreviewTimeText = baseUtc
+                .AddSeconds(Math.Max(0, value))
+                .ToLocalTime()
+                .ToString("HH:mm:ss");
         }
 
         [RelayCommand]
@@ -356,7 +394,7 @@ namespace TSVmsDesktop.ViewModels
         // Window + Calendar
         [ObservableProperty] private DateTime _selectedDayLocal = DateTime.Today;
         [ObservableProperty] private string _windowFromTimeText = "00:00";
-        [ObservableProperty] private string _windowToTimeText = "23:59";
+        [ObservableProperty] private string _windowToTimeText = "24:00";
 
         // For API diagnostic display
         [ObservableProperty] private string _selectedCameraDebugId = "";
@@ -410,7 +448,13 @@ namespace TSVmsDesktop.ViewModels
             for (int i = 0; i < MaxPlaybackTiles; i++)
             {
                 PlaybackSlots.Add(new PlaybackTileSlot { SlotIndex = i + 1 });
-                PlaybackTimelines.Add(new PlaybackTimelineRow { SlotIndex = i + 1, Label = $"C{i + 1}", IsVisible = false });
+                PlaybackTimelines.Add(new PlaybackTimelineRow
+                {
+                    SlotIndex = i + 1,
+                    Label = $"C{i + 1}",
+                    IsVisible = true,
+                    CameraName = $"Camera Slot {i + 1}"
+                });
 
                 if (i == 0)
                     continue;
@@ -1049,11 +1093,16 @@ namespace TSVmsDesktop.ViewModels
 
             if (sizeChanged)
             {
+                _secondaryLastResizeUtc[secondaryIndex] = DateTime.UtcNow;
                 LogPlaybackDebug($"PLAYBACK_HOST_RESIZE_APPLY slot={slotIndex + 1} size={nextWidth}x{nextHeight}");
 
                 // Retry secondary loading whenever host size becomes valid/changes.
                 if (_secondaryHostsAttached[secondaryIndex])
+                {
+                    _secondaryPendingReload[secondaryIndex] = true;
+                    _secondaryPendingReloadEpoch[secondaryIndex] = Volatile.Read(ref _secondaryLayoutEpoch);
                     _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
+                }
             }
 
             return Task.CompletedTask;
@@ -1093,12 +1142,13 @@ namespace TSVmsDesktop.ViewModels
             {
                 Interlocked.Exchange(ref _secondaryReloadQueued, 0);
 
-                // If a reload request arrived while this worker was running,
-                // immediately queue one more pass so secondary slots don't get stuck black.
+                // If this queued pass ran too early (while another secondary load was in-flight),
+                // schedule one follow-up pass after the current worker exits.
                 if (_currentSession != null &&
                     PlaybackLayoutMode == PlaybackLayoutMode.Quad &&
                     AnySecondaryReloadPending() &&
-                    AreActiveSecondaryHostsReady())
+                    AreActiveSecondaryHostsReady() &&
+                    Volatile.Read(ref _secondaryLoadInFlight) == 0)
                 {
                     _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
                 }
@@ -1326,8 +1376,8 @@ namespace TSVmsDesktop.ViewModels
             {
                 row.Segments.Clear();
                 row.Ticks.Clear();
-                row.IsVisible = false;
-                row.CameraName = string.Empty;
+                row.IsVisible = true;
+                row.CameraName = $"Camera Slot {row.SlotIndex}";
             }
 
             TotalTimelineSeconds = Math.Max(1, (WindowEndUtc() - WindowStartUtc()).TotalSeconds);
@@ -1624,11 +1674,26 @@ namespace TSVmsDesktop.ViewModels
             if (string.IsNullOrWhiteSpace(text)) return false;
             text = text.Trim();
 
+            if (string.Equals(text, "24:00", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(text, "24:00:00", StringComparison.OrdinalIgnoreCase))
+            {
+                time = TimeSpan.FromHours(24);
+                return true;
+            }
+
             // Support HH:mm or HH:mm:ss
             if (TimeSpan.TryParse(text, out time))
                 return true;
 
             return false;
+        }
+
+        private static string FormatWindowTime(DateTime local, DateTime dayStart, bool isEnd)
+        {
+            if (isEnd && local >= dayStart.AddDays(1))
+                return "24:00";
+
+            return local.ToString("HH:mm:ss");
         }
 
         private DateTime WindowStartUtc()
@@ -1680,36 +1745,190 @@ namespace TSVmsDesktop.ViewModels
             var totalSec = Math.Max(1, (endUtc - startUtc).TotalSeconds);
             var width = Math.Max(1, TimelineWidthPx);
 
-            // pick tick step based on duration
+            // Pick tick step based on duration.
+            // For full-day style windows, use 2-hour ticks to match NVR strip UX.
             double minutes = (endUtc - startUtc).TotalMinutes;
             int stepMin =
                 minutes <= 60 ? 10 :
                 minutes <= 6 * 60 ? 30 :
-                60;
+                minutes <= 12 * 60 ? 60 :
+                120;
 
-            // Align to step
-            var first = new DateTime(startLocal.Year, startLocal.Month, startLocal.Day, startLocal.Hour, startLocal.Minute, 0)
-                .AddMinutes(stepMin - (startLocal.Minute % stepMin));
-            if (first < startLocal) first = first.AddMinutes(stepMin);
+            bool isFullDayWindow = minutes >= (23 * 60 + 50);
+            string endLabel = isFullDayWindow ? "24:00" : endLocal.ToString("HH:mm");
 
-            for (var t = first; t <= endLocal; t = t.AddMinutes(stepMin))
+            // Always include the window start tick (e.g. 00:00).
+            const double rightEdgeInsetPx = 28;
+
+            void AddTick(DateTime localTime, string? labelOverride = null, bool isRightEdge = false)
             {
-                var utc = DateTime.SpecifyKind(t, DateTimeKind.Local).ToUniversalTime();
+                var utc = DateTime.SpecifyKind(localTime, DateTimeKind.Local).ToUniversalTime();
                 var left = ((utc - startUtc).TotalSeconds / totalSec) * width;
-                var tick = new TimelineTickItem
+                if (isRightEdge)
+                    left = Math.Max(0, left - rightEdgeInsetPx);
+                TimelineTicks.Add(new TimelineTickItem
                 {
                     LeftPx = left,
-                    Label = t.ToString("HH:mm")
-                };
-                TimelineTicks.Add(tick);
+                    Label = labelOverride ?? localTime.ToString("HH:mm"),
+                    IsRightEdge = isRightEdge
+                });
             }
 
-            // Sync ticks to each visible row if row-specific ticks are desired
+            AddTick(startLocal, startLocal.ToString("HH:mm"));
+
+            // Align intermediate ticks to step, excluding exact start.
+            var first = new DateTime(startLocal.Year, startLocal.Month, startLocal.Day, startLocal.Hour, startLocal.Minute, 0)
+                .AddMinutes(stepMin - (startLocal.Minute % stepMin));
+            if (first <= startLocal)
+                first = first.AddMinutes(stepMin);
+
+            for (var t = first; t < endLocal; t = t.AddMinutes(stepMin))
+                AddTick(t);
+
+            // Always include the window end tick (e.g. 24:00).
+            AddTick(endLocal, endLabel, isRightEdge: true);
+
+            // Sync ticks to every row (timeline always renders 4 lanes)
             foreach (var row in PlaybackTimelines)
             {
                 row.Ticks.Clear();
-                if (!row.IsVisible) continue;
                 foreach (var t in TimelineTicks) row.Ticks.Add(t);
+            }
+        }
+
+        public async Task ZoomTimelineAtWindowSecondsAsync(double pivotWindowSeconds, bool zoomIn)
+        {
+            var zoomCts = new CancellationTokenSource();
+            var previousZoomCts = Interlocked.Exchange(ref _zoomTimelineCts, zoomCts);
+            try
+            {
+                try
+                {
+                    previousZoomCts?.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                finally
+                {
+                    previousZoomCts?.Dispose();
+                }
+
+                // Coalesce rapid wheel/button zoom bursts into the latest request only.
+                await Task.Delay(70, zoomCts.Token);
+
+                var (startLocal, endLocal, ok, _) = GetWindowLocal();
+                if (!ok)
+                    return;
+
+                const double minWindowSeconds = 60;
+                const double maxWindowSeconds = 24 * 60 * 60;
+                double factor = zoomIn ? 0.8 : 1.25;
+
+                double currentWindowSeconds = Math.Max(1, (endLocal - startLocal).TotalSeconds);
+                double targetWindowSeconds = Math.Clamp(currentWindowSeconds * factor, minWindowSeconds, maxWindowSeconds);
+                if (Math.Abs(targetWindowSeconds - currentWindowSeconds) < 1)
+                    return;
+
+                double pivotRatio = Math.Clamp(pivotWindowSeconds / Math.Max(1, currentWindowSeconds), 0, 1);
+                DateTime pivotLocal = startLocal.AddSeconds(Math.Clamp(pivotWindowSeconds, 0, currentWindowSeconds));
+
+                DateTime newStart = pivotLocal.AddSeconds(-targetWindowSeconds * pivotRatio);
+                DateTime newEnd = newStart.AddSeconds(targetWindowSeconds);
+
+                DateTime dayStart = SelectedDayLocal.Date;
+                DateTime dayEndExclusive = dayStart.AddDays(1);
+
+                if (newStart < dayStart)
+                {
+                    var shift = dayStart - newStart;
+                    newStart = dayStart;
+                    newEnd += shift;
+                }
+
+                if (newEnd > dayEndExclusive)
+                {
+                    var shift = newEnd - dayEndExclusive;
+                    newEnd = dayEndExclusive;
+                    newStart -= shift;
+                }
+
+                if (newStart < dayStart)
+                    newStart = dayStart;
+
+                if (newEnd <= newStart)
+                    newEnd = newStart.AddSeconds(minWindowSeconds);
+
+                if (newEnd > dayEndExclusive)
+                    newEnd = dayEndExclusive;
+
+                WindowFromTimeText = FormatWindowTime(newStart, dayStart, isEnd: false);
+                WindowToTimeText = FormatWindowTime(newEnd, dayStart, isEnd: true);
+
+                if (SelectedCamera != null)
+                {
+                    DateTime pivotUtc = DateTime.SpecifyKind(pivotLocal, DateTimeKind.Local).ToUniversalTime();
+                    DateTime newStartUtc = DateTime.SpecifyKind(newStart, DateTimeKind.Local).ToUniversalTime();
+                    double seekSeconds = Math.Max(0, (pivotUtc - newStartUtc).TotalSeconds);
+                    await LoadSegmentsWithStateAsync(
+                        SelectedCamera.Id,
+                        requestedWindowSeconds: seekSeconds,
+                        autoPlay: ShouldResumePlayback,
+                        externalToken: zoomCts.Token);
+                }
+                else
+                {
+                    BuildTimelineTicks();
+                    UpdatePlayheadPx();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _zoomTimelineCts, null, zoomCts);
+                zoomCts.Dispose();
+            }
+        }
+
+        [RelayCommand]
+        public async Task ZoomTimelineIn()
+        {
+            await ZoomTimelineAtWindowSecondsAsync(CurrentTimelineSeconds, zoomIn: true);
+        }
+
+        [RelayCommand]
+        public async Task ZoomTimelineOut()
+        {
+            await ZoomTimelineAtWindowSecondsAsync(CurrentTimelineSeconds, zoomIn: false);
+        }
+
+        [RelayCommand]
+        public async Task FitTimeline()
+        {
+            DateTime dayStartLocal = SelectedDayLocal.Date;
+            DateTime dayStartUtc = DateTime.SpecifyKind(dayStartLocal, DateTimeKind.Local).ToUniversalTime();
+
+            DateTime currentUtc = dayStartUtc;
+            if (_currentSession != null)
+            {
+                currentUtc = _currentSession.WindowStartUtc.AddSeconds(
+                    Math.Max(0, Math.Min(_currentSession.TotalWindowSeconds, CurrentTimelineSeconds)));
+            }
+
+            WindowFromTimeText = "00:00";
+            WindowToTimeText = "24:00";
+
+            if (SelectedCamera != null)
+            {
+                double seekSeconds = Math.Max(0, Math.Min(24 * 60 * 60, (currentUtc - dayStartUtc).TotalSeconds));
+                await LoadSegmentsWithStateAsync(SelectedCamera.Id, requestedWindowSeconds: seekSeconds, autoPlay: ShouldResumePlayback);
+            }
+            else
+            {
+                BuildTimelineTicks();
+                UpdatePlayheadPx();
             }
         }
 
@@ -2076,6 +2295,16 @@ namespace TSVmsDesktop.ViewModels
             }
         }
 
+        private static bool ShouldEmitThrottledLog(ref DateTime lastUtc, int minIntervalMs)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - lastUtc).TotalMilliseconds < minIntervalMs)
+                return false;
+
+            lastUtc = now;
+            return true;
+        }
+
         private async Task<PlaybackSessionModel?> GetOrBuildSessionAsync(
             string cameraId,
             DateTime fromUtc,
@@ -2166,8 +2395,10 @@ namespace TSVmsDesktop.ViewModels
                     _secondaryPendingReloadEpoch[i] = expectedEpoch;
                 }
 
-                LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=load_in_flight");
-                _ = QueueSecondaryReloadAsync(expectedEpoch);
+                if (Interlocked.CompareExchange(ref _secondaryDeferInFlightLatched, 1, 0) == 0 &&
+                    ShouldEmitThrottledLog(ref _lastSecondaryDeferInFlightLogUtc, 1000))
+                    LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=load_in_flight");
+
                 return;
             }
 
@@ -2187,7 +2418,9 @@ namespace TSVmsDesktop.ViewModels
                     _secondaryPendingReloadEpoch[i] = expectedEpoch;
                 }
 
-                LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=hosts_not_ready");
+                if (Interlocked.CompareExchange(ref _secondaryDeferHostsLatched, 1, 0) == 0 &&
+                    ShouldEmitThrottledLog(ref _lastSecondaryDeferHostsLogUtc, 1000))
+                    LogPlaybackDebug("PLAYBACK_SECONDARY_DEFER reason=hosts_not_ready");
                 return;
             }
 
@@ -2314,6 +2547,16 @@ namespace TSVmsDesktop.ViewModels
             finally
             {
                 Interlocked.Exchange(ref _secondaryLoadInFlight, 0);
+                Interlocked.Exchange(ref _secondaryDeferInFlightLatched, 0);
+                Interlocked.Exchange(ref _secondaryDeferHostsLatched, 0);
+
+                if (_currentSession != null &&
+                    PlaybackLayoutMode == PlaybackLayoutMode.Quad &&
+                    AnySecondaryReloadPending() &&
+                    AreActiveSecondaryHostsReady())
+                {
+                    _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
+                }
             }
         }
 
@@ -2331,6 +2574,16 @@ namespace TSVmsDesktop.ViewModels
             int secondaryIndex = slotIndex - 1;
             if (secondaryIndex < 0 || secondaryIndex >= _secondaryPlaybackEngines.Count)
                 return;
+
+            void MarkSecondaryReloadPending(string reason)
+            {
+                int currentEpoch = Volatile.Read(ref _secondaryLayoutEpoch);
+                _secondaryPendingReload[secondaryIndex] = true;
+                _secondaryPendingReloadEpoch[secondaryIndex] = currentEpoch;
+                _secondaryLastOpenKeys[secondaryIndex] = null;
+                LogPlaybackDebug(
+                    $"PLAYBACK_SLOT_REQUEUE slot={slotIndex + 1} reason={reason} expectedEpoch={expectedEpoch} currentEpoch={currentEpoch}");
+            }
 
             int openGeneration = Interlocked.Increment(ref _secondaryOpenGeneration[secondaryIndex]);
 
@@ -2350,7 +2603,25 @@ namespace TSVmsDesktop.ViewModels
             }
 
             var seek = _manifestService.Resolve(session, windowSeconds);
-            if (seek == null)
+            bool allowSkewAlignedOpen = false;
+            double skewAlignedOffsetSeconds = 0;
+
+            if (seek != null && seek.LandedAfterGap)
+            {
+                var targetUtc = session.WindowStartUtc.AddSeconds(windowSeconds);
+                double gapToSegmentStartSeconds = (seek.Segment.Segment.StartTs - targetUtc).TotalSeconds;
+
+                if (gapToSegmentStartSeconds >= 0 &&
+                    gapToSegmentStartSeconds <= SecondaryClockSkewToleranceSeconds)
+                {
+                    allowSkewAlignedOpen = true;
+                    skewAlignedOffsetSeconds = 0;
+                    LogPlaybackDebug(
+                        $"PLAYBACK_SLOT_SKEW_ALIGN slot={slotIndex + 1} skewSeconds={gapToSegmentStartSeconds:0.###} tolerance={SecondaryClockSkewToleranceSeconds:0.###}");
+                }
+            }
+
+            if (seek == null || (seek.LandedAfterGap && !allowSkewAlignedOpen))
             {
                 _secondaryPendingReload[secondaryIndex] = false;
                 PlaybackSlots[slotIndex].StatusText = "No recording at selected time";
@@ -2359,20 +2630,17 @@ namespace TSVmsDesktop.ViewModels
                 return;
             }
 
-            double safeOffset = Math.Max(0, seek.LocalOffsetSeconds);
+            double safeOffset = allowSkewAlignedOpen
+                ? skewAlignedOffsetSeconds
+                : Math.Max(0, seek.LocalOffsetSeconds);
             if (seek.Segment.Segment.DurationSeconds > 0.25)
                 safeOffset = Math.Min(safeOffset, seek.Segment.Segment.DurationSeconds - 0.25);
             else
                 safeOffset = 0;
 
-            // Secondary seek can intermittently stall native playback on some streams/codecs.
-            // Prefer reliable rendering at segment start over exact intra-segment offset.
-            double loadOffset = safeOffset > 0.05 ? 0 : safeOffset;
-            if (loadOffset != safeOffset)
-            {
-                LogPlaybackDebug(
-                    $"PLAYBACK_SLOT_SEEK_BYPASS slot={slotIndex + 1} requestedOffset={safeOffset:0.###} appliedOffset={loadOffset:0.###}");
-            }
+            // Secondary native seek can hang on some streams during rapid layout/timeline churn.
+            // Use segment-start open for secondary slots to keep playback stable.
+            double loadOffset = 0;
 
             int width = _secondaryHostWidths[secondaryIndex];
             int height = _secondaryHostHeights[secondaryIndex];
@@ -2395,6 +2663,18 @@ namespace TSVmsDesktop.ViewModels
             _secondaryPendingReload[secondaryIndex] = false;
             _secondaryPendingReloadEpoch[secondaryIndex] = expectedEpoch;
 
+            var sinceResize = DateTime.UtcNow - _secondaryLastResizeUtc[secondaryIndex];
+            if (_secondaryLastResizeUtc[secondaryIndex] != DateTime.MinValue &&
+                sinceResize < TimeSpan.FromMilliseconds(320))
+            {
+                _secondaryPendingReload[secondaryIndex] = true;
+                _secondaryPendingReloadEpoch[secondaryIndex] = Volatile.Read(ref _secondaryLayoutEpoch);
+                LogPlaybackDebug(
+                    $"PLAYBACK_SLOT_WAIT_SIZE_SETTLE slot={slotIndex + 1} ageMs={sinceResize.TotalMilliseconds:0}");
+                _ = QueueSecondaryReloadAsync(Volatile.Read(ref _secondaryLayoutEpoch));
+                return;
+            }
+
             if (ShouldSkipDuplicateSecondaryOpen(secondaryIndex, seek.SegmentIndex, safeOffset, width, height))
                 return;
 
@@ -2404,6 +2684,7 @@ namespace TSVmsDesktop.ViewModels
                 $"PLAYBACK_SLOT_LOAD_START slot={slotIndex + 1} camera={PlaybackSlots[slotIndex].CameraName} " +
                 $"segmentStart={seek.Segment.Segment.StartTs:o} offsetSeconds={loadOffset:0.###} autoPlay={autoPlay} size={width}x{height} epoch={expectedEpoch}");
 
+            LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=init_begin");
             await RunSecondaryNativeAsync(secondaryIndex, () =>
             {
                 var engine = _secondaryPlaybackEngines[secondaryIndex];
@@ -2422,17 +2703,25 @@ namespace TSVmsDesktop.ViewModels
 
                 engine.RebindHost(width, height);
             }, $"LoadSecondarySlot_{slotIndex}_Init");
+            LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=init_end");
 
             await Task.Delay(180);
 
             if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+            {
+                MarkSecondaryReloadPending("epoch_changed_after_init");
                 return;
+            }
 
             if (generation != Volatile.Read(ref _loadToken))
+            {
+                MarkSecondaryReloadPending("generation_changed_after_init");
                 return;
+            }
 
             if (loadOffset > 0.05)
             {
+                LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=seek_begin offset={loadOffset:0.###}");
                 await RunSecondaryNativeAsync(secondaryIndex, () =>
                 {
                     var engine = _secondaryPlaybackEngines[secondaryIndex];
@@ -2441,16 +2730,24 @@ namespace TSVmsDesktop.ViewModels
                         engine.Pause();
                     engine.ForceExpose();
                 }, $"LoadSecondarySlot_{slotIndex}_Seek");
+                LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=seek_end");
 
                 await Task.Delay(120);
 
                 if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+                {
+                    MarkSecondaryReloadPending("epoch_changed_after_seek");
                     return;
+                }
 
                 if (generation != Volatile.Read(ref _loadToken))
+                {
+                    MarkSecondaryReloadPending("generation_changed_after_seek");
                     return;
+                }
             }
 
+            LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=finalize_begin");
             await RunSecondaryNativeAsync(secondaryIndex, () =>
             {
                 var engine = _secondaryPlaybackEngines[secondaryIndex];
@@ -2467,9 +2764,13 @@ namespace TSVmsDesktop.ViewModels
 
                 engine.ForceExpose();
             }, $"LoadSecondarySlot_{slotIndex}_Finalize");
+            LogPlaybackDebug($"PLAYBACK_SLOT_STAGE slot={slotIndex + 1} stage=finalize_end");
 
             if (expectedEpoch != Volatile.Read(ref _secondaryLayoutEpoch))
+            {
+                MarkSecondaryReloadPending("epoch_changed_after_finalize");
                 return;
+            }
 
             _secondaryRetryOnce[secondaryIndex] = false;
 
@@ -2506,13 +2807,11 @@ namespace TSVmsDesktop.ViewModels
 
         private void RebuildCoverageTimeline()
         {
-            bool isQuad = PlaybackLayoutMode == PlaybackLayoutMode.Quad;
-
             // Primary row (C1)
             var pRow = PlaybackTimelines[0];
             pRow.Segments.Clear();
-            pRow.IsVisible = isQuad || SelectedCamera != null;
-            pRow.CameraName = SelectedCamera?.Name ?? "Camera Slot 1";
+            pRow.IsVisible = true;
+            pRow.CameraName = GetCameraForSlot(0)?.Name ?? "Camera Slot 1";
 
             if (_currentSession != null)
             {
@@ -2537,7 +2836,7 @@ namespace TSVmsDesktop.ViewModels
                 var camera = GetCameraForSlot(i + 1);
 
                 row.Segments.Clear();
-                row.IsVisible = isQuad;
+                row.IsVisible = true;
                 row.CameraName = camera?.Name ?? $"Camera Slot {i + 2}";
 
                 if (session != null && camera != null)
@@ -2574,12 +2873,49 @@ namespace TSVmsDesktop.ViewModels
             _lastSeekRequestUtc = now;
             _lastTransitionTime = now;
 
-            var seek = _manifestService.Resolve(_currentSession, windowSeconds);
+            var clampedSeconds = Math.Max(0, Math.Min(_currentSession.TotalWindowSeconds, windowSeconds));
+            var requestedUtc = _currentSession.WindowStartUtc.AddSeconds(clampedSeconds);
+            var seek = _manifestService.Resolve(_currentSession, clampedSeconds);
             if (seek == null)
             {
                 ShowPlayerOverlay = true;
                 PlayerOverlayTitle = "End of Recording Window";
                 PlayerOverlaySubtitle = "No more recorded footage after this point.";
+                return;
+            }
+
+            if (seek.LandedAfterGap)
+            {
+                _shouldBePlaying = false;
+                IsPlaying = false;
+
+                try
+                {
+                    await RunNativeAsync(() => _playbackEngineService.Pause(), "SeekGap_Pause");
+                }
+                catch
+                {
+                }
+
+                CurrentWallClockText = requestedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                _isUpdatingUI = true;
+                CurrentTimelineSeconds = clampedSeconds;
+                _isUpdatingUI = false;
+
+                await LoadSecondarySlotsAsync(
+                    _currentSession.WindowStartUtc,
+                    _currentSession.WindowEndUtc,
+                    clampedSeconds,
+                    autoPlay: false,
+                    CancellationToken.None,
+                    Volatile.Read(ref _loadToken),
+                    Volatile.Read(ref _secondaryLayoutEpoch));
+
+                ShowPlayerOverlay = true;
+                PlayerOverlayTitle = "No Recording At Selected Time";
+                PlayerOverlaySubtitle = "The selected timestamp is in a recording gap.";
+                StatusMessage = "No recording at selected time.";
+                RefreshTimelineUi();
                 return;
             }
 
@@ -2612,8 +2948,6 @@ namespace TSVmsDesktop.ViewModels
             RefreshTimelineUi();
             ShowPlayerOverlay = false;
 
-            if (seek.LandedAfterGap)
-                StatusMessage = "Gap skipped to next available recording.";
         }
 
         private async Task ApplyDesiredRateAsync(bool resumeAfter, bool alreadyPaused = false)

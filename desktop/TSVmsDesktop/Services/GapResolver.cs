@@ -21,8 +21,7 @@ namespace TSVmsDesktop.Services
                 {
                     double localOffset = Math.Max(0,
                         (targetUtc - seg.Segment.StartTs).TotalSeconds);
-                    bool landedAfterGap = i > 0 &&
-                        targetUtc < seg.Segment.StartTs;
+                    bool landedAfterGap = targetUtc < seg.Segment.StartTs;
                     return new PlaybackSeekResult
                     {
                         SegmentIndex       = i,

@@ -55,6 +55,13 @@ namespace TSVmsDesktop.Services
             return new Uri(_http.BaseAddress!, uri).ToString();
         }
 
+        private static bool IsPlaybackSegmentsRequest(HttpRequestMessage request)
+        {
+            var path = request.RequestUri?.OriginalString ?? string.Empty;
+            return path.Contains("/api/v1/recording/cameras/", StringComparison.OrdinalIgnoreCase) &&
+                   path.Contains("/segments", StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             bool allowAuthRetry = true,
@@ -135,7 +142,17 @@ namespace TSVmsDesktop.Services
                         }
                         else
                         {
-                            _session.Clear();
+                            // Playback timeline zoom/seek can issue rapid segment requests.
+                            // If one request gets a transient 401 during token churn, do not force logout immediately.
+                            if (IsPlaybackSegmentsRequest(request))
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[Auth] Refresh failed for playback segments request. Keeping session alive for now: {absoluteUri}");
+                            }
+                            else
+                            {
+                                _session.Clear();
+                            }
                         }
                     }
                     finally
