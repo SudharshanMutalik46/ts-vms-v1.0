@@ -80,11 +80,14 @@ namespace TSVmsDesktop.ViewModels
         private readonly List<bool> _secondaryHostsAttached = new();
         private readonly DateTime[] _secondaryLastResizeUtc = new DateTime[3];
         private readonly List<CameraModel> _selectedPlaybackCameras = new();
+        private readonly List<CameraModel> _allPlaybackCameras = new();
         private readonly List<bool> _secondaryPendingReload = new() { false, false, false };
         private int _secondaryReloadQueued = 0;
         private readonly SemaphoreSlim _selectionChangeGate = new(1, 1);
         private readonly SemaphoreSlim _stableSelectionRefreshGate = new(1, 1);
         private int _selectionRefreshVersion;
+        private CancellationTokenSource? _selectionApplyCts;
+        private int _selectionApplyVersion;
         private readonly SemaphoreSlim _loadSegmentsGate = new(1, 1);
         private readonly string?[] _secondaryLastOpenKeys = new string?[3];
         private readonly DateTime[] _secondaryLastOpenUtc = new DateTime[3];
@@ -104,6 +107,8 @@ namespace TSVmsDesktop.ViewModels
         private string _lastUiWallClock = string.Empty;
         private DateTime _lastSecondaryDeferInFlightLogUtc = DateTime.MinValue;
         private DateTime _lastSecondaryDeferHostsLogUtc = DateTime.MinValue;
+        private DateTime _lastSecondarySelectionRefreshUtc = DateTime.MinValue;
+        private string _lastSecondarySelectionRefreshKey = string.Empty;
         private int _secondaryDeferInFlightLatched = 0;
         private int _secondaryDeferHostsLatched = 0;
         private bool _suppressSelectedCameraChangedLoad;
@@ -156,6 +161,7 @@ namespace TSVmsDesktop.ViewModels
             public DateTime ToUtc { get; init; }
             public PlaybackSessionModel Session { get; init; } = default!;
             public DateTime CachedAtUtc { get; init; }
+            public DateTime ExpiresAtUtc { get; init; }
         }
 
         public ObservableCollection<CameraModel> AvailableCameras { get; } = new();
@@ -173,6 +179,12 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private CameraModel? _selectedCamera;
 
         [ObservableProperty] private string _cameraSearchText = "";
+        public bool HasAnyPlaybackCameras => _allPlaybackCameras.Count > 0;
+
+        partial void OnCameraSearchTextChanged(string value)
+        {
+            ApplyCameraFilter();
+        }
 
         [ObservableProperty] private string _statusMessage = "Select a camera, pick a day/time window, then play.";
         [ObservableProperty] private bool _isLoading;
@@ -204,6 +216,11 @@ namespace TSVmsDesktop.ViewModels
         [ObservableProperty] private bool _showPlayerOverlay = true;
         [ObservableProperty] private string _playerOverlayTitle = "Select a time to start playback";
         [ObservableProperty] private string _playerOverlaySubtitle = "Click anywhere on the timeline to seek recorded footage. Double-click to start playback.";
+        [ObservableProperty] private bool _showNoCameraSelectedNotice = true;
+        public bool IsOverlayVisible => ShowPlayerOverlay || SelectedPlaybackCount == 0;
+        public bool IsPopupOverlayVisible =>
+            IsOverlayVisible &&
+            !string.Equals(PlayerOverlayTitle, "No camera selected", StringComparison.OrdinalIgnoreCase);
 
         // Playback state
         [ObservableProperty] private bool _isPlaying;
@@ -247,6 +264,37 @@ namespace TSVmsDesktop.ViewModels
             OnPropertyChanged(nameof(IsQuadViewSelected));
         }
 
+        partial void OnSelectedPlaybackCountChanged(int value)
+        {
+            OnPropertyChanged(nameof(IsOverlayVisible));
+            OnPropertyChanged(nameof(IsPopupOverlayVisible));
+
+            if (value == 0)
+            {
+                ShowPlayerOverlay = true;
+                PlayerOverlayTitle = "No camera selected";
+                PlayerOverlaySubtitle = string.Empty;
+            }
+        }
+
+        partial void OnShowPlayerOverlayChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsOverlayVisible));
+            OnPropertyChanged(nameof(IsPopupOverlayVisible));
+
+            if (!value && SelectedPlaybackCount == 0)
+            {
+                ShowPlayerOverlay = true;
+                PlayerOverlayTitle = "No camera selected";
+                PlayerOverlaySubtitle = string.Empty;
+            }
+        }
+
+        partial void OnPlayerOverlayTitleChanged(string value)
+        {
+            OnPropertyChanged(nameof(IsPopupOverlayVisible));
+        }
+
         partial void OnCurrentWallClockTextChanged(string value)
         {
             OnPropertyChanged(nameof(CurrentWallClockTimeOnlyText));
@@ -285,19 +333,16 @@ namespace TSVmsDesktop.ViewModels
                 PlaybackLayoutMode = PlaybackLayoutMode.Single;
                 Interlocked.Increment(ref _secondaryLayoutEpoch);
 
-                UpdatePlaybackSlotsFromSelection();
                 RebuildCompactSelectedPlaybackList();
-
-                foreach (var choice in AvailablePlaybackCameras)
-                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
+                UpdatePlaybackSlotsFromSelection();
 
                 if (SelectedCamera == null)
                 {
                     await StopAndClearAllPlaybackEnginesAsync();
                     ResetLoadedPlaybackStateOnly();
                     ShowPlayerOverlay = true;
-                    PlayerOverlayTitle = "Select a camera to start playback";
-                    PlayerOverlaySubtitle = "Choose a camera for single playback.";
+                    PlayerOverlayTitle = "No camera selected";
+                    PlayerOverlaySubtitle = string.Empty;
                     StatusMessage = "No camera selected.";
                     return;
                 }
@@ -333,11 +378,9 @@ namespace TSVmsDesktop.ViewModels
 
                 PlaybackLayoutMode = PlaybackLayoutMode.Quad;
                 Interlocked.Increment(ref _secondaryLayoutEpoch);
-                UpdatePlaybackSlotsFromSelection();
                 RebuildCompactSelectedPlaybackList();
+                UpdatePlaybackSlotsFromSelection();
 
-                foreach (var choice in AvailablePlaybackCameras)
-                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
             }
             finally
             {
@@ -586,6 +629,14 @@ namespace TSVmsDesktop.ViewModels
             };
 
             SelectedPlaybackCount = slotCameras.Count(c => c != null);
+            ShowNoCameraSelectedNotice = SelectedPlaybackCount == 0;
+
+            if (SelectedPlaybackCount == 0)
+            {
+                ShowPlayerOverlay = true;
+                PlayerOverlayTitle = "No camera selected";
+                PlayerOverlaySubtitle = string.Empty;
+            }
 
             for (int i = 0; i < PlaybackSlots.Count; i++)
             {
@@ -609,12 +660,12 @@ namespace TSVmsDesktop.ViewModels
                     if (i == 0)
                     {
                         slot.CameraName = "Select a camera";
-                        slot.StatusText = "No camera selected";
+                        slot.StatusText = string.Empty;
                     }
                     else
                     {
                         slot.CameraName = $"Camera Slot {i + 1}";
-                        slot.StatusText = "Empty slot";
+                        slot.StatusText = string.Empty;
                     }
                 }
             }
@@ -625,6 +676,11 @@ namespace TSVmsDesktop.ViewModels
             if (camera == null || string.IsNullOrWhiteSpace(camera.Id))
                 return;
 
+            SafeCancel(_selectionApplyCts);
+            _selectionApplyCts = new CancellationTokenSource();
+            var applyToken = _selectionApplyCts.Token;
+            int applyVersion = Interlocked.Increment(ref _selectionApplyVersion);
+
             bool resumePlay = ShouldResumePlayback;
             double resumeWindowSeconds = CurrentTimelineSeconds;
             string? previousPrimaryId = SelectedCamera?.Id;
@@ -632,6 +688,10 @@ namespace TSVmsDesktop.ViewModels
             await _selectionChangeGate.WaitAsync();
             try
             {
+                if (applyToken.IsCancellationRequested ||
+                    applyVersion != Volatile.Read(ref _selectionApplyVersion))
+                    return;
+
                 int existingSlot = FindSelectedSlot(camera.Id);
 
                 if (isSelected)
@@ -684,16 +744,12 @@ namespace TSVmsDesktop.ViewModels
 
                 Interlocked.Increment(ref _secondaryLayoutEpoch);
 
+                RebuildCompactSelectedPlaybackList();
                 UpdatePlaybackSlotsFromSelection();
 
                 // Auto-switch to quad layout when more than one camera is selected.
                 if (SelectedPlaybackCount > 1 && PlaybackLayoutMode != PlaybackLayoutMode.Quad)
                     PlaybackLayoutMode = PlaybackLayoutMode.Quad;
-
-                RebuildCompactSelectedPlaybackList();
-
-                foreach (var choice in AvailablePlaybackCameras)
-                    choice.IsSelected = FindSelectedSlot(choice.Camera.Id) >= 0;
 
                 if (SelectedCamera == null)
                 {
@@ -705,6 +761,9 @@ namespace TSVmsDesktop.ViewModels
                         PlayerOverlaySubtitle = string.Empty;
                         StatusMessage = "Primary slot is empty. Select a camera to fill slot 1.";
                         MarkSelectionRefreshPending(resumeWindowSeconds, resumePlay);
+                        if (applyToken.IsCancellationRequested ||
+                            applyVersion != Volatile.Read(ref _selectionApplyVersion))
+                            return;
                         await RefreshPlaybackSelectionAfterLayoutAsync();
                         return;
                     }
@@ -712,9 +771,9 @@ namespace TSVmsDesktop.ViewModels
                     await StopAndClearAllPlaybackEnginesAsync();
                     ResetLoadedPlaybackStateOnly();
                     ShowPlayerOverlay = true;
-                    PlayerOverlayTitle = "Select a camera to start playback";
-                    PlayerOverlaySubtitle = "Choose 1 camera for single playback or 4 cameras for synchronized playback.";
-                    StatusMessage = "Select 1 camera or 4 cameras for playback.";
+                    PlayerOverlayTitle = "No camera selected";
+                    PlayerOverlaySubtitle = string.Empty;
+                    StatusMessage = "No camera selected.";
                     return;
                 }
 
@@ -741,7 +800,10 @@ namespace TSVmsDesktop.ViewModels
                     }
 
                     await Task.Yield();
-                    await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay);
+                    if (applyToken.IsCancellationRequested ||
+                        applyVersion != Volatile.Read(ref _selectionApplyVersion))
+                        return;
+                    await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay, applyToken);
                     return;
                 }
 
@@ -752,12 +814,18 @@ namespace TSVmsDesktop.ViewModels
                         $"PLAYBACK_SELECTION_REUSE mode=Quad primary={SelectedCamera!.Name}[{SelectedCamera!.Id}] count={SelectedPlaybackCount} timelineSeconds={resumeWindowSeconds:0.###}");
 
                     MarkSelectionRefreshPending(resumeWindowSeconds, resumePlay);
+                    if (applyToken.IsCancellationRequested ||
+                        applyVersion != Volatile.Read(ref _selectionApplyVersion))
+                        return;
                     await RefreshPlaybackSelectionAfterLayoutAsync();
                     return;
                 }
 
                 await Task.Yield();
-                await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay);
+                if (applyToken.IsCancellationRequested ||
+                    applyVersion != Volatile.Read(ref _selectionApplyVersion))
+                    return;
+                await LoadSegmentsWithStateAsync(SelectedCamera!.Id, resumeWindowSeconds, resumePlay, applyToken);
             }
             finally
             {
@@ -803,6 +871,28 @@ namespace TSVmsDesktop.ViewModels
                 var targetWindowSeconds = _pendingSelectionWindowSeconds;
                 var autoPlay = _pendingSelectionAutoPlay;
                 _pendingSelectionReloadAfterLayout = false;
+
+                var selectedIds = EnumerateSelectedCamerasInSlotOrder()
+                    .Select(c => c.Id)
+                    .Where(id => !string.IsNullOrWhiteSpace(id));
+                string refreshKey =
+                    $"{Volatile.Read(ref _secondaryLayoutEpoch)}|" +
+                    $"{Volatile.Read(ref _loadToken)}|" +
+                    $"{Math.Round(targetWindowSeconds, 3)}|" +
+                    $"{(autoPlay ? 1 : 0)}|" +
+                    $"{string.Join(",", selectedIds)}";
+
+                var now = DateTime.UtcNow;
+                if (string.Equals(refreshKey, _lastSecondarySelectionRefreshKey, StringComparison.Ordinal) &&
+                    (now - _lastSecondarySelectionRefreshUtc) < TimeSpan.FromMilliseconds(450))
+                {
+                    LogPlaybackDebug(
+                        $"PLAYBACK_SELECTION_REFRESH_SKIP_DUPLICATE key={refreshKey}");
+                    continue;
+                }
+
+                _lastSecondarySelectionRefreshKey = refreshKey;
+                _lastSecondarySelectionRefreshUtc = now;
 
                 Interlocked.Exchange(ref _suspendPolling, 1);
                 try
@@ -1127,6 +1217,9 @@ namespace TSVmsDesktop.ViewModels
                 }
 
                 if (_currentSession == null || PlaybackLayoutMode != PlaybackLayoutMode.Quad)
+                    return;
+
+                if (!AnySecondaryReloadPending())
                     return;
 
                 await LoadSecondarySlotsAsync(
@@ -1534,9 +1627,9 @@ namespace TSVmsDesktop.ViewModels
                 await StopAndClearAllPlaybackEnginesAsync();
                 ResetLoadedPlaybackStateOnly();
                 ShowPlayerOverlay = true;
-                PlayerOverlayTitle = "Select a camera to start playback";
-                PlayerOverlaySubtitle = "You can choose up to 4 cameras for synchronized playback.";
-                StatusMessage = "Select up to 4 cameras for playback.";
+                PlayerOverlayTitle = "No camera selected";
+                PlayerOverlaySubtitle = string.Empty;
+                StatusMessage = "No camera selected.";
                 return;
             }
 
@@ -1943,6 +2036,8 @@ namespace TSVmsDesktop.ViewModels
                 await _cameraService.LoadCamerasAsync();
                 AvailableCameras.Clear();
                 AvailablePlaybackCameras.Clear();
+                _allPlaybackCameras.Clear();
+
                 var uniqueCameras = _cameraService.AllCameras
                     .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
                     .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
@@ -1951,12 +2046,63 @@ namespace TSVmsDesktop.ViewModels
                 foreach (var camera in uniqueCameras)
                 {
                     AvailableCameras.Add(camera);
-                    AvailablePlaybackCameras.Add(new PlaybackCameraChoice
-                    {
-                        Camera = camera,
-                        IsSelected = _selectedPlaybackCameras.Any(c => string.Equals(c.Id, camera.Id, StringComparison.OrdinalIgnoreCase))
-                    });
+                    _allPlaybackCameras.Add(camera);
                 }
+
+                // Keep selection state valid across relogin/reload:
+                // if a previously selected camera no longer exists in backend data,
+                // drop it so checkbox clicks are not rejected by stale SelectedPlaybackCount.
+                var availableIds = new HashSet<string>(
+                    _allPlaybackCameras
+                        .Where(c => !string.IsNullOrWhiteSpace(c.Id))
+                        .Select(c => c.Id),
+                    StringComparer.OrdinalIgnoreCase);
+
+                bool removedPrimary = false;
+                bool selectionChanged = false;
+
+                if (SelectedCamera != null &&
+                    (string.IsNullOrWhiteSpace(SelectedCamera.Id) || !availableIds.Contains(SelectedCamera.Id)))
+                {
+                    removedPrimary = true;
+                    _suppressSelectedCameraChangedLoad = true;
+                    SelectedCamera = null;
+                    _suppressSelectedCameraChangedLoad = false;
+                    selectionChanged = true;
+                }
+
+                for (int i = 0; i < _secondarySlotSelections.Length; i++)
+                {
+                    var secondary = _secondarySlotSelections[i];
+                    if (secondary == null)
+                        continue;
+
+                    if (!string.IsNullOrWhiteSpace(secondary.Id) && availableIds.Contains(secondary.Id))
+                        continue;
+
+                    _secondarySlotSelections[i] = null;
+                    selectionChanged = true;
+                    await StopAndClearSecondaryEngineAsync(i);
+                }
+
+                if (!string.IsNullOrWhiteSpace(_lastClickedPlaybackCameraId) &&
+                    !availableIds.Contains(_lastClickedPlaybackCameraId))
+                {
+                    _lastClickedPlaybackCameraId = string.Empty;
+                }
+
+                if (removedPrimary)
+                    await StopAndClearEngineAsync();
+
+                if (selectionChanged)
+                {
+                    UpdatePlaybackSlotsFromSelection();
+                    RebuildCompactSelectedPlaybackList();
+                }
+
+                OnPropertyChanged(nameof(HasAnyPlaybackCameras));
+
+                ApplyCameraFilter();
 
                 VideoService.Log($"[PlaybackViewModel] LoadCamerasAsync finished. Count={AvailablePlaybackCameras.Count}");
 
@@ -1974,9 +2120,9 @@ namespace TSVmsDesktop.ViewModels
                     SelectedCamera = null;
                     _suppressSelectedCameraChangedLoad = false;
                     ShowPlayerOverlay = true;
-                    PlayerOverlayTitle = "Select a camera to start playback";
-                    PlayerOverlaySubtitle = "You can choose up to 4 cameras for synchronized playback.";
-                    StatusMessage = "Select up to 4 cameras for playback.";
+                    PlayerOverlayTitle = "No camera selected";
+                    PlayerOverlaySubtitle = string.Empty;
+                    StatusMessage = "No camera selected.";
                 }
                 else
                 {
@@ -1990,6 +2136,28 @@ namespace TSVmsDesktop.ViewModels
             finally
             {
                 IsLoading = false;
+            }
+        }
+
+        private void ApplyCameraFilter()
+        {
+            string query = (CameraSearchText ?? string.Empty).Trim();
+
+            var filtered = string.IsNullOrWhiteSpace(query)
+                ? _allPlaybackCameras
+                : _allPlaybackCameras
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Name) &&
+                                c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            AvailablePlaybackCameras.Clear();
+            foreach (var camera in filtered)
+            {
+                AvailablePlaybackCameras.Add(new PlaybackCameraChoice
+                {
+                    Camera = camera,
+                    IsSelected = FindSelectedSlot(camera.Id) >= 0
+                });
             }
         }
 
@@ -2314,7 +2482,7 @@ namespace TSVmsDesktop.ViewModels
         {
             string cacheKey = $"{cameraId}|{fromUtc:o}|{toUtc:o}";
             if (_segmentCache.TryGetValue(cacheKey, out var cached) &&
-                (DateTime.UtcNow - cached.CachedAtUtc) < SegmentCacheTtl)
+                DateTime.UtcNow < cached.ExpiresAtUtc)
             {
                 LogPlaybackDebug(
                     $"SESSION_CACHE_HIT camera={cameraId} from={fromUtc:o} to={toUtc:o} segments={cached.Session?.Segments.Count ?? 0}");
@@ -2332,13 +2500,20 @@ namespace TSVmsDesktop.ViewModels
             LogPlaybackDebug(
                 $"SESSION_BUILD camera={cameraId} from={fromUtc:o} to={toUtc:o} builtSegments={session?.Segments.Count ?? 0}");
 
+            // Avoid "sticky empty" sessions: transient empties can happen during rapid selection churn.
+            // Cache non-empty sessions longer for performance; cache empty sessions briefly.
+            var ttl = (session?.Segments.Count ?? 0) > 0
+                ? SegmentCacheTtl
+                : TimeSpan.FromSeconds(4);
+
             _segmentCache[cacheKey] = new CachedSession
             {
                 CameraId = cameraId,
                 FromUtc = fromUtc,
                 ToUtc = toUtc,
                 Session = session,
-                CachedAtUtc = DateTime.UtcNow
+                CachedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.Add(ttl)
             };
 
             return session;

@@ -21,8 +21,10 @@
         </Style>
 
         <Style x:Key="InventoryTileStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Background" Value="#2B2B2E"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="22"/>
             <Setter Property="Padding" Value="22"/>
             <Setter Property="Margin" Value="0"/>
         </Style>
@@ -34,11 +36,13 @@
         </Style>
 
         <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#F5F7FA"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="12,0"/>
-            <Setter Property="Height" Value="38"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
 
         <Style TargetType="DataGrid">
@@ -48,7 +52,11 @@
             <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="#EEF2F7"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#3A3A3D"/>
+            <Setter Property="Background" Value="#2B2B2E"/>
+            <Setter Property="RowBackground" Value="#2B2B2E"/>
+            <Setter Property="AlternatingRowBackground" Value="#323236"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
         </Style>
     </UserControl.Resources>
 
@@ -69,9 +77,9 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel>
-                    <TextBlock Text="Inventory" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Inventory" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Manage camera sources, enable or disable selected items, and open discovery from one place."
-                               FontSize="12" Foreground="#64748B" Margin="0,4,0,0"/>
+                               FontSize="12" Foreground="#B8B8BC" Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -110,8 +118,8 @@
                         </Setter>
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#F0F4F8"/>
-                                <Setter Property="Foreground" Value="Black"/>
+                                <Setter Property="Background" Value="#3A3A3D"/>
+                                <Setter Property="Foreground" Value="#FF8A1F"/>
                             </Trigger>
                         </Style.Triggers>
                     </Style>
@@ -139,16 +147,16 @@
                                 <Border>
                                     <Border.Style>
                                         <Style TargetType="Border" BasedOn="{StaticResource StatusBadgeStyle}">
-                                            <Setter Property="Background" Value="#E8F5E9"/>
+                                            <Setter Property="Background" Value="#1F3428"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding Status}" Value="Offline">
-                                                    <Setter Property="Background" Value="#FFEBEE"/>
+                                                    <Setter Property="Background" Value="#3A2323"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding Status}" Value="Error">
-                                                    <Setter Property="Background" Value="#FFF3E0"/>
+                                                    <Setter Property="Background" Value="#3A2E1F"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding Status}" Value="Checking...">
-                                                    <Setter Property="Background" Value="#F5F7FA"/>
+                                                    <Setter Property="Background" Value="#3A3A3D"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -156,16 +164,16 @@
                                     <TextBlock Text="{Binding Status}" FontWeight="SemiBold" FontSize="12">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="#2E7D32"/>
+                                                <Setter Property="Foreground" Value="#31C776"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Status}" Value="Offline">
-                                                        <Setter Property="Foreground" Value="#C62828"/>
+                                                        <Setter Property="Foreground" Value="#F06A6A"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Status}" Value="Error">
-                                                        <Setter Property="Foreground" Value="#EF6C00"/>
+                                                        <Setter Property="Foreground" Value="#FFB347"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Status}" Value="Checking...">
-                                                        <Setter Property="Foreground" Value="#64748B"/>
+                                                        <Setter Property="Foreground" Value="#B8B8BC"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>

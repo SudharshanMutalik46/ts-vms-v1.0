@@ -9,7 +9,7 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </UserControl.Resources>
 
-    <Grid Margin="20" Background="#F8F9FA">
+    <Grid Margin="20" Background="#171717">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -19,13 +19,13 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
             <Button Command="{Binding CloseCommand}" Content="← Back" Margin="0,0,20,0" 
-                    Background="Transparent" BorderThickness="0" Foreground="#555" 
+                    Background="Transparent" BorderThickness="0" Foreground="#F2F2F2" 
                     FontSize="16" FontWeight="Bold" Cursor="Hand"/>
-            <TextBlock Text="ONVIF Discovery" FontSize="24" FontWeight="Bold" Foreground="#333" VerticalAlignment="Center"/>
+            <TextBlock Text="ONVIF Discovery" FontSize="26" FontWeight="Bold" Foreground="#F2F2F2" VerticalAlignment="Center"/>
         </StackPanel>
 
         <!-- Control Panel -->
-        <Border Grid.Row="1" Background="White" Padding="20" CornerRadius="8" Margin="0,0,0,20">
+        <Border Grid.Row="1" Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" Padding="20" CornerRadius="12" Margin="0,0,0,20">
             <Border.Effect>
                 <DropShadowEffect Color="#EEE" BlurRadius="10" ShadowDepth="2" Opacity="0.5"/>
             </Border.Effect>
@@ -33,23 +33,27 @@
                 <Button Command="{Binding StartScanCommand}" Content="Start Scan" Width="150" Height="40" Style="{StaticResource PillButtonStyle}" IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
                 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <TextBlock Text="{Binding DiscoveryStatus}" FontWeight="SemiBold" Foreground="#555" VerticalAlignment="Center"/>
-                    <ProgressBar IsIndeterminate="True" Width="100" Height="4" Margin="10,0,0,0" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock Text="{Binding DiscoveryStatus}" FontWeight="SemiBold" Foreground="#B8B8BC" VerticalAlignment="Center"/>
+                    <ProgressBar IsIndeterminate="True" Width="100" Height="4" Margin="10,0,0,0" Foreground="{StaticResource TechnoOrange}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}"/>
                 </StackPanel>
             </StackPanel>
         </Border>
 
         <!-- Results List -->
         <DataGrid Grid.Row="2" ItemsSource="{Binding Devices}" AutoGenerateColumns="False" 
-                  Background="White" BorderThickness="0" HeadersVisibility="Column" RowHeight="50"
-                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEE"
+                  Background="#29292D" RowBackground="#29292D" AlternatingRowBackground="#303034"
+                  Foreground="#F2F2F2" BorderThickness="0" HeadersVisibility="Column" RowHeight="50"
+                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3A3A3D"
                   IsReadOnly="True">
             <DataGrid.Resources>
                  <Style TargetType="DataGridColumnHeader">
-                    <Setter Property="Background" Value="#F5F7FA"/>
+                    <Setter Property="Background" Value="#3A3A3D"/>
+                    <Setter Property="Foreground" Value="#F2F2F2"/>
                     <Setter Property="Padding" Value="10,0"/>
-                    <Setter Property="Height" Value="35"/>
+                    <Setter Property="Height" Value="40"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                    <Setter Property="BorderBrush" Value="#4A4A4F"/>
                 </Style>
             </DataGrid.Resources>
             <DataGrid.Columns>
@@ -62,11 +66,11 @@
                 <DataGridTemplateColumn Header="Action" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Button Content="Adopt" Command="{Binding DataContext.AdoptDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
-                                    CommandParameter="{Binding}" 
-                                    Width="100" Height="30" Style="{StaticResource OutlineButtonStyle}" 
-                                    Foreground="#2E7D32" BorderBrush="#2E7D32"
-                                    IsEnabled="{Binding IsClaimed, Converter={StaticResource InverseBoolConverter}}"/>
+                             <Button Content="Adopt" Command="{Binding DataContext.AdoptDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                     CommandParameter="{Binding}" 
+                                     Width="100" Height="30" Style="{StaticResource OutlineButtonStyle}" 
+                                     Foreground="{StaticResource OnlineBrush}"
+                                     IsEnabled="{Binding IsClaimed, Converter={StaticResource InverseBoolConverter}}"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

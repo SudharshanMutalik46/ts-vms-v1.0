@@ -6,17 +6,22 @@
         Width="460"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        Background="#EEF3F9"
+        Background="#171717"
         WindowStyle="SingleBorderWindow">
 
     <Window.Resources>
         <Style x:Key="DialogFieldStyle" TargetType="TextBox" BasedOn="{StaticResource ModernInputStyle}">
             <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#FF8A1F"/>
         </Style>
 
-        <Style x:Key="DialogHintStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#64748B"/>
+        <Style x:Key="DialogHintStyle" TargetType="TextBlock" BasedOn="{StaticResource DialogHintStyle}">
+            <Setter Property="Foreground" Value="#B8B8BC"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
         </Style>
@@ -31,13 +36,13 @@
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="100"/>
             <Setter Property="Padding" Value="18,0"/>
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
     </Window.Resources>
 
     <Grid Margin="18">
-        <Border Background="White" CornerRadius="22" Padding="26">
+        <Border Background="#2B2B2E" CornerRadius="22" Padding="26">
             <Border.Effect>
                 <DropShadowEffect Color="#0F172A" BlurRadius="24" ShadowDepth="4" Opacity="0.16"/>
             </Border.Effect>
@@ -49,30 +54,32 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="0,0,0,18">
-                    <TextBlock Text="Add New Camera" FontSize="24" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Add New Camera" FontSize="24" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Capture the stream endpoint and optional credentials in one step."
-                               FontSize="12" Foreground="#64748B" Margin="0,6,0,0"/>
+                               FontSize="12" Foreground="#B8B8BC" Margin="0,6,0,0"/>
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <TextBlock Text="Camera Name" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                        <TextBlock Text="Camera Name" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
                         <TextBox x:Name="TxtName" Style="{StaticResource DialogFieldStyle}" />
 
-                        <TextBlock Text="RTSP Stream URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="RTSP Stream URL" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <TextBox x:Name="TxtUrl" Style="{StaticResource DialogFieldStyle}" Text="rtsp://"/>
                         <TextBlock Text="Format: rtsp://user:pass@ip:port/path" Style="{StaticResource DialogHintStyle}"/>
 
-                        <TextBlock Text="IP Address (Optional)" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="IP Address (Optional)" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <TextBox x:Name="TxtIp" Style="{StaticResource DialogFieldStyle}"/>
 
-                        <TextBlock Text="Username (Optional)" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="Username (Optional)" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <TextBox x:Name="TxtUsername" Style="{StaticResource DialogFieldStyle}"/>
 
-                        <TextBlock Text="Password (Optional)" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="Password (Optional)" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <PasswordBox x:Name="TxtPassword" Height="40" Padding="10,0" FontSize="14"
                                      VerticalContentAlignment="Center"
-                                     BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,18"/>
+                                     Background="#3A3A3D"
+                                     Foreground="#F2F2F2"
+                                     BorderBrush="#4A4A4F" BorderThickness="1" Margin="0,0,0,18"/>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button Content="Cancel" IsCancel="True" Style="{StaticResource DialogSecondaryButtonStyle}" Margin="0,0,10,0"/>

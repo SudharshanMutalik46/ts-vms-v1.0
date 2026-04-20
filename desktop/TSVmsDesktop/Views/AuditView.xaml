@@ -21,8 +21,10 @@
         </Style>
 
         <Style x:Key="AuditTileStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Background" Value="#2B2B2E"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="22"/>
             <Setter Property="Padding" Value="22"/>
         </Style>
 
@@ -33,12 +35,13 @@
         </Style>
 
         <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#F5F7FA"/>
-            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="12,0"/>
-            <Setter Property="Height" Value="38"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
 
         <Style TargetType="DataGrid">
@@ -68,9 +71,9 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="Audit Logs" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Audit Logs" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Search security events, export activity, and review user actions."
-                               FontSize="12" Foreground="#64748B" Margin="0,4,0,0"/>
+                               FontSize="12" Foreground="#B8B8BC" Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <Border Grid.Column="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,6" VerticalAlignment="Center">
@@ -121,10 +124,13 @@
                           AutoGenerateColumns="False"
                           IsReadOnly="True"
                           HeadersVisibility="Column"
-                          Background="White"
+                          Background="#2B2B2E"
+                          RowBackground="#2B2B2E"
+                          AlternatingRowBackground="#323236"
                           BorderThickness="0"
-                          RowHeight="36"
-                          HorizontalGridLinesBrush="#EEF2F7">
+                          RowHeight="40"
+                          HorizontalGridLinesBrush="#3A3A3D"
+                          Foreground="#F2F2F2">
 
                     <DataGrid.Resources>
                         <Style TargetType="DataGridCell">
@@ -152,11 +158,11 @@
                     </DataGrid.Resources>
 
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp, StringFormat='{}{0:MM/dd/yyyy HH:mm:ss}'}" Width="170" Foreground="#475569"/>
-                        <DataGridTextColumn Header="Actor" Binding="{Binding Actor}" Width="150" Foreground="#475569"/>
+                        <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp, StringFormat='{}{0:MM/dd/yyyy HH:mm:ss}'}" Width="170" Foreground="#F2F2F2"/>
+                        <DataGridTextColumn Header="Actor" Binding="{Binding Actor}" Width="150" Foreground="#F2F2F2"/>
                         <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="190" FontWeight="SemiBold"/>
-                        <DataGridTextColumn Header="Resource" Binding="{Binding Resource}" Width="180" Foreground="#64748B"/>
-                        <DataGridTextColumn Header="IP Address" Binding="{Binding ClientIp}" Width="140" Foreground="#64748B"/>
+                        <DataGridTextColumn Header="Resource" Binding="{Binding Resource}" Width="180" Foreground="#B8B8BC"/>
+                        <DataGridTextColumn Header="IP Address" Binding="{Binding ClientIp}" Width="140" Foreground="#B8B8BC"/>
 
                         <DataGridTemplateColumn Header="Result" Width="110">
                             <DataGridTemplateColumn.CellTemplate>
@@ -195,7 +201,7 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" Foreground="#475569"/>
+                        <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*" Foreground="#F2F2F2"/>
                     </DataGrid.Columns>
                 </DataGrid>
 

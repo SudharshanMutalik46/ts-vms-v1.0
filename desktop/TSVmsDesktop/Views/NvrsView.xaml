@@ -14,8 +14,8 @@
         <Style x:Key="NvrSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
             <Setter Property="Height" Value="36"/>
             <Setter Property="Padding" Value="16,0"/>
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
     </UserControl.Resources>
 
@@ -25,7 +25,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Background="White" CornerRadius="18" Padding="22" Margin="0,0,0,18">
+        <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="22" Margin="0,0,0,18">
             <Border.Effect>
                 <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
             </Border.Effect>
@@ -35,9 +35,9 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="NVR Inventory" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="NVR Inventory" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Register recorders, review adapters, and open configuration details."
-                               Foreground="#64748B" FontSize="12" Margin="0,4,0,0"/>
+                               Foreground="#B8B8BC" FontSize="12" Margin="0,4,0,0"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Command="{Binding AddNvrCommand}" Content="+ Add NVR" Style="{StaticResource NvrPrimaryButtonStyle}" Margin="0,0,10,0"/>
@@ -46,27 +46,32 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Background="White" CornerRadius="18" Padding="8">
+        <Border Grid.Row="1" Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="8">
             <Border.Effect>
                 <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
             </Border.Effect>
             <DataGrid ItemsSource="{Binding Nvrs}"
                       AutoGenerateColumns="False"
-                      Background="White"
+                      Background="#29292D"
+                      RowBackground="#29292D"
+                      AlternatingRowBackground="#303034"
+                      Foreground="#F2F2F2"
                       BorderThickness="0"
                       RowHeight="50"
                       HeadersVisibility="Column"
                       GridLinesVisibility="Horizontal"
-                      HorizontalGridLinesBrush="#EEF2F7"
+                      HorizontalGridLinesBrush="#3A3A3D"
                       CanUserAddRows="False"
                       IsReadOnly="True">
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="#F5F7FA"/>
+                        <Setter Property="Background" Value="#3A3A3D"/>
+                        <Setter Property="Foreground" Value="#F2F2F2"/>
                         <Setter Property="Padding" Value="12,0"/>
-                        <Setter Property="Height" Value="38"/>
+                        <Setter Property="Height" Value="40"/>
                         <Setter Property="FontWeight" Value="SemiBold"/>
-                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="BorderBrush" Value="#4A4A4F"/>
                     </Style>
                 </DataGrid.Resources>
 

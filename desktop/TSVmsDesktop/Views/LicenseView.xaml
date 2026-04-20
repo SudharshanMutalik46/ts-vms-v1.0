@@ -3,31 +3,93 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" 
+             mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="800">
-    <Grid Margin="20">
+
+    <Grid Margin="20" Background="{StaticResource PageBackground}">
         <StackPanel>
-            <TextBlock Text="License Management" FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
-            
-            <Border Background="White" Padding="20" CornerRadius="8">
+            <TextBlock Text="License Management"
+                       FontSize="26"
+                       FontWeight="Bold"
+                       Foreground="#F2F2F2"
+                       Margin="0,0,0,22"/>
+
+            <Border Background="#2B2B2E"
+                    BorderBrush="#4A4A4F"
+                    BorderThickness="1"
+                    CornerRadius="18"
+                    Padding="22">
                 <StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                        <TextBlock Text="Status: " FontWeight="Bold"/>
-                        <TextBlock Text="{Binding Status.Status}" Foreground="{Binding Status.Valid, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                        <TextBlock Text="Status"
+                                   Width="90"
+                                   FontWeight="SemiBold"
+                                   Foreground="#B8B8BC"/>
+
+                        <Border Padding="10,4" CornerRadius="12">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#3A2323"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Status.Valid}" Value="True">
+                                            <Setter Property="Background" Value="#1F3428"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+
+                            <TextBlock Text="{Binding Status.Status}" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#F06A6A"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Status.Valid}" Value="True">
+                                                <Setter Property="Foreground" Value="#31C776"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
                     </StackPanel>
-                    
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                        <TextBlock Text="Expires: " FontWeight="Bold"/>
-                        <TextBlock Text="{Binding Status.Expiry}"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Expires"
+                                   Width="90"
+                                   FontWeight="SemiBold"
+                                   Foreground="#B8B8BC"/>
+                        <TextBlock Text="{Binding Status.Expiry}" Foreground="#F2F2F2"/>
                     </StackPanel>
 
-                    <TextBlock Text="Quotas &amp; Usage:" FontWeight="Bold" Margin="0,10,0,5"/>
-                    <TextBlock Text="{Binding QuotaDisplay}" FontFamily="Consolas" Background="#F5F5F5" Padding="10"/>
+                    <TextBlock Text="Quotas &amp; Usage"
+                               FontWeight="SemiBold"
+                               Foreground="#B8B8BC"
+                               Margin="0,10,0,8"/>
 
-                    <Button Command="{Binding ReloadCommand}" Content="Reload License" 
-                            Width="150" Height="30" HorizontalAlignment="Left" Margin="0,20,0,0"/>
+                    <Border Background="#3A3A3D"
+                            BorderBrush="#4A4A4F"
+                            BorderThickness="1"
+                            CornerRadius="12"
+                            Padding="12">
+                        <TextBlock Text="{Binding QuotaDisplay}"
+                                   FontFamily="Consolas"
+                                   Foreground="#F2F2F2"
+                                   TextWrapping="Wrap"/>
+                    </Border>
 
-                    <TextBlock Text="{Binding Message}" Foreground="Blue" Margin="0,10,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                        <Button Command="{Binding ReloadCommand}"
+                                Content="Reload License"
+                                Style="{StaticResource OutlineButtonStyle}"
+                                Width="150"
+                                Height="38"
+                                HorizontalAlignment="Left"/>
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding Message}"
+                               Foreground="{StaticResource TechnoOrange}"
+                               Margin="0,12,0,0"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
         </StackPanel>

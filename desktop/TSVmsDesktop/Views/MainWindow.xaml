@@ -95,9 +95,9 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="TopNavActiveButtonStyle" TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
-            <Setter Property="Background" Value="#FFF6F0"/>
-            <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-            <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#1E1F22"/>
         </Style>
         <Style x:Key="IconOnlyButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
@@ -254,22 +254,19 @@
 
             <Border Grid.Row="0"
                     Background="{StaticResource TechnoOrange}"
-                    CornerRadius="16"
-                    Margin="0,0,0,18"
+                    CornerRadius="0"
+                    Margin="0"
                     Padding="16,10,16,10"
                     Visibility="{Binding IsKioskMode, Converter={StaticResource InverseBoolToVisConverter}}">
                 <Border.Style>
                     <Style TargetType="Border">
-                        <Setter Property="Margin" Value="0,0,0,6"/>
+                        <Setter Property="Margin" Value="0"/>
                         <Setter Property="CornerRadius" Value="0"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding CurrentPage}" Value="Playback"/>
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <Border.Effect>
-                    <DropShadowEffect Color="#D56A12" BlurRadius="14" ShadowDepth="2" Opacity="0.16"/>
-                </Border.Effect>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -312,9 +309,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Live">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -325,9 +322,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Playback">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -338,9 +335,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Audit Log">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -351,9 +348,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Cameras">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -364,9 +361,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="NVRs">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -377,9 +374,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="AI Config">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -390,9 +387,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Health">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -403,9 +400,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Users">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -416,9 +413,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="License">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -429,9 +426,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Supervisor">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -442,9 +439,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Win Helper">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -455,9 +452,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource TopNavButtonStyle}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentPage}" Value="Settings">
-                                                <Setter Property="Background" Value="#FFF6F0"/>
-                                                <Setter Property="BorderBrush" Value="#FFFFC9AF"/>
-                                                <Setter Property="Foreground" Value="{StaticResource TechnoOrange}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="#1E1F22"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -469,7 +466,7 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="1" Background="White" CornerRadius="25">
+            <Border Grid.Row="1" Background="#171717" CornerRadius="25">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Background" Value="Transparent"/>
@@ -501,3 +498,5 @@
         </Grid>
     </Grid>
 </Window>
+
+

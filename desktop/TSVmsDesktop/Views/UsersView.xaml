@@ -11,8 +11,10 @@
         <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
 
         <Style x:Key="UsersTileStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Background" Value="#2B2B2E"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="22"/>
             <Setter Property="Padding" Value="22"/>
         </Style>
 
@@ -24,8 +26,8 @@
         <Style x:Key="UsersSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
             <Setter Property="Height" Value="36"/>
             <Setter Property="Padding" Value="16,0"/>
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
     </UserControl.Resources>
 
@@ -42,18 +44,18 @@
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel>
-                    <TextBlock Text="User Management" FontSize="28" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="User Management" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Create accounts, assign roles, and manage passwords from one place."
-                               Margin="0,4,0,16" Foreground="#64748B" FontSize="12"/>
+                               Margin="0,4,0,16" Foreground="#B8B8BC" FontSize="12"/>
 
                     <Button Command="{Binding StartCreateCommand}"
                             Content="+ Create New User"
                             Style="{StaticResource UsersPrimaryButtonStyle}"
                             Margin="0,0,0,14"/>
 
-                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="14">
+                    <Border Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="14" Padding="14">
                         <StackPanel>
-                            <TextBlock Text="Lookup User" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
+                            <TextBlock Text="Lookup User" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,8"/>
                             <TextBox Text="{Binding SearchUserId}"
                                      Height="38"
                                      Style="{StaticResource ModernInputStyle}"
@@ -72,14 +74,18 @@
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.06"/>
                 </Border.Effect>
                 <StackPanel>
-                    <TextBlock Text="All Users" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,0,12"/>
+                    <TextBlock Text="All Users"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#F2F2F2"
+                               Margin="0,0,0,12"/>
                     <ListView ItemsSource="{Binding UsersList}"
-                              SelectedItem="{Binding SelectedUser}"
-                              BorderThickness="0"
-                              Background="Transparent"
-                              ScrollViewer.VerticalScrollBarVisibility="Auto"
-                              MaxHeight="440"
-                              HorizontalContentAlignment="Stretch">
+                               SelectedItem="{Binding SelectedUser}"
+                               BorderThickness="0"
+                               Background="Transparent"
+                               ScrollViewer.VerticalScrollBarVisibility="Auto"
+                               MaxHeight="440"
+                               HorizontalContentAlignment="Stretch">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="Padding" Value="0"/>
@@ -88,13 +94,13 @@
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListViewItem">
-                                            <Border x:Name="Bd" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="12">
+                                            <Border x:Name="Bd" Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="12" Padding="12">
                                                 <ContentPresenter/>
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="Bd" Property="Background" Value="#F0F9FF"/>
-                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#38BDF8"/>
+                                                    <Setter TargetName="Bd" Property="Background" Value="#3A3127"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#FF8A1F"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -105,20 +111,23 @@
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="#0F172A"/>
-                                    <TextBlock Text="{Binding Email}" FontSize="11" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="#F2F2F2"/>
+                                    <TextBlock Text="{Binding Email}" FontSize="11" Foreground="#B8B8BC" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="#475569" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                    <TextBlock Text="{Binding StatusMessage}"
+                               Foreground="#B8B8BC"
+                               TextWrapping="Wrap"
+                               Margin="0,12,0,0"/>
                 </StackPanel>
             </Border>
         </StackPanel>
 
         <Grid Grid.Column="2">
-            <Border Background="White" CornerRadius="18" Padding="32"
+            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="32"
                     Visibility="{Binding ShowWorkspaceOverview, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
@@ -133,37 +142,39 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel>
-                        <TextBlock Text="Workspace Overview" FontSize="22" FontWeight="Bold" Foreground="#1E293B"/>
+                        <TextBlock Text="Workspace Overview" FontSize="22" FontWeight="Bold" Foreground="#F2F2F2"/>
                         <TextBlock Text="Select a user from the list or start a new account to open the detail workspace."
-                                   Margin="0,6,0,0" Foreground="#64748B" FontSize="12"/>
+                                   Margin="0,6,0,0" Foreground="#B8B8BC" FontSize="12"/>
                     </StackPanel>
 
-                    <Border Grid.Row="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="18">
+                    <Border Grid.Row="2" Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="16" Padding="18">
                         <StackPanel>
-                            <TextBlock Text="No user is currently selected." FontSize="18" FontWeight="SemiBold" Foreground="#0F172A"/>
+                            <TextBlock Text="No user is currently selected." FontSize="18" FontWeight="SemiBold" Foreground="#F2F2F2"/>
                             <TextBlock Text="Use the left list to open an existing account, search by ID, or create a new user and continue through role assignment."
-                                       Margin="0,8,0,0" Foreground="#64748B" TextWrapping="Wrap"/>
+                                       Margin="0,8,0,0" Foreground="#B8B8BC" TextWrapping="Wrap"/>
 
-                            <UniformGrid Grid.Row="2" Columns="3" Margin="0,18,0,0">
-                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
+                            <UniformGrid Columns="3" Margin="0,18,0,0">
+                                <Border Background="#2F2F33" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
                                     <StackPanel>
-                                        <TextBlock Text="1" FontSize="22" FontWeight="Bold" Foreground="#EA580C"/>
-                                        <TextBlock Text="Create" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
-                                        <TextBlock Text="Start a new user flow from the primary action button." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                        <TextBlock Text="1" FontSize="22" FontWeight="Bold" Foreground="#FF8A1F"/>
+                                        <TextBlock Text="Create" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Start a new user flow from the primary action button." FontSize="11" Foreground="#B8B8BC" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
+
+                                <Border Background="#2F2F33" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,10,0">
                                     <StackPanel>
-                                        <TextBlock Text="2" FontSize="22" FontWeight="Bold" Foreground="#0EA5E9"/>
-                                        <TextBlock Text="Search" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
-                                        <TextBlock Text="Lookup by ID from the search field on the left." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                        <TextBlock Text="2" FontSize="22" FontWeight="Bold" Foreground="#38BDF8"/>
+                                        <TextBlock Text="Search" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Lookup by ID from the search field on the left." FontSize="11" Foreground="#B8B8BC" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
-                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="12" Padding="14">
+
+                                <Border Background="#2F2F33" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="12" Padding="14">
                                     <StackPanel>
-                                        <TextBlock Text="3" FontSize="22" FontWeight="Bold" Foreground="#16A34A"/>
-                                        <TextBlock Text="Manage" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,6,0,0"/>
-                                        <TextBlock Text="Open a user to edit name, role, and password." FontSize="11" Foreground="#64748B" TextWrapping="Wrap"/>
+                                        <TextBlock Text="3" FontSize="22" FontWeight="Bold" Foreground="#31C776"/>
+                                        <TextBlock Text="Manage" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Open a user to edit name, role, and password." FontSize="11" Foreground="#B8B8BC" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
                             </UniformGrid>
@@ -171,15 +182,28 @@
                     </Border>
 
                     <Grid Grid.Row="4" VerticalAlignment="Bottom">
-                        <Border Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="14" Padding="16">
+                        <Border Background="#2C3445"
+                                BorderBrush="#44506A"
+                                BorderThickness="1"
+                                CornerRadius="14"
+                                Padding="16">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <StackPanel Width="48" Height="48" Background="#DBEAFE" Margin="0,0,14,0">
-                                    <TextBlock Text="i" FontSize="24" FontWeight="Bold" Foreground="#1D4ED8"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </StackPanel>
+                                <Border Width="48" Height="48" Background="#1F3B73" CornerRadius="10" Margin="0,0,14,0">
+                                    <TextBlock Text="i"
+                                               FontSize="24"
+                                               FontWeight="Bold"
+                                               Foreground="#DCE8FF"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
                                 <StackPanel>
-                                    <TextBlock Text="Ready for the next action" FontWeight="SemiBold" Foreground="#1E293B"/>
-                                    <TextBlock Text="{Binding StatusMessage}" Foreground="#475569" FontSize="12" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Ready for the next action"
+                                               FontWeight="SemiBold"
+                                               Foreground="#F2F2F2"/>
+                                    <TextBlock Text="{Binding StatusMessage}"
+                                               Foreground="#D3DBE8"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -187,23 +211,23 @@
                 </Grid>
             </Border>
 
-            <Border Background="White" CornerRadius="18" Padding="28"
+            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="28"
                     Visibility="{Binding IsCreatingUser, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel Width="360" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <TextBlock Text="Step 1: Create User" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Step 1: Create User" FontSize="22" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,8"/>
                     <TextBlock Text="Add the identity details and initial password."
                                Foreground="#64748B" FontSize="12" Margin="0,0,0,20"/>
 
-                    <TextBlock Text="Display Name" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBlock Text="Display Name" Margin="0,0,0,6" Foreground="#F2F2F2" FontWeight="SemiBold"/>
                     <TextBox Text="{Binding NewDisplayName}" Height="38" Margin="0,0,0,12" Style="{StaticResource ModernInputStyle}"/>
 
-                    <TextBlock Text="Email Address" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBlock Text="Email Address" Margin="0,0,0,6" Foreground="#F2F2F2" FontWeight="SemiBold"/>
                     <TextBox Text="{Binding NewEmail}" Height="38" Margin="0,0,0,12" Style="{StaticResource ModernInputStyle}"/>
 
-                    <TextBlock Text="Initial Password" Margin="0,0,0,6" Foreground="#334155" FontWeight="SemiBold"/>
+                    <TextBlock Text="Initial Password" Margin="0,0,0,6" Foreground="#F2F2F2" FontWeight="SemiBold"/>
                     <TextBox Text="{Binding NewPassword}" Height="38" Margin="0,0,0,18" Style="{StaticResource ModernInputStyle}"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -213,13 +237,13 @@
                 </StackPanel>
             </Border>
 
-            <Border Background="White" CornerRadius="18" Padding="28"
+            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="28"
                     Visibility="{Binding IsAssigningRole, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel Width="360" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <TextBlock Text="Step 2: Assign Role" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Step 2: Assign Role" FontSize="22" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,8"/>
                     <TextBlock Text="Choose the minimum role required for login."
                                Foreground="#64748B" FontSize="12" Margin="0,0,0,18"/>
 
@@ -234,20 +258,29 @@
                 </StackPanel>
             </Border>
 
-            <Border Background="White" CornerRadius="18" Padding="28"
+            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="28"
                     Visibility="{Binding IsVerifying, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel Width="380" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <TextBlock Text="Step 3: Verification" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,8"/>
+                    <TextBlock Text="Step 3: Verification" FontSize="22" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,8"/>
                     <TextBlock Text="Validate that the user can log in with the assigned role."
                                Foreground="#64748B" FontSize="12" Margin="0,0,0,18"/>
 
-                    <Border Background="#E8F5E9" Padding="16" CornerRadius="12" Margin="0,0,0,18">
+                    <Border Background="#1F3428"
+                            BorderBrush="#31C776"
+                            BorderThickness="1"
+                            Padding="16"
+                            CornerRadius="12"
+                            Margin="0,0,0,18">
                         <StackPanel>
-                            <TextBlock Text="User Created Successfully!" FontWeight="SemiBold" Foreground="#166534"/>
-                            <TextBlock Text="Now verifying login capability..." Foreground="#166534" FontSize="12"/>
+                            <TextBlock Text="User Created Successfully!"
+                                       FontWeight="SemiBold"
+                                       Foreground="#31C776"/>
+                            <TextBlock Text="Now verifying login capability..."
+                                       Foreground="#D8FBE7"
+                                       FontSize="12"/>
                         </StackPanel>
                     </Border>
 
@@ -258,20 +291,20 @@
                 </StackPanel>
             </Border>
 
-            <Border Background="White" CornerRadius="18" Padding="28"
+            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="18" Padding="28"
                     Visibility="{Binding ShowDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Effect>
                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
                 </Border.Effect>
                 <StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                        <Border Width="72" Height="72" CornerRadius="36" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,18,0">
-                            <TextBlock Text="User" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" Foreground="#94A3B8"/>
+                        <Border Width="72" Height="72" CornerRadius="36" Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" Margin="0,0,18,0">
+                            <TextBlock Text="User" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" Foreground="#B8B8BC"/>
                         </Border>
                         <StackPanel VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Visibility="{Binding IsEditingName, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                                <TextBlock Text="{Binding CurrentUser.DisplayName}" FontSize="26" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,10,0"/>
-                                <Button Command="{Binding EditNameCommand}" Content="Edit" Height="30" Background="Transparent" BorderThickness="0" Foreground="#94A3B8"/>
+                                <TextBlock Text="{Binding CurrentUser.DisplayName}" FontSize="26" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,10,0"/>
+                                <Button Command="{Binding EditNameCommand}" Content="Edit" Height="30" Background="Transparent" BorderThickness="0" Foreground="#B8B8BC"/>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Visibility="{Binding IsEditingName, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -280,7 +313,7 @@
                                 <Button Command="{Binding CancelEditNameCommand}" Content="Cancel" Height="32" Width="70" Background="#FFEBEE" Foreground="#B91C1C" BorderThickness="0"/>
                             </StackPanel>
 
-                            <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#94A3B8" FontSize="12"/>
+                            <TextBlock Text="{Binding CurrentUser.Id}" FontFamily="Consolas" Foreground="#B8B8BC" FontSize="12"/>
                         </StackPanel>
                     </StackPanel>
 
@@ -291,8 +324,8 @@
                             <ColumnDefinition Width="120"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Email:" FontWeight="SemiBold" Foreground="#475569"/>
-                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.Email}" Foreground="#0F172A"/>
+                        <TextBlock Text="Email:" FontWeight="SemiBold" Foreground="#B8B8BC"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.Email}" Foreground="#F2F2F2"/>
                     </Grid>
 
                     <Grid Margin="0,0,0,10">
@@ -300,23 +333,23 @@
                             <ColumnDefinition Width="120"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Disabled:" FontWeight="SemiBold" Foreground="#475569"/>
-                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.IsDisabled}" FontWeight="SemiBold" Foreground="#0F172A"/>
+                        <TextBlock Text="Disabled:" FontWeight="SemiBold" Foreground="#B8B8BC"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentUser.IsDisabled}" FontWeight="SemiBold" Foreground="#F2F2F2"/>
                     </Grid>
 
                     <Button Command="{Binding ToggleChangePasswordCommand}"
                             Content="Change my/user Password"
                             Background="Transparent"
-                            Foreground="#475569"
+                            Foreground="#B8B8BC"
                             BorderThickness="0"
                             HorizontalAlignment="Left"
                             Margin="0,12,0,0"/>
 
                     <StackPanel Visibility="{Binding IsChangingPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,10,0,0">
-                        <TextBlock Text="Old Password (Leave empty if Admin)" FontSize="11" Foreground="#64748B" Margin="0,0,0,4"/>
+                        <TextBlock Text="Old Password (Leave empty if Admin)" FontSize="11" Foreground="#B8B8BC" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding CurrentPasswordInput}" Width="240" Height="32" Style="{StaticResource ModernInputStyle}" ToolTip="Leave empty to force set password (Admin only)"/>
 
-                        <TextBlock Text="New Password" FontSize="11" Foreground="#64748B" Margin="0,10,0,4"/>
+                        <TextBlock Text="New Password" FontSize="11" Foreground="#B8B8BC" Margin="0,10,0,4"/>
                         <TextBox Text="{Binding NewPasswordInput}" Width="240" Height="32" Style="{StaticResource ModernInputStyle}"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">

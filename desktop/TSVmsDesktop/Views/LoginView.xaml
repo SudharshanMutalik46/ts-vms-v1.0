@@ -6,10 +6,11 @@
         <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
         
         <Style x:Key="ModernPasswordBoxStyle" TargetType="PasswordBox">
-            <Setter Property="Background" Value="#F5F7FA"/>
-            <Setter Property="BorderBrush" Value="#E0E0E0"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="15,0"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Template">
@@ -24,7 +25,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsFocused" Value="True">
                                 <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource TechnoOrange}"/>
-                                <Setter TargetName="border" Property="Background" Value="White"/>
+                                <Setter TargetName="border" Property="Background" Value="#444447"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -35,10 +36,10 @@
     
     <Grid>
         <Grid.Background>
-            <ImageBrush ImageSource="/Images/background.jpg" Stretch="UniformToFill" Opacity="1.0"/>
+            <SolidColorBrush Color="#171717"/>
         </Grid.Background>
 
-        <Border Width="1050" Height="600" CornerRadius="15" Background="White">
+        <Border Width="1050" Height="600" CornerRadius="18" Background="#2B2B2E">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.1" Color="Black"/>
             </Border.Effect>
@@ -126,10 +127,10 @@
                         <Grid Margin="0,0,0,50">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <CheckBox VerticalContentAlignment="Center" IsChecked="{Binding RememberMe}"/>
-                                <TextBlock Text="Remember password" Foreground="#666" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Remember password" Foreground="#B8B8BC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             
-                            <TextBlock Text="Forgot your password?" Foreground="#333" HorizontalAlignment="Right" 
+                            <TextBlock Text="Forgot your password?" Foreground="#F2F2F2" HorizontalAlignment="Right" 
                                        Cursor="Hand" TextDecorations="Underline" FontSize="13" VerticalAlignment="Center"/>
                         </Grid>
 

@@ -8,8 +8,8 @@
                 
                 <Grid Margin="0,0,0,25">
                     <StackPanel>
-                        <TextBlock Text="System Health" FontSize="26" FontWeight="Bold" Foreground="#333"/>
-                        <TextBlock Text="Real-time monitoring of local services" FontSize="14" Foreground="#999" Margin="0,5,0,0"/>
+                        <TextBlock Text="System Health" FontSize="26" FontWeight="Bold" Foreground="#F2F2F2"/>
+                        <TextBlock Text="Real-time monitoring of local services" FontSize="14" Foreground="#B8B8BC" Margin="0,5,0,0"/>
                     </StackPanel>
                     
                     <Button Command="{Binding ExportLogsCommand}" 
@@ -36,7 +36,7 @@
                     </Button>
                 </Grid>
 
-                <Border Background="White" CornerRadius="15" Margin="0,0,0,25" Padding="30">
+                <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="15" Margin="0,0,0,25" Padding="30">
                     <Border.Effect>
                         <DropShadowEffect Color="#DDD" BlurRadius="20" ShadowDepth="4" Opacity="0.4"/>
                     </Border.Effect>
@@ -52,16 +52,16 @@
                         </Grid>
                         
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0">
-                            <TextBlock Text="{Binding StatusMessage}" FontSize="20" FontWeight="Bold" Foreground="#333"/>
+                            <TextBlock Text="{Binding StatusMessage}" FontSize="20" FontWeight="Bold" Foreground="#F2F2F2"/>
                             <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-                                <TextBlock Text="Last Pulse: " Foreground="#999"/>
-                                <TextBlock Text="{Binding LastCheck, StringFormat='HH:mm:ss'}" Foreground="#666" FontWeight="SemiBold"/>
+                                <TextBlock Text="Last Pulse: " Foreground="#B8B8BC"/>
+                                <TextBlock Text="{Binding LastCheck, StringFormat='HH:mm:ss'}" Foreground="#F2F2F2" FontWeight="SemiBold"/>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <TextBlock Text="Service Status" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,0,0,15"/>
+                <TextBlock Text="Service Status" FontSize="16" FontWeight="Bold" Foreground="#F2F2F2" Margin="5,0,0,15"/>
                 
                 <ItemsControl ItemsSource="{Binding BackendServices}">
                     <ItemsControl.ItemsPanel>
@@ -69,23 +69,23 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Background="White" Margin="6" Padding="20" CornerRadius="12">
+                            <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" Margin="6" Padding="20" CornerRadius="12">
                                 <Border.Effect>
                                     <DropShadowEffect Color="#E0E0E0" BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
                                 </Border.Effect>
                                 <Grid>
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                                         <Ellipse Width="10" Height="10" Fill="{Binding Color}" VerticalAlignment="Center" Margin="0,0,15,0"/>
-                                        <TextBlock Text="{Binding Name}" Foreground="#444" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}" Foreground="#F2F2F2" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     </StackPanel>
                                     
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <TextBlock Text="{Binding Status}" Foreground="#888" FontSize="13" Margin="0,0,15,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Status}" Foreground="#B8B8BC" FontSize="13" Margin="0,0,15,0" VerticalAlignment="Center"/>
                                         
                                         <Button Command="{Binding DataContext.CheckHealthCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 Cursor="Hand" Background="Transparent" BorderThickness="0">
-                                            <Border Background="#F5F5F5" Width="30" Height="30" CornerRadius="15">
-                                                <TextBlock Text="↻" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#AAA" FontWeight="Bold" Margin="0,-2,0,0"/>
+                                            <Border Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" Width="30" Height="30" CornerRadius="15">
+                                                <TextBlock Text="↻" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#B8B8BC" FontWeight="Bold" Margin="0,-2,0,0"/>
                                             </Border>
                                             <Button.Style>
                                                 <Style TargetType="Button">
@@ -105,9 +105,9 @@
                 </ItemsControl>
 
                 <!-- NEW PHASE 4 RECORDING ENGINE TELEMETRY -->
-                <TextBlock Text="Recording Engine Telemetry" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,20,0,15"/>
+                <TextBlock Text="Recording Engine Telemetry" FontSize="16" FontWeight="Bold" Foreground="#F2F2F2" Margin="5,20,0,15"/>
                 
-                <Border Background="White" CornerRadius="12" Padding="20" Margin="6,0,6,15">
+                <Border Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="12" Padding="20" Margin="6,0,6,15">
                     <Border.Effect>
                         <DropShadowEffect Color="#E0E0E0" BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
                     </Border.Effect>
@@ -122,35 +122,35 @@
 
                         <!-- Metric 1: Active Streams -->
                         <StackPanel Grid.Column="0" HorizontalAlignment="Center">
-                            <TextBlock Text="Active Recordings" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
-                            <TextBlock Text="{Binding ActiveRecordingsCount}" FontSize="28" FontWeight="Bold" Foreground="#2196F3" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                            <TextBlock Text="Active Recordings" FontSize="12" Foreground="#B8B8BC" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding ActiveRecordingsCount}" FontSize="28" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                         </StackPanel>
 
                         <!-- Divider -->
-                        <Border Grid.Column="1" Width="1" Background="#EEE" Margin="10,0"/>
+                        <Border Grid.Column="1" Width="1" Background="#3A3A3D" Margin="10,0"/>
 
                         <!-- Metric 2: Disk Write Rate -->
                         <StackPanel Grid.Column="2" HorizontalAlignment="Center">
-                            <TextBlock Text="Storage I/O" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Storage I/O" FontSize="12" Foreground="#B8B8BC" HorizontalAlignment="Center"/>
                             <TextBlock Text="{Binding DiskWriteRate}" FontSize="28" FontWeight="Bold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                         </StackPanel>
 
                         <!-- Divider -->
-                        <Border Grid.Column="3" Width="1" Background="#EEE" Margin="10,0"/>
+                        <Border Grid.Column="3" Width="1" Background="#3A3A3D" Margin="10,0"/>
 
                         <!-- Metric 3: Frame Health -->
                         <StackPanel Grid.Column="4" HorizontalAlignment="Center">
-                            <TextBlock Text="Stream Stability" FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Stream Stability" FontSize="12" Foreground="#B8B8BC" HorizontalAlignment="Center"/>
                             <TextBlock Text="{Binding GlobalFrameDropRate}" FontSize="18" FontWeight="SemiBold" Foreground="{Binding EngineStateColor}" HorizontalAlignment="Center" Margin="0,15,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
                 <!-- END PHASE 4 TELEMETRY -->
 
-                <TextBlock Text="API Raw Heartbeat" FontSize="16" FontWeight="Bold" Foreground="#444" Margin="5,30,0,15"/>
-                <Border Background="#F8F9FA" CornerRadius="10" BorderBrush="#EAEAEA" BorderThickness="1" Padding="15">
+                <TextBlock Text="API Raw Heartbeat" FontSize="16" FontWeight="Bold" Foreground="#F2F2F2" Margin="5,30,0,15"/>
+                <Border Background="#3A3A3D" CornerRadius="10" BorderBrush="#4A4A4F" BorderThickness="1" Padding="15">
                      <TextBox Text="{Binding JsonDetails}" IsReadOnly="True" Height="150" Background="Transparent" 
-                             BorderThickness="0" Foreground="#555" FontFamily="Consolas" TextWrapping="Wrap" 
+                             BorderThickness="0" Foreground="#F2F2F2" FontFamily="Consolas" TextWrapping="Wrap" 
                              VerticalScrollBarVisibility="Auto"/>
                 </Border>
             </StackPanel>

@@ -25,6 +25,29 @@
     <Resource Include="Images\operator-logo-badge.png" />
     <Resource Include="Images\logout-icon.png" />
     <Resource Include="Images\background.jpg" />
+    <Resource Include="Images\1 quad.png" />
+    <Resource Include="Images\4 quad.png" />
+    <Resource Include="Images\play.png" />
+    <Resource Include="Images\pause.png" />
+    <Resource Include="Images\move forward.png" />
+    <Resource Include="Images\export video.png" />
+    <Resource Include="Images\ui-icons\1 quad.png" />
+    <Resource Include="Images\ui-icons\4 quad.png" />
+    <Resource Include="Images\ui-icons\play.png" />
+    <Resource Include="Images\ui-icons\pause.png" />
+    <Resource Include="Images\ui-icons\move forward.png" />
+    <Resource Include="Images\ui-icons\export video.png" />
+    <Resource Include="Images\icons8-pause-100.png" />
+    <Resource Include="Images\play_24x24.png" />
+    <Resource Include="Images\play_32x32.png" />
+    <Resource Include="Images\pause_32x32.png" />
+    <Resource Include="Images\forward_32x32.png" />
+    <Resource Include="Images\export_32x32.png" />
+    <Resource Include="Images\quad1_32x32.png" />
+    <Resource Include="Images\quad4_32x32.png" />
+    <Resource Include="Images\step_32x32.png" />
+    <Resource Include="Images\step10_32x32.png" />
+    <Resource Include="Images\skip5m_32x32.png" />
   </ItemGroup>
 
   <ItemGroup>

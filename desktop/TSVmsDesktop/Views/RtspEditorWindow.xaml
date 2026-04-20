@@ -6,22 +6,28 @@
         Height="620"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        Background="#EEF3F9"
+        Background="#171717"
         WindowStyle="SingleBorderWindow">
 
     <Window.Resources>
         <Style x:Key="DialogFieldStyle" TargetType="TextBox" BasedOn="{StaticResource ModernInputStyle}">
             <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#FF8A1F"/>
         </Style>
 
         <Style x:Key="DialogComboStyle" TargetType="ComboBox">
             <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
             <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Background" Value="#3A3A3D"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="White"/>
         </Style>
 
         <Style x:Key="DialogPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
@@ -34,18 +40,18 @@
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="100"/>
             <Setter Property="Padding" Value="18,0"/>
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
         </Style>
 
         <Style TargetType="TextBlock" x:Key="DialogHintStyle">
-            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="Foreground" Value="#B8B8BC"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
     </Window.Resources>
 
     <Grid Margin="18">
-        <Border Background="White" CornerRadius="22" Padding="26">
+        <Border Background="#2B2B2E" CornerRadius="22" Padding="26">
             <Border.Effect>
                 <DropShadowEffect Color="#0F172A" BlurRadius="24" ShadowDepth="4" Opacity="0.16"/>
             </Border.Effect>
@@ -60,10 +66,10 @@
                     <TextBlock Text="Update RTSP Settings"
                                FontSize="24"
                                FontWeight="Bold"
-                               Foreground="#1E293B"/>
+                               Foreground="#F2F2F2"/>
                     <TextBlock Text="Edit the main and sub RTSP URLs plus camera credentials."
                                FontSize="12"
-                               Foreground="#64748B"
+                               Foreground="#B8B8BC"
                                Margin="0,6,0,0"/>
                 </StackPanel>
 
@@ -71,7 +77,7 @@
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <TextBlock Text="Current / Old RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                        <TextBlock Text="Current / Old RTSP URL" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
                         <TextBox x:Name="TxtCurrentRtspUrl"
                                  Style="{StaticResource DialogFieldStyle}"
                                  Text="rtsp://"/>
@@ -79,7 +85,7 @@
                                    Style="{StaticResource DialogHintStyle}"
                                    Margin="0,0,0,10"/>
 
-                        <TextBlock Text="Main Stream RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                        <TextBlock Text="Main Stream RTSP URL" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
                         <TextBox x:Name="TxtMainRtspUrl"
                                  Style="{StaticResource DialogFieldStyle}"
                                  Text="rtsp://"/>
@@ -87,7 +93,7 @@
                                    Style="{StaticResource DialogHintStyle}"
                                    Margin="0,0,0,10"/>
 
-                        <TextBlock Text="Sub Stream RTSP URL" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="Sub Stream RTSP URL" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <TextBox x:Name="TxtSubRtspUrl"
                                  Style="{StaticResource DialogFieldStyle}"
                                  Text="rtsp://"/>
@@ -95,7 +101,7 @@
                                    Style="{StaticResource DialogHintStyle}"
                                    Margin="0,0,0,10"/>
 
-                        <TextBlock Text="Port" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                        <TextBlock Text="Port" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                         <TextBox x:Name="TxtPort"
                                  Style="{StaticResource DialogFieldStyle}"
                                  Text="554"/>
@@ -103,23 +109,25 @@
                                    Style="{StaticResource DialogHintStyle}"
                                    Margin="0,0,0,10"/>
 
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="18" Margin="0,4,0,14">
+                        <Border Background="#3A3A3D" BorderBrush="#4A4A4F" BorderThickness="1" CornerRadius="16" Padding="18" Margin="0,4,0,14">
                             <StackPanel>
-                                <TextBlock Text="Camera Credentials" FontSize="16" FontWeight="Bold" Foreground="#0F172A"/>
+                                <TextBlock Text="Camera Credentials" FontSize="16" FontWeight="Bold" Foreground="#F2F2F2"/>
                                 <TextBlock Text="These credentials are saved for stream access."
                                            Style="{StaticResource DialogHintStyle}"
                                            Margin="0,4,0,14"/>
 
-                                <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,6"/>
+                                <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
                                 <TextBox x:Name="TxtUsername" Style="{StaticResource DialogFieldStyle}"/>
 
-                                <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#334155" Margin="0,4,0,6"/>
+                                <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,4,0,6"/>
                                 <PasswordBox x:Name="TxtPassword"
                                              Height="40"
                                              Padding="10,0"
                                              FontSize="14"
                                              VerticalContentAlignment="Center"
-                                             BorderBrush="#CBD5E1"
+                                             Background="#3A3A3D"
+                                             Foreground="#F2F2F2"
+                                             BorderBrush="#4A4A4F"
                                              BorderThickness="1"
                                              Margin="0,0,0,0"/>
                             </StackPanel>

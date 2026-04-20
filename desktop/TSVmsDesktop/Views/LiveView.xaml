@@ -13,9 +13,6 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisConverter"/>
 
-        <DropShadowEffect x:Key="HeaderShadow" Color="#0F172A" BlurRadius="18" ShadowDepth="4" Opacity="0.08"/>
-        <DropShadowEffect x:Key="TileShadow" Color="#0F172A" BlurRadius="10" ShadowDepth="2" Opacity="0.06"/>
-
         <Style x:Key="LiveActionButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="#475569"/>
@@ -90,12 +87,6 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="ClipToBounds" Value="True"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="CacheMode">
-                <Setter.Value>
-                    <BitmapCache EnableClearType="False"/>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Effect" Value="{StaticResource TileShadow}"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                     <Setter Property="BorderBrush" Value="#38BDF8"/>
@@ -107,7 +98,6 @@
                 <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
                     <Setter Property="Background" Value="#020617"/>
                     <Setter Property="BorderBrush" Value="#334155"/>
-                    <Setter Property="Effect" Value="{StaticResource TileShadow}"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -129,7 +119,10 @@
         <KeyBinding Key="Esc" Command="{Binding ExitFullScreenCommand}"/>
     </UserControl.InputBindings>
 
-    <Grid x:Name="LiveViewRoot" Background="#EEF3F9" SnapsToDevicePixels="True" UseLayoutRounding="True"
+    <Grid x:Name="LiveViewRoot"
+          Background="#171717"
+          SnapsToDevicePixels="True"
+          UseLayoutRounding="True"
           PreviewMouseMove="LiveViewRoot_PreviewMouseMove"
           MouseLeave="LiveViewRoot_MouseLeave">
         
@@ -141,9 +134,12 @@
             </Grid.RowDefinitions>
             
             <!-- HEADER -->
-            <Grid Grid.Row="0" Margin="25,25,25,20">
+            <Grid Grid.Row="0" Margin="25,14,25,12">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Live Dashboard" FontSize="26" FontWeight="Bold" Foreground="#1E293B"/>
+                    <TextBlock Text="Live Dashboard"
+                               FontSize="26"
+                               FontWeight="Bold"
+                               Foreground="#F2F2F2"/>
                     <Border Style="{StaticResource LiveChipStyle}" Margin="15,0,0,0">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="6" Height="6" Fill="#0EA5E9" Margin="0,0,6,0"/>
@@ -155,12 +151,17 @@
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                      <!-- LAYOUT BUTTONS -->
-                     <Border Background="White" CornerRadius="8" BorderThickness="1" BorderBrush="#E2E8F0" Margin="0,0,15,0" Padding="4">
+                     <Border Background="#2B2B2E"
+                             CornerRadius="14"
+                             BorderThickness="1"
+                             BorderBrush="#4A4A4F"
+                             Margin="0,0,15,0"
+                             Padding="4">
                          <StackPanel Orientation="Horizontal">
-                             <Button Content=" 1x1 " Command="{Binding SetLayoutCommand}" CommandParameter="1" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
-                             <Button Content=" 2x2 " Command="{Binding SetLayoutCommand}" CommandParameter="2" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
-                             <Button Content=" 3x3 " Command="{Binding SetLayoutCommand}" CommandParameter="3" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
-                             <Button Content=" 4x4 " Command="{Binding SetLayoutCommand}" CommandParameter="4" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#64748B" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 1x1 " Command="{Binding SetLayoutCommand}" CommandParameter="1" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#F2F2F2" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 2x2 " Command="{Binding SetLayoutCommand}" CommandParameter="2" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#F2F2F2" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 3x3 " Command="{Binding SetLayoutCommand}" CommandParameter="3" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#F2F2F2" FontWeight="SemiBold" Margin="2,0"/>
+                             <Button Content=" 4x4 " Command="{Binding SetLayoutCommand}" CommandParameter="4" Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="#F2F2F2" FontWeight="SemiBold" Margin="2,0"/>
                          </StackPanel>
                      </Border>
 
@@ -206,7 +207,6 @@
                                         <DropShadowEffect Color="#E65100" BlurRadius="15" Opacity="0.4" ShadowDepth="0"/>
                                     </Border.Effect>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="PLAY" Foreground="White" FontSize="10" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                         <TextBlock Text="Start All Streams" Foreground="White" FontSize="13" FontWeight="Bold"/>
                                     </StackPanel>
                                 </Border>
@@ -219,6 +219,8 @@
             <!-- CAMERA GRID / EMPTY STATE -->
             <Grid Grid.Row="1" Margin="15,0,15,15">
                 <ItemsControl ItemsSource="{Binding CameraGrid}"
+                               SnapsToDevicePixels="True"
+                               UseLayoutRounding="True"
                                Visibility="{Binding ShowEmptyLiveState, Converter={StaticResource InverseBoolToVisConverter}}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -240,15 +242,9 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- VIDEO LAYER -->
-                                <Grid Grid.Row="0" ClipToBounds="True" Background="#020617"
-                                      MouseEnter="TileRoot_MouseEnter"
-                                      MouseLeave="TileRoot_MouseLeave"
-                                      MouseMove="TileRoot_MouseMove">
+                                <Grid Grid.Row="0" ClipToBounds="True" Background="#020617">
 
-                                    <Grid Visibility="{Binding IsPlaceholder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                          MouseEnter="TileRoot_MouseEnter"
-                                          MouseLeave="TileRoot_MouseLeave"
-                                          MouseMove="TileRoot_MouseMove">
+                                    <Grid Visibility="{Binding IsPlaceholder, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <Grid.Background>
                                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                                 <GradientStop Color="#020617" Offset="0"/>
@@ -274,10 +270,7 @@
                                     </Grid>
 
                                     <Grid x:Name="NoSignalOverlay"
-                                          Visibility="{Binding IsPlaceholder, Converter={StaticResource InverseBoolToVisConverter}}"
-                                          MouseEnter="TileRoot_MouseEnter"
-                                          MouseLeave="TileRoot_MouseLeave"
-                                          MouseMove="TileRoot_MouseMove">
+                                          Visibility="{Binding IsPlaceholder, Converter={StaticResource InverseBoolToVisConverter}}">
                                         <Grid Background="#050816">
                                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.9">
                                                 <Path x:Name="OverlayIcon" Stretch="Uniform" Width="48" Height="48" HorizontalAlignment="Center">
@@ -325,7 +318,7 @@
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Text" Value="OFFLINE"/>
-                                                            <Setter Property="Foreground" Value="#CBD5E1"/>
+                                                            <Setter Property="Foreground" Value="#475569"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IsStreamFailed}" Value="True">
                                                                     <Setter Property="Text" Value="ERROR"/>
@@ -382,10 +375,10 @@
                        PopupAnimation="Fade"
                        PlacementTarget="{Binding ElementName=LiveViewRoot}"
                        IsOpen="False">
-                    <Border Background="#CC050816"
-                            CornerRadius="10"
+                    <Border Background="#E61E1F22"
+                            CornerRadius="12"
                             Padding="10,8"
-                            BorderBrush="#334155"
+                            BorderBrush="#4A4A4F"
                             BorderThickness="1"
                             MouseEnter="TileOverlay_MouseEnter"
                             MouseLeave="TileOverlay_MouseLeave">
@@ -438,29 +431,29 @@
                     </Border>
                 </Popup>
 
-                <Border Background="#F8FBFF"
-                        BorderBrush="#D8E4F0"
+                <Border Background="#2B2B2E"
+                        BorderBrush="#4A4A4F"
                         BorderThickness="1"
                         CornerRadius="18"
                         Visibility="{Binding ShowEmptyLiveState, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Border.Effect>
-                        <DropShadowEffect Color="#0F172A" BlurRadius="16" ShadowDepth="3" Opacity="0.06"/>
+                        <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Opacity="0.2"/>
                     </Border.Effect>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="420">
-                        <Border Width="88" Height="88" CornerRadius="44" Background="#E0F2FE" HorizontalAlignment="Center">
-                            <TextBlock Text="!" FontSize="28" FontWeight="Bold" Foreground="#0284C7"
+                        <Border Width="88" Height="88" CornerRadius="44" Background="#3A3A3D" HorizontalAlignment="Center">
+                            <TextBlock Text="!" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock Text="No live streams running"
                                    Margin="0,18,0,6"
                                    FontSize="24"
                                    FontWeight="Bold"
-                                   Foreground="#1E293B"
+                                   Foreground="#F2F2F2"
                                    HorizontalAlignment="Center"/>
                         <TextBlock Text="Cameras are loaded, but none are currently streaming. Use Sync to refresh statuses or Start All Streams to bring cameras online."
                                    TextAlignment="Center"
                                    TextWrapping="Wrap"
-                                   Foreground="#64748B"
+                                   Foreground="#B8B8BC"
                                    FontSize="13"
                                    Margin="0,0,0,22"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
@@ -486,24 +479,24 @@
 
             <!-- PAGINATION FOOTER -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,15">
-                <Button Command="{Binding PreviousPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Previous Page">
+                <Button Command="{Binding PreviousPageCommand}" Width="32" Height="32" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Previous Page">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="8"/>
                         </Style>
                     </Button.Resources>
-                    <TextBlock Text="&lt;" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    <TextBlock Text="&lt;" FontSize="12" Foreground="#334155" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 </Button>
                 
-                <TextBlock Text="{Binding CurrentPageDisplay}" FontSize="14" FontWeight="SemiBold" Foreground="#1E293B" VerticalAlignment="Center" Margin="20,0"/>
+                <TextBlock Text="{Binding CurrentPageDisplay}" FontSize="14" FontWeight="SemiBold" Foreground="#94A3B8" VerticalAlignment="Center" Margin="16,0"/>
                 
-                <Button Command="{Binding NextPageCommand}" Width="40" Height="40" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Next Page">
+                <Button Command="{Binding NextPageCommand}" Width="32" Height="32" Background="White" BorderThickness="1" BorderBrush="#E2E8F0" Cursor="Hand" ToolTip="Next Page">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="8"/>
                         </Style>
                     </Button.Resources>
-                    <TextBlock Text=">" FontSize="16" Foreground="#64748B" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    <TextBlock Text=">" FontSize="12" Foreground="#334155" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 </Button>
             </StackPanel>
         </Grid>

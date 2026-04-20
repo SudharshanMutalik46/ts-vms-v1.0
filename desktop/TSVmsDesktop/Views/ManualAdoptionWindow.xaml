@@ -3,24 +3,26 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Manual Camera Configuration" Height="400" Width="400"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
-        Background="#F5F7FA">
+        Background="#171717">
     <Border Padding="25">
         <StackPanel>
-            <TextBlock x:Name="TxtTitle" Text="Manual Configuration" FontSize="18" FontWeight="Bold" Foreground="#333" Margin="0,0,0,5"/>
-            <TextBlock Text="ONVIF handshake failed. Enter details manually." FontSize="12" Foreground="#888" Margin="0,0,0,20"/>
+            <TextBlock x:Name="TxtTitle" Text="Manual Configuration" FontSize="18" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,5"/>
+            <TextBlock Text="ONVIF handshake failed. Enter details manually." FontSize="12" Foreground="#B8B8BC" Margin="0,0,0,20"/>
 
-            <TextBlock Text="RTSP URL" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
+            <TextBlock Text="RTSP URL" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
             <TextBox x:Name="TxtUrl" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="rtsp://"/>
 
-            <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
+            <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
             <TextBox x:Name="TxtUsername" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="admin"/>
 
-            <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#555" Margin="0,0,0,5"/>
-            <PasswordBox x:Name="TxtPassword" Height="35" Padding="10,0" FontSize="14" VerticalContentAlignment="Center" BorderBrush="#E0E0E0" BorderThickness="1" Margin="0,0,0,25"/>
+            <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
+            <PasswordBox x:Name="TxtPassword" Height="38" Padding="12,0" FontSize="14" VerticalContentAlignment="Center" 
+                         Background="#2B2B2E" Foreground="#F2F2F2" BorderBrush="#4A4A4F" BorderThickness="1" Margin="0,0,0,25"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Cancel" IsCancel="True" Width="80" Height="35" Margin="0,0,10,0" Background="White" BorderBrush="#DDD" BorderThickness="1" Foreground="#555" Cursor="Hand"/>
-                <Button Content="Save Camera" Click="Save_Click" IsDefault="True" Width="120" Height="35" Style="{StaticResource PillButtonStyle}"/>
+                <Button Content="Cancel" IsCancel="True" Width="90" Height="38" Margin="0,0,12,0" 
+                        Style="{StaticResource OutlineButtonStyle}" Foreground="#B8B8BC" BorderBrush="#4A4A4F" Cursor="Hand"/>
+                <Button Content="Save Camera" Click="Save_Click" IsDefault="True" Width="130" Height="38" Style="{StaticResource PillButtonStyle}"/>
             </StackPanel>
         </StackPanel>
     </Border>

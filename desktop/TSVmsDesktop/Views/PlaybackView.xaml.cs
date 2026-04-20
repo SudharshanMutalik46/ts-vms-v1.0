@@ -16,6 +16,19 @@ namespace TSVmsDesktop.Views
 {
     public partial class PlaybackView : System.Windows.Controls.UserControl
     {
+        public static readonly DependencyProperty IsOwnerWindowActiveProperty =
+            DependencyProperty.Register(
+                nameof(IsOwnerWindowActive),
+                typeof(bool),
+                typeof(PlaybackView),
+                new PropertyMetadata(false));
+
+        public bool IsOwnerWindowActive
+        {
+            get => (bool)GetValue(IsOwnerWindowActiveProperty);
+            private set => SetValue(IsOwnerWindowActiveProperty, value);
+        }
+
         private const double DefaultPlaybackAspect = 16.0 / 9.0;
         private CancellationTokenSource? _hostAttachCts;
         private readonly SemaphoreSlim _layoutSyncGate = new(1, 1);
@@ -23,6 +36,7 @@ namespace TSVmsDesktop.Views
         private bool _suppressCameraSelectionEvents;
         private CancellationTokenSource? _layoutSyncDebounceCts;
         private CancellationTokenSource? _selectionRefreshCts;
+        private Window? _ownerWindow;
 
         private static int GetVisibleTileCount(PlaybackViewModel vm)
             => vm.PlaybackLayoutMode == PlaybackLayoutMode.Quad ? 4 : 1;
@@ -36,6 +50,7 @@ namespace TSVmsDesktop.Views
             Loaded += PlaybackView_Loaded;
             Unloaded += PlaybackView_Unloaded;
             DataContextChanged += PlaybackView_DataContextChanged;
+            IsVisibleChanged += PlaybackView_IsVisibleChanged;
             PlaybackViewport.SizeChanged += PlaybackViewport_SizeChanged;
         }
 
@@ -106,6 +121,9 @@ namespace TSVmsDesktop.Views
 
         private async void PlaybackView_Loaded(object sender, RoutedEventArgs e)
         {
+            AttachOwnerWindowHandlers();
+            UpdateOwnerWindowState();
+
             if (DataContext is not PlaybackViewModel vm)
                 return;
 
@@ -150,9 +168,62 @@ namespace TSVmsDesktop.Views
         {
             _hostAttachCts?.Cancel();
             _hostAttachCts = null;
+            DetachOwnerWindowHandlers();
+            IsOwnerWindowActive = false;
+
+            // Popup creates its own HWND and can otherwise linger visually if the view is removed.
+            if (PlaybackOverlayPopup != null)
+                PlaybackOverlayPopup.IsOpen = false;
 
             if (DataContext is PlaybackViewModel vm)
                 await vm.DeactivateAsync();
+        }
+
+        private void PlaybackView_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            UpdateOwnerWindowState();
+            if (!(e.NewValue is bool isVisible) || !isVisible)
+            {
+                if (PlaybackOverlayPopup != null)
+                    PlaybackOverlayPopup.IsOpen = false;
+            }
+        }
+
+        private void AttachOwnerWindowHandlers()
+        {
+            var window = Window.GetWindow(this);
+            if (window == null || ReferenceEquals(window, _ownerWindow))
+                return;
+
+            DetachOwnerWindowHandlers();
+            _ownerWindow = window;
+            _ownerWindow.Activated += OwnerWindow_ActivationChanged;
+            _ownerWindow.Deactivated += OwnerWindow_ActivationChanged;
+            _ownerWindow.StateChanged += OwnerWindow_ActivationChanged;
+        }
+
+        private void DetachOwnerWindowHandlers()
+        {
+            if (_ownerWindow == null)
+                return;
+
+            _ownerWindow.Activated -= OwnerWindow_ActivationChanged;
+            _ownerWindow.Deactivated -= OwnerWindow_ActivationChanged;
+            _ownerWindow.StateChanged -= OwnerWindow_ActivationChanged;
+            _ownerWindow = null;
+        }
+
+        private void OwnerWindow_ActivationChanged(object? sender, EventArgs e)
+        {
+            UpdateOwnerWindowState();
+            if (!IsOwnerWindowActive && PlaybackOverlayPopup != null)
+                PlaybackOverlayPopup.IsOpen = false;
+        }
+
+        private void UpdateOwnerWindowState()
+        {
+            var window = _ownerWindow ?? Window.GetWindow(this);
+            IsOwnerWindowActive = window?.IsActive == true && IsVisible && IsLoaded;
         }
 
         private void PlaybackTimelineHost_OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -263,8 +334,15 @@ namespace TSVmsDesktop.Views
             {
                 await SchedulePlaybackHostLayoutSyncAsync();
             }
-            else if (e.PropertyName == nameof(PlaybackViewModel.SelectedPlaybackCount) ||
-                     e.PropertyName == nameof(PlaybackViewModel.PlaybackLayoutMode))
+            else if (e.PropertyName == nameof(PlaybackViewModel.SelectedPlaybackCount))
+            {
+                // Selection-count changes happen during checkbox interactions.
+                // Do not trigger heavy reload/layout pipelines here, otherwise
+                // we race with the main selection load and cancel it repeatedly.
+                ApplyPlaybackTileLayout(vm);
+                SyncCameraSelectionFromViewModel(vm);
+            }
+            else if (e.PropertyName == nameof(PlaybackViewModel.PlaybackLayoutMode))
             {
                 ApplyPlaybackTileLayout(vm);
                 SyncCameraSelectionFromViewModel(vm);
@@ -499,7 +577,7 @@ namespace TSVmsDesktop.Views
             // Runtime resizing disabled by request.
         }
 
-        private async void PlaybackCameraCheckBox_Changed(object sender, RoutedEventArgs e)
+        private async void PlaybackCameraCheckBox_Click(object sender, RoutedEventArgs e)
         {
             if (_suppressCameraSelectionEvents || DataContext is not PlaybackViewModel vm)
                 return;
@@ -509,7 +587,7 @@ namespace TSVmsDesktop.Views
                 changedChoice.Camera == null)
                 return;
 
-            bool isNowChecked = changedChoice.IsSelected;
+            bool isNowChecked = checkBox.IsChecked == true;
 
             if (isNowChecked && vm.SelectedPlaybackCount >= 4)
             {
@@ -518,7 +596,17 @@ namespace TSVmsDesktop.Views
 
                 if (!alreadySelected)
                 {
-                    changedChoice.IsSelected = false;
+                    _suppressCameraSelectionEvents = true;
+                    try
+                    {
+                        // Revert the UI click cleanly without re-entering this handler.
+                        checkBox.IsChecked = false;
+                        changedChoice.IsSelected = false;
+                    }
+                    finally
+                    {
+                        _suppressCameraSelectionEvents = false;
+                    }
                     return;
                 }
             }

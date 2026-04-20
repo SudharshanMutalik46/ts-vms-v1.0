@@ -1,27 +1,27 @@
 <UserControl x:Class="TSVmsDesktop.Views.NvrDetailsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Margin="20" Background="#F8F9FA">
+    <Grid Margin="20" Background="#171717">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Command="{Binding CloseCommand}" Content="← Back" Margin="0,0,20,0" Background="Transparent" BorderThickness="0" Foreground="#555" FontSize="16" FontWeight="Bold"/>
-            <TextBlock Text="{Binding Nvr.Name, StringFormat='NVR: {0}'}" FontSize="24" FontWeight="Bold" Foreground="#333"/>
+            <Button Command="{Binding CloseCommand}" Content="← Back" Margin="0,0,20,0" Background="Transparent" BorderThickness="0" Foreground="#F2F2F2" FontSize="16" FontWeight="Bold"/>
+            <TextBlock Text="{Binding Nvr.Name, StringFormat='NVR: {0}'}" FontSize="24" FontWeight="Bold" Foreground="#F2F2F2"/>
         </StackPanel>
 
         <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
             <TabItem Header="Configuration">
                 <StackPanel Margin="0,20,0,0" Width="500" HorizontalAlignment="Left">
-                    <TextBlock Text="Name" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.Name}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
-                    <TextBlock Text="IP Address" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.IpAddress}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
-                    <TextBlock Text="Adapter Type" Margin="0,0,0,5"/>
+                    <TextBlock Text="Name" Foreground="#B8B8BC" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.Name}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
+                    <TextBlock Text="IP Address" Foreground="#B8B8BC" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.IpAddress}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
+                    <TextBlock Text="Adapter Type" Foreground="#B8B8BC" Margin="0,0,0,5"/>
                     <ComboBox ItemsSource="{Binding AdapterTypes}" SelectedItem="{Binding Nvr.AdapterType}" Height="40" Style="{StaticResource ModernComboBox}" Margin="0,0,0,15"/>
                     
-                    <TextBlock Text="Username" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.Username}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
-                    <TextBlock Text="Password (Update)" Margin="0,0,0,5"/><TextBox Text="{Binding CredentialPassword}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,20"/>
+                    <TextBlock Text="Username" Foreground="#B8B8BC" Margin="0,0,0,5"/><TextBox Text="{Binding Nvr.Username}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15"/>
+                    <TextBlock Text="Password (Update)" Foreground="#B8B8BC" Margin="0,0,0,5"/><TextBox Text="{Binding CredentialPassword}" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,20"/>
 
                     <Button Command="{Binding SaveConfigCommand}" Content="Save Configuration" Style="{StaticResource PillButtonStyle}" Width="160" Height="40" HorizontalAlignment="Left"/>
                 </StackPanel>
@@ -32,12 +32,14 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
-                        <Button Command="{Binding TestConnectionCommand}" Content="1. Test Connection" Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#999" Height="35" Width="140"/>
+                        <Button Command="{Binding TestConnectionCommand}" Content="1. Test Connection" Style="{StaticResource OutlineButtonStyle}" Foreground="#F2F2F2" BorderBrush="#4A4A4F" Height="35" Width="140"/>
                         <Button Command="{Binding DiscoverChannelsCommand}" Content="2. Discover Channels" Margin="10,0,0,0" Style="{StaticResource PillButtonStyle}" Width="150" Height="35"/>
-                        <TextBlock Text="{Binding DiscoveryStatus}" VerticalAlignment="Center" Margin="20,0,0,0" FontWeight="Bold" Foreground="#2196F3"/>
+                        <TextBlock Text="{Binding DiscoveryStatus}" VerticalAlignment="Center" Margin="20,0,0,0" FontWeight="Bold" Foreground="#31C776"/>
                     </StackPanel>
 
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding Channels}" AutoGenerateColumns="False" Background="White" HeadersVisibility="Column">
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Channels}" AutoGenerateColumns="False" 
+                              Background="#29292D" RowBackground="#29292D" AlternatingRowBackground="#303034"
+                              Foreground="#F2F2F2" HeadersVisibility="Column" BorderThickness="0">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Width="50">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -52,15 +54,17 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <Button Grid.Row="2" Command="{Binding ProvisionSelectedCommand}" Content="3. Provision Selected Cameras" Margin="0,15,0,0" Style="{StaticResource PillButtonStyle}" Background="#2E7D32" Width="220" Height="40" HorizontalAlignment="Right"/>
+                    <Button Grid.Row="2" Command="{Binding ProvisionSelectedCommand}" Content="3. Provision Selected Cameras" Margin="0,15,0,0" Style="{StaticResource PillButtonStyle}" Background="#31C776" Width="220" Height="40" HorizontalAlignment="Right"/>
                 </Grid>
             </TabItem>
             
             <TabItem Header="Events">
                  <Grid Margin="0,20,0,0">
                      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                     <Button Command="{Binding LoadEventsCommand}" Content="Refresh Events" HorizontalAlignment="Left" Style="{StaticResource OutlineButtonStyle}" Foreground="#555" BorderBrush="#999" Height="30"/>
-                     <DataGrid Grid.Row="1" ItemsSource="{Binding Events}" AutoGenerateColumns="False" Margin="0,10,0,0" Background="White">
+                     <Button Command="{Binding LoadEventsCommand}" Content="Refresh Events" HorizontalAlignment="Left" Style="{StaticResource OutlineButtonStyle}" Foreground="#F2F2F2" BorderBrush="#4A4A4F" Height="30"/>
+                     <DataGrid Grid.Row="1" ItemsSource="{Binding Events}" AutoGenerateColumns="False" Margin="0,10,0,0" 
+                               Background="#29292D" RowBackground="#29292D" AlternatingRowBackground="#303034"
+                               Foreground="#F2F2F2" BorderThickness="0">
                          <DataGrid.Columns>
                              <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="150"/>
                              <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="100"/>
