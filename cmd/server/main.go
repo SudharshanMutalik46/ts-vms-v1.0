@@ -589,6 +589,7 @@ func main() {
 		_, _ = io.Copy(w, resp.Body)
 	})))
 	mux.Handle("GET /api/v1/recording/cameras/{id}/segments", Protect(http.HandlerFunc(recordingAPI.HandleGetSegments)))
+	mux.Handle("GET /api/v1/recording/cameras-with-recordings", Protect(http.HandlerFunc(recordingAPI.HandleGetRecordedCameras)))
 	mux.Handle("POST /api/v1/recording/events", Protect(http.HandlerFunc(recordingAPI.HandleCreateEvent)))
 	mux.Handle("POST /api/v1/recording/link-segment", Protect(http.HandlerFunc(recordingAPI.HandleLinkSegment)))
 

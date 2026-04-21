@@ -109,6 +109,43 @@ func (api *RecordingAPI) HandleGetSegments(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(segments)
 }
 
+func (api *RecordingAPI) HandleGetRecordedCameras(w http.ResponseWriter, r *http.Request) {
+	if !checkAnyRBAC(r, "recording.view", "video.view") {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	ac, ok := middleware.GetAuthContext(r.Context())
+	if !ok || ac == nil || ac.TenantID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+	from, _ := time.Parse(time.RFC3339, fromStr)
+	to, _ := time.Parse(time.RFC3339, toStr)
+
+	if from.IsZero() {
+		from = time.Now().Add(-24 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+
+	log.Printf("[recording.cameras_with_recordings] tenant=%s from=%s to=%s", ac.TenantID, from.Format(time.RFC3339), to.Format(time.RFC3339))
+	cameras, err := api.DB.GetRecordedCameras(r.Context(), ac.TenantID, from, to)
+	if err != nil {
+		log.Printf("[recording.cameras_with_recordings] error tenant=%s err=%v", ac.TenantID, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("[recording.cameras_with_recordings] count=%d tenant=%s", len(cameras), ac.TenantID)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cameras)
+}
+
 func (api *RecordingAPI) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if !checkRBAC(r, "recording.manage") {
 		http.Error(w, "Forbidden", http.StatusForbidden)

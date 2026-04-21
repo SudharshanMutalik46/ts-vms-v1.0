@@ -84,6 +84,7 @@
             <Setter Property="Foreground" Value="#F8FBFF"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template" Value="{StaticResource TopNavButtonTemplate}"/>
             <Setter Property="ContentTemplate" Value="{StaticResource SidebarCompactIconTemplate}"/>
@@ -276,9 +277,9 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <Image Source="/Images/operator-logo.png"
-                           Width="188"
-                           Height="56"
+                    <Image Source="/Images/techno_support_logo_white_match_size_699x351.png"
+                           Width="228"
+                           Height="58"
                            Stretch="Uniform"
                            VerticalAlignment="Center"
                            RenderOptions.BitmapScalingMode="HighQuality"/>

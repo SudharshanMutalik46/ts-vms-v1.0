@@ -152,6 +152,93 @@ func (s *PostgresStore) GetSegments(ctx context.Context, cameraID string, from, 
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) GetRecordedCameras(ctx context.Context, tenantID string, from, to time.Time) ([]RecordedCamera, error) {
+	if !s.Available() {
+		return nil, ErrDBUnavailable
+	}
+
+	queryWithTenant := `
+		SELECT DISTINCT
+			rs.camera_id,
+			COALESCE(NULLIF(c.name, ''), 'Deleted Camera (' || LEFT(rs.camera_id, 8) || ')') AS camera_name,
+			COALESCE(c.ip_address::text, '') AS ip_address,
+			COALESCE(c.model, '') AS model,
+			(c.deleted_at IS NOT NULL OR c.id IS NULL) AS is_deleted
+		FROM recording_segments rs
+		LEFT JOIN cameras c
+			ON c.id::text = rs.camera_id
+		   AND c.tenant_id::text = $1
+		WHERE rs.tenant_id = $1
+		  AND rs.end_ts > $2
+		  AND rs.start_ts < $3
+		  AND COALESCE(rs.is_finalized, TRUE) = TRUE
+		  AND COALESCE(rs.is_missing_on_disk, FALSE) = FALSE
+		  AND COALESCE(rs.is_corrupt, FALSE) = FALSE
+		ORDER BY camera_name ASC
+	`
+
+	rows, err := s.DB.QueryContext(ctx, queryWithTenant, tenantID, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]RecordedCamera, 0, 16)
+	for rows.Next() {
+		var cam RecordedCamera
+		if err := rows.Scan(&cam.CameraID, &cam.CameraName, &cam.IPAddress, &cam.Model, &cam.IsDeleted); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, cam)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	// Fallback: some legacy segments may have a tenant value that no longer matches
+	// the current auth tenant. If strict query is empty, show cameras that still have
+	// finalized segments in the requested window.
+	if len(out) > 0 {
+		return out, nil
+	}
+
+	queryFallback := `
+		SELECT DISTINCT
+			rs.camera_id,
+			COALESCE(NULLIF(c.name, ''), 'Deleted Camera (' || LEFT(rs.camera_id, 8) || ')') AS camera_name,
+			COALESCE(c.ip_address::text, '') AS ip_address,
+			COALESCE(c.model, '') AS model,
+			(c.deleted_at IS NOT NULL OR c.id IS NULL) AS is_deleted
+		FROM recording_segments rs
+		LEFT JOIN cameras c
+			ON c.id::text = rs.camera_id
+		WHERE rs.end_ts > $1
+		  AND rs.start_ts < $2
+		  AND COALESCE(rs.is_finalized, TRUE) = TRUE
+		  AND COALESCE(rs.is_missing_on_disk, FALSE) = FALSE
+		  AND COALESCE(rs.is_corrupt, FALSE) = FALSE
+		ORDER BY camera_name ASC
+	`
+	rows, err = s.DB.QueryContext(ctx, queryFallback, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out = out[:0]
+	for rows.Next() {
+		var cam RecordedCamera
+		if err := rows.Scan(&cam.CameraID, &cam.CameraName, &cam.IPAddress, &cam.Model, &cam.IsDeleted); err != nil {
+			return nil, err
+		}
+		out = append(out, cam)
+	}
+
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) GetLatestSegmentEnd(ctx context.Context, cameraID string) (time.Time, error) {
 	if !s.Available() {
 		return time.Time{}, ErrDBUnavailable

@@ -91,6 +91,7 @@ namespace TSVmsDesktop.ViewModels
         public bool RtspRetriedWithTcp { get; set; } = false;
         public bool RtspRetriedWithUdp { get; set; } = false;
         public bool RtspRetriedWithoutQuery { get; set; } = false;
+        public bool RtspRetriedWithRealSt { get; set; } = false;
         public string SessionId { get; set; } = "";
         public StreamTier PreferredPrimaryTier { get; set; } = StreamTier.Rtsp;
         public StreamTier PreferredFallbackTier { get; set; } = StreamTier.Rtsp;
@@ -523,9 +524,21 @@ namespace TSVmsDesktop.ViewModels
         {
             if (cam == null) return "";
             string url = "";
+            string mainCandidate = "";
 
             if (_manualRtspOverrides.TryGetValue(cam.Id, out var manualSub) && !string.IsNullOrWhiteSpace(manualSub.Sub))
-                return InjectCredentialsIfMissing(System.Net.WebUtility.HtmlDecode(manualSub.Sub), username, password);
+            {
+                string manualSubUrl = NormalizeRuntimeRtspUrl(manualSub.Sub);
+                string manualMainUrl = NormalizeRuntimeRtspUrl(manualSub.Main);
+
+                if (string.IsNullOrWhiteSpace(manualMainUrl))
+                    manualMainUrl = TryDeriveMainFromFragileSub(manualSubUrl);
+
+                if (ShouldStartWithMainForStability(manualSubUrl, manualMainUrl))
+                    return InjectCredentialsIfMissing(manualMainUrl, username, password);
+
+                return InjectCredentialsIfMissing(manualSubUrl, username, password);
+            }
 
             var info = await GetMediaInfoCachedAsync(cam.Id);
 
@@ -533,11 +546,24 @@ namespace TSVmsDesktop.ViewModels
             else if (!string.IsNullOrWhiteSpace(info?.Selection?.MainRtsp)) url = info.Selection.MainRtsp;
             else if (!string.IsNullOrWhiteSpace(cam.RtspUrl)) url = cam.RtspUrl;
 
+            if (!string.IsNullOrWhiteSpace(info?.Selection?.MainRtsp))
+                mainCandidate = info!.Selection!.MainRtsp;
+            else if (!string.IsNullOrWhiteSpace(cam.RtspUrl))
+                mainCandidate = cam.RtspUrl;
+
             if (string.IsNullOrWhiteSpace(url))
                 url = cam.EffectiveRtspUrl;
 
-            // Unescape XML entities like &amp; commonly returned by ONVIF
-            url = System.Net.WebUtility.HtmlDecode(url ?? "");
+            // Unescape XML entities and sanitize known unstable query suffixes.
+            url = NormalizeRuntimeRtspUrl(url ?? "");
+            mainCandidate = NormalizeRuntimeRtspUrl(mainCandidate ?? "");
+            if (string.IsNullOrWhiteSpace(mainCandidate))
+                mainCandidate = TryDeriveMainFromFragileSub(url);
+
+            if (ShouldStartWithMainForStability(url, mainCandidate))
+            {
+                return InjectCredentialsIfMissing(mainCandidate, username, password);
+            }
 
             return InjectCredentialsIfMissing(url, username, password);
         }
@@ -548,7 +574,7 @@ namespace TSVmsDesktop.ViewModels
             string url = "";
 
             if (_manualRtspOverrides.TryGetValue(cam.Id, out var manualMain) && !string.IsNullOrWhiteSpace(manualMain.Main))
-                return InjectCredentialsIfMissing(System.Net.WebUtility.HtmlDecode(manualMain.Main), username, password);
+                return InjectCredentialsIfMissing(NormalizeRuntimeRtspUrl(manualMain.Main), username, password);
 
             var info = await GetMediaInfoCachedAsync(cam.Id);
 
@@ -559,8 +585,10 @@ namespace TSVmsDesktop.ViewModels
             if (string.IsNullOrWhiteSpace(url))
                 url = cam.EffectiveRtspUrl;
 
-            // Unescape XML entities
-            url = System.Net.WebUtility.HtmlDecode(url ?? "");
+            // Unescape XML entities and sanitize known unstable query suffixes.
+            url = NormalizeRuntimeRtspUrl(url ?? "");
+            if (string.IsNullOrWhiteSpace(url))
+                url = TryDeriveMainFromFragileSub(cam.EffectiveRtspUrl);
 
             return InjectCredentialsIfMissing(url, username, password);
         }
@@ -612,11 +640,13 @@ namespace TSVmsDesktop.ViewModels
                 slot.RtspRetriedWithTcp ||
                 slot.RtspRetriedWithUdp ||
                 slot.RtspRetriedWithoutQuery ||
+                slot.RtspRetriedWithRealSt ||
                 slot.RtspRetriedWithMain;
 
             bool priorRetryWithTcp = slot.RtspRetriedWithTcp;
             bool priorRetryWithUdp = slot.RtspRetriedWithUdp;
             bool priorRetryWithoutQuery = slot.RtspRetriedWithoutQuery;
+            bool priorRetryWithRealSt = slot.RtspRetriedWithRealSt;
             bool priorRetryWithMain = slot.RtspRetriedWithMain;
 
             if (string.IsNullOrWhiteSpace(cam.Username))
@@ -637,6 +667,7 @@ namespace TSVmsDesktop.ViewModels
                 slot.RtspRetriedWithTcp = false;
                 slot.RtspRetriedWithUdp = false;
                 slot.RtspRetriedWithoutQuery = false;
+                slot.RtspRetriedWithRealSt = false;
                 slot.RtspRetriedWithMain = false;
                 // Keep the learned transport across refreshes so a successful
                 // transport recovery is not immediately undone by a reconnect.
@@ -648,18 +679,39 @@ namespace TSVmsDesktop.ViewModels
                 slot.RtspRetriedWithTcp = priorRetryWithTcp;
                 slot.RtspRetriedWithUdp = priorRetryWithUdp;
                 slot.RtspRetriedWithoutQuery = priorRetryWithoutQuery;
+                slot.RtspRetriedWithRealSt = priorRetryWithRealSt;
                 slot.RtspRetriedWithMain = priorRetryWithMain;
                 slot.RtspTransport = "tcp";
             }
             InvalidateStreamCaches(cam.Id);
 
             string resolvedMain = await ResolvePreferredMainUrlAsync(cam, slot.Username, slot.Password);
+            if (slot.RtspRetriedWithoutQuery)
+            {
+                resolvedMain = StripRtspQuery(resolvedMain);
+            }
             slot.MainRtspUrl = resolvedMain;
 
             string resolvedSub = await ResolvePreferredSubUrlAsync(cam, slot.Username, slot.Password);
-            slot.RtspUrl = slot.RtspRetriedWithMain && !string.IsNullOrWhiteSpace(resolvedMain)
-                ? resolvedMain
-                : resolvedSub;
+            if (slot.RtspRetriedWithoutQuery)
+            {
+                resolvedSub = StripRtspQuery(resolvedSub);
+            }
+
+            bool preferMainNow =
+                (slot.RtspRetriedWithMain && !string.IsNullOrWhiteSpace(resolvedMain)) ||
+                ShouldStartWithMainForStability(resolvedSub, resolvedMain);
+
+            if (preferMainNow && !string.IsNullOrWhiteSpace(resolvedMain))
+            {
+                slot.RtspRetriedWithMain = true;
+                slot.RtspUrl = resolvedMain;
+                VideoService.Log($"[TS-VMS] Startup stability rule: using main stream for {slot.CameraName} ({slot.RtspUrl}).");
+            }
+            else
+            {
+                slot.RtspUrl = resolvedSub;
+            }
             slot.PreferredCodec = await ResolvePreferredCodecAsync(cam);
             slot.WebRtcCodecPreference = ResolveWebRtcCodec(slot.PreferredCodec);
             slot.PreferredFallbackTier = StreamTier.Rtsp;
@@ -1292,6 +1344,65 @@ namespace TSVmsDesktop.ViewModels
             return idx >= 0 ? url[..idx] : url;
         }
 
+        private static string NormalizeRuntimeRtspUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string normalized = System.Net.WebUtility.HtmlDecode(url.Trim());
+            int queryIndex = normalized.IndexOf('?');
+            if (queryIndex < 0) return normalized;
+
+            string query = normalized[(queryIndex + 1)..];
+            // Known unstable Dahua-style suffix observed causing startup black/freeze.
+            if (query.Contains("real_st", StringComparison.OrdinalIgnoreCase))
+            {
+                return normalized[..queryIndex];
+            }
+
+            return normalized;
+        }
+
+        private static string EnsureRtspRealStSuffix(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string trimmed = url.Trim();
+            if (trimmed.Contains("real_st", StringComparison.OrdinalIgnoreCase))
+                return trimmed;
+            return trimmed.Contains('?') ? $"{trimmed}&real_st" : $"{trimmed}?real_st";
+        }
+
+        private static bool ShouldStartWithMainForStability(string subUrl, string mainUrl)
+        {
+            if (string.IsNullOrWhiteSpace(subUrl) || string.IsNullOrWhiteSpace(mainUrl))
+                return false;
+
+            if (string.Equals(subUrl, mainUrl, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string s = subUrl.ToLowerInvariant();
+
+            // Some ONVIF camera variants expose a fragile sub-stream path that
+            // repeatedly stalls right after startup. Prefer main stream directly
+            // to avoid black/frozen first load.
+            bool fragilePattern =
+                (s.Contains("channel=1_stream=1") && s.Contains("onvif=0.sdp")) ||
+                (s.Contains("stream=1") && s.Contains("onvif=0.sdp"));
+
+            return fragilePattern;
+        }
+
+        private static string TryDeriveMainFromFragileSub(string subUrl)
+        {
+            if (string.IsNullOrWhiteSpace(subUrl))
+                return "";
+
+            string s = subUrl;
+            string updated = s;
+            updated = updated.Replace("channel=1_stream=1", "channel=1_stream=0", StringComparison.OrdinalIgnoreCase);
+            updated = updated.Replace("stream=1", "stream=0", StringComparison.OrdinalIgnoreCase);
+
+            return string.Equals(updated, s, StringComparison.OrdinalIgnoreCase) ? "" : updated;
+        }
+
         private void OnStreamError(IntPtr windowHandle, string message)
         {
             if (IsFullScreen &&
@@ -1411,6 +1522,24 @@ namespace TSVmsDesktop.ViewModels
                         VideoService.Log($"[TS-VMS] RTSP query-string fallback for {slot.CameraName}; retrying with '{queryless}'.");
                         slot.RtspRetriedWithoutQuery = true;
                         slot.RtspUrl = queryless;
+                        if (!string.IsNullOrWhiteSpace(slot.MainRtspUrl))
+                            slot.MainRtspUrl = StripRtspQuery(slot.MainRtspUrl);
+
+                        _manualRtspOverrides[slot.Id] = (
+                            StripRtspQuery(slot.MainRtspUrl),
+                            StripRtspQuery(slot.RtspUrl));
+                    }
+                }
+
+                if (isStall && !slot.RtspRetriedWithRealSt)
+                {
+                    string withRealSt = EnsureRtspRealStSuffix(slot.RtspUrl);
+                    if (!string.IsNullOrWhiteSpace(withRealSt) &&
+                        !string.Equals(withRealSt, slot.RtspUrl, StringComparison.OrdinalIgnoreCase))
+                    {
+                        VideoService.Log($"[TS-VMS] RTSP stall fallback for {slot.CameraName}; retrying with '{withRealSt}'.");
+                        slot.RtspRetriedWithRealSt = true;
+                        slot.RtspUrl = withRealSt;
                     }
                 }
 

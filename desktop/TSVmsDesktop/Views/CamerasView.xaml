@@ -71,24 +71,24 @@
                 <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="3" Opacity="0.08"/>
             </Border.Effect>
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <StackPanel>
+                <StackPanel Grid.Row="0" Margin="0,0,0,12">
                     <TextBlock Text="Inventory" FontSize="28" FontWeight="Bold" Foreground="#F2F2F2"/>
                     <TextBlock Text="Manage camera sources, enable or disable selected items, and open discovery from one place."
                                FontSize="12" Foreground="#B8B8BC" Margin="0,4,0,0"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <WrapPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center" ItemHeight="40">
                     <Button Command="{Binding AddCameraCommand}" Content="+ Add Camera" Style="{StaticResource InventoryPrimaryButtonStyle}" Margin="0,0,10,0"/>
                     <Button Command="{Binding OpenDiscoveryCommand}" Content="Discover" Style="{StaticResource InventoryPrimaryButtonStyle}" Background="#2196F3" Margin="0,0,10,0"/>
                     <Button Command="{Binding EnableSelectedCommand}" Content="Enable" Style="{StaticResource InventorySecondaryButtonStyle}" Margin="0,0,10,0" Foreground="#2E7D32" BorderBrush="#2E7D32"/>
                     <Button Command="{Binding DisableSelectedCommand}" Content="Disable" Style="{StaticResource InventorySecondaryButtonStyle}" Margin="0,0,10,0" Foreground="#C62828" BorderBrush="#C62828"/>
                     <Button Command="{Binding RefreshListCommand}" Content="Refresh" Style="{StaticResource InventorySecondaryButtonStyle}"/>
-                </StackPanel>
+                </WrapPanel>
             </Grid>
         </Border>
 
@@ -102,7 +102,13 @@
                       CanUserAddRows="False"
                       SelectionMode="Extended"
                       RowHeight="50"
-                      Background="White"
+                      Background="#2B2B2E"
+                      Foreground="#F2F2F2"
+                      HorizontalGridLinesBrush="#3A3A3D"
+                      VerticalGridLinesBrush="#3A3A3D"
+                      RowBackground="#2B2B2E"
+                      AlternatingRowBackground="#323236"
+                      HeadersVisibility="Column"
                       BorderThickness="0"
                       AlternationCount="2">
                 <DataGrid.Resources>
@@ -206,7 +212,7 @@
                                             Foreground="#B91C1C"
                                             BorderBrush="#FECACA"
                                             Height="32"
-                                            Width="40"
+                                            Width="82"
                                             Padding="0"
                                             ToolTip="Delete Camera">
                                         <Button.Template>

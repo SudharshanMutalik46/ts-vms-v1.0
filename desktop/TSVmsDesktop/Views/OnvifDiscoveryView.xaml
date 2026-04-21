@@ -7,6 +7,43 @@
              d:DesignHeight="600" d:DesignWidth="800">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="AdoptButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="110"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Background" Value="#2F8F4E"/>
+            <Setter Property="BorderBrush" Value="#46B96A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                CornerRadius="16"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#39A85A"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#60CC83"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#2A7F45"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Background" Value="#3B3B3F"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#58585E"/>
+                                <Setter Property="Foreground" Value="#9DA0A8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid Margin="20" Background="#171717">
@@ -15,23 +52,21 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        
-        <!-- Header -->
+
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
-            <Button Command="{Binding CloseCommand}" Content="← Back" Margin="0,0,20,0" 
-                    Background="Transparent" BorderThickness="0" Foreground="#F2F2F2" 
+            <Button Command="{Binding CloseCommand}" Content="&#x2190; Back" Margin="0,0,20,0"
+                    Background="Transparent" BorderThickness="0" Foreground="#F2F2F2"
                     FontSize="16" FontWeight="Bold" Cursor="Hand"/>
             <TextBlock Text="ONVIF Discovery" FontSize="26" FontWeight="Bold" Foreground="#F2F2F2" VerticalAlignment="Center"/>
         </StackPanel>
 
-        <!-- Control Panel -->
         <Border Grid.Row="1" Background="#2B2B2E" BorderBrush="#4A4A4F" BorderThickness="1" Padding="20" CornerRadius="12" Margin="0,0,0,20">
             <Border.Effect>
-                <DropShadowEffect Color="#EEE" BlurRadius="10" ShadowDepth="2" Opacity="0.5"/>
+                <DropShadowEffect Color="#111827" BlurRadius="10" ShadowDepth="2" Opacity="0.22"/>
             </Border.Effect>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Command="{Binding StartScanCommand}" Content="Start Scan" Width="150" Height="40" Style="{StaticResource PillButtonStyle}" IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
-                
+
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
                     <TextBlock Text="{Binding DiscoveryStatus}" FontWeight="SemiBold" Foreground="#B8B8BC" VerticalAlignment="Center"/>
                     <ProgressBar IsIndeterminate="True" Width="100" Height="4" Margin="10,0,0,0" Foreground="{StaticResource TechnoOrange}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}"/>
@@ -39,14 +74,14 @@
             </StackPanel>
         </Border>
 
-        <!-- Results List -->
-        <DataGrid Grid.Row="2" ItemsSource="{Binding Devices}" AutoGenerateColumns="False" 
+        <DataGrid Grid.Row="2" ItemsSource="{Binding Devices}" AutoGenerateColumns="False"
                   Background="#29292D" RowBackground="#29292D" AlternatingRowBackground="#303034"
                   Foreground="#F2F2F2" BorderThickness="0" HeadersVisibility="Column" RowHeight="50"
                   GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3A3A3D"
-                  IsReadOnly="True">
+                  IsReadOnly="True"
+                  HorizontalScrollBarVisibility="Auto">
             <DataGrid.Resources>
-                 <Style TargetType="DataGridColumnHeader">
+                <Style TargetType="DataGridColumnHeader">
                     <Setter Property="Background" Value="#3A3A3D"/>
                     <Setter Property="Foreground" Value="#F2F2F2"/>
                     <Setter Property="Padding" Value="10,0"/>
@@ -55,22 +90,48 @@
                     <Setter Property="BorderThickness" Value="0,0,0,1"/>
                     <Setter Property="BorderBrush" Value="#4A4A4F"/>
                 </Style>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="{Binding RelativeSource={RelativeSource AncestorType=DataGrid}, Path=RowBackground}"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="#364152"/>
+                            <Setter Property="Foreground" Value="#F8FAFC"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#353A44"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
             </DataGrid.Resources>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="120"/>
-                <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="120"/>
-                <DataGridTextColumn Header="IP Address" Binding="{Binding IpAddress}" Width="120"/>
-                <DataGridTextColumn Header="Codec" Binding="{Binding EncodingDisplay}" Width="80"/>
+                <DataGridTextColumn Header="Name" Binding="{Binding CameraNameDisplay}" Width="170"/>
+                <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="140"/>
+                <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="140"/>
+                <DataGridTextColumn Header="IP Address" Binding="{Binding IpAddress}" Width="140"/>
+                <DataGridTextColumn Header="RTSP URL" Binding="{Binding RtspDisplay}" Width="220"/>
+                <DataGridTextColumn Header="Codec" Binding="{Binding EncodingDisplay}" Width="90"/>
+                <DataGridTextColumn Header="Audio" Binding="{Binding AudioDisplay}" Width="80"/>
+                <DataGridTextColumn Header="PTZ" Binding="{Binding PtzDisplay}" Width="70"/>
                 <DataGridTextColumn Header="Resolution" Binding="{Binding ResolutionDisplay}" Width="100"/>
-                <DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateDisplay}" Width="80"/>
+                <DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateDisplay}" Width="90"/>
                 <DataGridTemplateColumn Header="Action" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                             <Button Content="Adopt" Command="{Binding DataContext.AdoptDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
-                                     CommandParameter="{Binding}" 
-                                     Width="100" Height="30" Style="{StaticResource OutlineButtonStyle}" 
-                                     Foreground="{StaticResource OnlineBrush}"
-                                     IsEnabled="{Binding IsClaimed, Converter={StaticResource InverseBoolConverter}}"/>
+                            <Button Content="Adopt" Command="{Binding DataContext.AdoptDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    Style="{StaticResource AdoptButtonStyle}"
+                                    IsEnabled="{Binding IsClaimed, Converter={StaticResource InverseBoolConverter}}"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

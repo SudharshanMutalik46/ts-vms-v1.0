@@ -1,29 +1,36 @@
 <Window x:Class="TSVmsDesktop.Views.ManualAdoptionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Manual Camera Configuration" Height="400" Width="400"
+        Title="Manual Camera Configuration" Height="430" Width="430"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        WindowStyle="SingleBorderWindow"
         Background="#171717">
-    <Border Padding="25">
-        <StackPanel>
-            <TextBlock x:Name="TxtTitle" Text="Manual Configuration" FontSize="18" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,5"/>
-            <TextBlock Text="ONVIF handshake failed. Enter details manually." FontSize="12" Foreground="#B8B8BC" Margin="0,0,0,20"/>
+    <Border Padding="18">
+        <Border Background="#2B2B2E" CornerRadius="18" Padding="20" BorderBrush="#4A4A4F" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect Color="#000000" BlurRadius="18" ShadowDepth="3" Opacity="0.25"/>
+            </Border.Effect>
 
-            <TextBlock Text="RTSP URL" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
-            <TextBox x:Name="TxtUrl" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="rtsp://"/>
+            <StackPanel>
+                <TextBlock x:Name="TxtTitle" Text="Manual Configuration" FontSize="22" FontWeight="Bold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
+                <TextBlock Text="ONVIF handshake failed. Enter RTSP details manually." FontSize="12" Foreground="#B8B8BC" Margin="0,0,0,16"/>
 
-            <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
-            <TextBox x:Name="TxtUsername" Height="35" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,15" Text="admin"/>
+                <TextBlock Text="RTSP URL" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
+                <TextBox x:Name="TxtUrl" Height="40" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,12" Text="rtsp://"/>
 
-            <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#B8B8BC" Margin="0,0,0,5"/>
-            <PasswordBox x:Name="TxtPassword" Height="38" Padding="12,0" FontSize="14" VerticalContentAlignment="Center" 
-                         Background="#2B2B2E" Foreground="#F2F2F2" BorderBrush="#4A4A4F" BorderThickness="1" Margin="0,0,0,25"/>
+                <TextBlock Text="Username" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
+                <TextBox x:Name="TxtUsername" Height="40" Style="{StaticResource ModernInputStyle}" Margin="0,0,0,12" Text="admin"/>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Cancel" IsCancel="True" Width="90" Height="38" Margin="0,0,12,0" 
-                        Style="{StaticResource OutlineButtonStyle}" Foreground="#B8B8BC" BorderBrush="#4A4A4F" Cursor="Hand"/>
-                <Button Content="Save Camera" Click="Save_Click" IsDefault="True" Width="130" Height="38" Style="{StaticResource PillButtonStyle}"/>
+                <TextBlock Text="Password" FontWeight="SemiBold" Foreground="#F2F2F2" Margin="0,0,0,6"/>
+                <PasswordBox x:Name="TxtPassword" Height="40" Padding="12,0" FontSize="14" VerticalContentAlignment="Center"
+                             Background="#3A3A3D" Foreground="#F2F2F2" BorderBrush="#4A4A4F" BorderThickness="1" Margin="0,0,0,18"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" IsCancel="True" Width="96" Height="38" Margin="0,0,10,0"
+                            Style="{StaticResource OutlineButtonStyle}" Foreground="#D4D4D8" BorderBrush="#4A4A4F" Cursor="Hand"/>
+                    <Button Content="Save Camera" Click="Save_Click" IsDefault="True" Width="132" Height="38" Style="{StaticResource PillButtonStyle}"/>
+                </StackPanel>
             </StackPanel>
-        </StackPanel>
+        </Border>
     </Border>
 </Window>

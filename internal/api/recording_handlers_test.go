@@ -30,6 +30,10 @@ func (m *recordingSegmentsMockDB) GetSegments(ctx context.Context, cameraID stri
 	return out, nil
 }
 
+func (m *recordingSegmentsMockDB) GetRecordedCameras(ctx context.Context, tenantID string, from, to time.Time) ([]recording.RecordedCamera, error) {
+	return nil, nil
+}
+
 func (m *recordingSegmentsMockDB) GetLatestSegmentEnd(ctx context.Context, cameraID string) (time.Time, error) {
 	return time.Time{}, nil
 }

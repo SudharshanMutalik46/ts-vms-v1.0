@@ -240,6 +240,81 @@ namespace TSVmsDesktop.Services
             }
         }
 
+        public async Task<(bool Success, string Error)> CanOpenRtspWithCredentialsAsync(string rtspUrl, string username, string password, int timeoutMs = 12000)
+        {
+            if (string.IsNullOrWhiteSpace(rtspUrl))
+                return (false, "Empty RTSP URL");
+
+            string discoverer = ResolveGstDiscovererPath();
+            string probeUrl = InjectRtspCredentials(rtspUrl, username, password);
+            string args = $"\"{probeUrl}\"";
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = discoverer,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return (false, "Failed to start RTSP probe process");
+
+                var outputTask = proc.StandardOutput.ReadToEndAsync();
+                var errorTask = proc.StandardError.ReadToEndAsync();
+
+                int waited = 0;
+                while (!proc.HasExited && waited < timeoutMs)
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                    waited += 100;
+                }
+
+                if (!proc.HasExited)
+                {
+                    try { proc.Kill(true); } catch { }
+                    return (false, $"RTSP probe timed out after {timeoutMs}ms");
+                }
+
+                string output = await outputTask.ConfigureAwait(false);
+                string err = await errorTask.ConfigureAwait(false);
+                string combined = (output + "\n" + err).ToLowerInvariant();
+
+                bool hasAuthFailure =
+                    combined.Contains("unauthorized") ||
+                    combined.Contains("401") ||
+                    combined.Contains("403") ||
+                    combined.Contains("forbidden") ||
+                    combined.Contains("authentication failed") ||
+                    combined.Contains("not authorized") ||
+                    combined.Contains("invalid credentials") ||
+                    combined.Contains("no supported authentication protocol");
+
+                if (hasAuthFailure)
+                    return (false, "Authentication failed for RTSP stream");
+
+                bool hasHardFailure =
+                    combined.Contains("could not open resource") ||
+                    combined.Contains("failed to connect") ||
+                    combined.Contains("could not connect") ||
+                    combined.Contains("not found") ||
+                    combined.Contains("no such host");
+
+                if (hasHardFailure)
+                    return (false, "Unable to open RTSP stream");
+
+                return (true, "");
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
+        }
+
         private static void StartLiveCodecProbe(StreamContext ctx, string authUrl, string username, string password)
         {
             if (_codecCache.TryGetValue(authUrl, out var cached))
@@ -764,7 +839,8 @@ namespace TSVmsDesktop.Services
                 return false;
 
             var age = DateTime.UtcNow - ctx.StartedAtUtc;
-            if (age.TotalSeconds < 10)
+            // Detect startup black/frozen streams faster so user does not wait ~20s.
+            if (age.TotalSeconds < 6)
                 return false;
 
             if (!GstNative.gst_element_query_position(pipeline, GstNative.GST_FORMAT_TIME, out long positionNs))
@@ -780,7 +856,7 @@ namespace TSVmsDesktop.Services
                 return false;
             }
 
-            if ((DateTime.UtcNow - ctx.LastProgressAtUtc).TotalSeconds < 12)
+            if ((DateTime.UtcNow - ctx.LastProgressAtUtc).TotalSeconds < 6)
                 return false;
 
             if (ctx.IsRestarting)

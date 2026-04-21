@@ -9,6 +9,8 @@ namespace TSVmsDesktop.ViewModels
     public partial class StartupViewModel : ObservableObject
     {
         private readonly IHealthService _healthService;
+        private bool _started;
+        private readonly object _startLock = new();
         
         // FIX: Use an Action instead of the heavy MainViewModel dependency
         public Action? OnStartupSuccess { get; set; }
@@ -22,6 +24,16 @@ namespace TSVmsDesktop.ViewModels
         public StartupViewModel(IHealthService healthService)
         {
             _healthService = healthService;
+        }
+
+        public void StartIfNeeded()
+        {
+            lock (_startLock)
+            {
+                if (_started) return;
+                _started = true;
+            }
+
             _ = InitializeSystem();
         }
 
@@ -30,6 +42,7 @@ namespace TSVmsDesktop.ViewModels
             IsLoading = true;
             IsRetryVisible = false;
             StatusText = "Checking Database Connectivity...";
+            Details = string.Empty;
 
             for (int i = 0; i < 5; i++)
             {

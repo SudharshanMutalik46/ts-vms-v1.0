@@ -63,6 +63,24 @@ namespace TSVmsDesktop.Models
         public RecordingSegment[] Segments { get; set; } = Array.Empty<RecordingSegment>();
     }
 
+    public class RecordedCamera
+    {
+        [JsonPropertyName("camera_id")]
+        public string CameraId { get; set; } = string.Empty;
+
+        [JsonPropertyName("camera_name")]
+        public string CameraName { get; set; } = string.Empty;
+
+        [JsonPropertyName("ip_address")]
+        public string IpAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("model")]
+        public string Model { get; set; } = string.Empty;
+
+        [JsonPropertyName("is_deleted")]
+        public bool IsDeleted { get; set; }
+    }
+
     public class RecordingWorkerStatus
     {
         [JsonPropertyName("camera_id")]

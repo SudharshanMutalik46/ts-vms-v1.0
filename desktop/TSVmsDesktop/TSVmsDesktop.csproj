@@ -22,6 +22,8 @@
   <ItemGroup>
     <Resource Include="Images\logo.png" />
     <Resource Include="Images\operator-logo.png" />
+    <Resource Include="Images\operator-logo1.png" />
+    <Resource Include="Images\techno_support_logo_white_match_size_699x351.png" />
     <Resource Include="Images\operator-logo-badge.png" />
     <Resource Include="Images\logout-icon.png" />
     <Resource Include="Images\background.jpg" />

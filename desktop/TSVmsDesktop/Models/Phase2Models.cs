@@ -26,10 +26,14 @@ namespace TSVmsDesktop.Models
     public class DiscoveredDevice
     {
         [JsonPropertyName("id")] public string Id { get; set; } = "";
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
         [JsonPropertyName("ip_address")] public string IpAddress { get; set; } = "";
         [JsonPropertyName("manufacturer")] public string Manufacturer { get; set; } = "";
         [JsonPropertyName("model")] public string Model { get; set; } = "";
         [JsonPropertyName("is_claimed")] public bool IsClaimed { get; set; }
+        [JsonPropertyName("has_audio")] public bool? HasAudio { get; set; }
+        [JsonPropertyName("ptz")] public bool? Ptz { get; set; }
+        [JsonPropertyName("ptz_supported")] public bool? PtzSupported { get; set; }
         [JsonPropertyName("xaddrs")] public List<string> XAddrs { get; set; } = new(); // Service URIs
         [JsonPropertyName("rtsp_uris")] public List<string> RtspUris { get; set; } = new(); // Discovered RTSP Endpoints
         [JsonPropertyName("media_profiles")] public List<MediaProfile> MediaProfiles { get; set; } = new();
@@ -40,6 +44,38 @@ namespace TSVmsDesktop.Models
         public string ResolutionDisplay => MediaProfiles?.FirstOrDefault()?.Resolution ?? "0x0";
         [JsonIgnore]
         public string BitrateDisplay => (MediaProfiles?.FirstOrDefault()?.Bitrate ?? 0).ToString();
+        [JsonIgnore]
+        public string CameraNameDisplay => !string.IsNullOrWhiteSpace(Name)
+            ? Name
+            : (!string.IsNullOrWhiteSpace(Manufacturer) || !string.IsNullOrWhiteSpace(Model)
+                ? $"{Manufacturer} {Model}".Trim()
+                : IpAddress);
+        [JsonIgnore]
+        public string AudioDisplay
+        {
+            get
+            {
+                if (HasAudio.HasValue) return HasAudio.Value ? "Yes" : "No";
+                var codec = MediaProfiles?.FirstOrDefault()?.AudioCodec ?? "";
+                if (string.IsNullOrWhiteSpace(codec)) return "No";
+                var c = codec.Trim().ToLowerInvariant();
+                return c == "-" || c == "—" || c == "â€”" || c == "none" || c == "unknown" ? "No" : "Yes";
+            }
+        }
+        [JsonIgnore]
+        public string PtzDisplay => (Ptz ?? PtzSupported ?? false) ? "Yes" : "No";
+        [JsonIgnore]
+        public string RtspDisplay
+        {
+            get
+            {
+                var raw = RtspUris?.FirstOrDefault(u => !string.IsNullOrWhiteSpace(u)) ?? "";
+                if (string.IsNullOrWhiteSpace(raw)) return "-";
+                var val = raw.Contains("|") ? raw.Split('|').LastOrDefault() ?? raw : raw;
+                if (val.Length <= 64) return val;
+                return val.Substring(0, 61) + "...";
+            }
+        }
     }
 
     // --- Phase 2.4: Media ---

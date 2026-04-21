@@ -257,9 +257,42 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="TimelineLayoutToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Background" Value="#2B2B2E"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="17">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#F58A28"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#DD7416"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3A3A3D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
-    <Grid Background="#171717" Margin="0">
+    <Grid x:Name="PlaybackRootGrid" Background="#171717" Margin="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -363,7 +396,7 @@
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                 <CheckBox Content="{Binding Name}"
+                                 <CheckBox Content="{Binding DisplayName}"
                                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                            Click="PlaybackCameraCheckBox_Click"
                                            FontWeight="SemiBold"
@@ -465,7 +498,17 @@
                     VerticalAlignment="Stretch"
                     ClipToBounds="True">
                 <Grid x:Name="PlaybackViewport" Background="Transparent" ClipToBounds="True">
-                    <Grid Margin="2">
+                    <Grid Margin="2" x:Name="PlaybackTilesGrid">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedPlaybackCount}" Value="0">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="*"/>
                             <RowDefinition Height="*"/>
@@ -475,7 +518,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border x:Name="PlaybackTile1" Grid.Row="0" Grid.Column="0" Margin="2" Background="#000000" BorderThickness="0">
+                        <Border x:Name="PlaybackTile1" Grid.Row="0" Grid.Column="0" Margin="2" Background="#1F2937" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost1"
                                                       Tag="0"
@@ -484,7 +527,41 @@
                                                       MinWidth="64"
                                                       MinHeight="64"
                                                       HorizontalAlignment="Stretch"
-                                                      VerticalAlignment="Stretch"/>
+                                                      VerticalAlignment="Stretch">
+                                    <controls:VideoCanvas.Style>
+                                        <Style TargetType="controls:VideoCanvas">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[0].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:VideoCanvas.Style>
+                                </controls:VideoCanvas>
+                                <Border Background="#1E1F22"
+                                        BorderBrush="#34363C"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Margin="4"
+                                        Panel.ZIndex="1">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[0].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="No camera selected"
+                                               Foreground="#CBD5E1"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
                                 <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12">
                                     <TextBlock Text="{Binding PlaybackSlots[0].CameraName}" FontWeight="Bold" Foreground="White"/>
                                 </StackPanel>
@@ -495,10 +572,10 @@
                                         <Style TargetType="Border">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[0].StatusText}" Value="No recording at selected time">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[0].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[0].StatusText}" Value="No recording in selected window">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[0].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -509,7 +586,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile2" Grid.Row="0" Grid.Column="1" Margin="2" Background="#000000" BorderThickness="0">
+                        <Border x:Name="PlaybackTile2" Grid.Row="0" Grid.Column="1" Margin="2" Background="#1F2937" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost2"
                                                       Tag="1"
@@ -518,7 +595,41 @@
                                                       MinWidth="64"
                                                       MinHeight="64"
                                                       HorizontalAlignment="Stretch"
-                                                      VerticalAlignment="Stretch"/>
+                                                      VerticalAlignment="Stretch">
+                                    <controls:VideoCanvas.Style>
+                                        <Style TargetType="controls:VideoCanvas">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[1].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:VideoCanvas.Style>
+                                </controls:VideoCanvas>
+                                <Border Background="#1E1F22"
+                                        BorderBrush="#34363C"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Margin="4"
+                                        Panel.ZIndex="1">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[1].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="No camera selected"
+                                               Foreground="#CBD5E1"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
                                 <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12">
                                     <TextBlock Text="{Binding PlaybackSlots[1].CameraName}" FontWeight="Bold" Foreground="White"/>
                                 </StackPanel>
@@ -529,10 +640,10 @@
                                         <Style TargetType="Border">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[1].StatusText}" Value="No recording at selected time">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[1].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[1].StatusText}" Value="No recording in selected window">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[1].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -543,7 +654,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile3" Grid.Row="1" Grid.Column="0" Margin="2" Background="#000000" BorderThickness="0">
+                        <Border x:Name="PlaybackTile3" Grid.Row="1" Grid.Column="0" Margin="2" Background="#1F2937" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost3"
                                                       Tag="2"
@@ -552,7 +663,41 @@
                                                       MinWidth="64"
                                                       MinHeight="64"
                                                       HorizontalAlignment="Stretch"
-                                                      VerticalAlignment="Stretch"/>
+                                                      VerticalAlignment="Stretch">
+                                    <controls:VideoCanvas.Style>
+                                        <Style TargetType="controls:VideoCanvas">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[2].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:VideoCanvas.Style>
+                                </controls:VideoCanvas>
+                                <Border Background="#1E1F22"
+                                        BorderBrush="#34363C"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Margin="4"
+                                        Panel.ZIndex="1">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[2].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="No camera selected"
+                                               Foreground="#CBD5E1"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
                                 <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12">
                                     <TextBlock Text="{Binding PlaybackSlots[2].CameraName}" FontWeight="Bold" Foreground="White"/>
                                 </StackPanel>
@@ -563,10 +708,10 @@
                                         <Style TargetType="Border">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[2].StatusText}" Value="No recording at selected time">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[2].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[2].StatusText}" Value="No recording in selected window">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[2].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -577,7 +722,7 @@
                             </Grid>
                         </Border>
 
-                        <Border x:Name="PlaybackTile4" Grid.Row="1" Grid.Column="1" Margin="2" Background="#000000" BorderThickness="0">
+                        <Border x:Name="PlaybackTile4" Grid.Row="1" Grid.Column="1" Margin="2" Background="#1F2937" BorderThickness="0">
                             <Grid>
                                 <controls:VideoCanvas x:Name="PlaybackHost4"
                                                       Tag="3"
@@ -586,7 +731,41 @@
                                                       MinWidth="64"
                                                       MinHeight="64"
                                                       HorizontalAlignment="Stretch"
-                                                      VerticalAlignment="Stretch"/>
+                                                      VerticalAlignment="Stretch">
+                                    <controls:VideoCanvas.Style>
+                                        <Style TargetType="controls:VideoCanvas">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[3].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:VideoCanvas.Style>
+                                </controls:VideoCanvas>
+                                <Border Background="#1E1F22"
+                                        BorderBrush="#34363C"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Margin="4"
+                                        Panel.ZIndex="1">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackSlots[3].HasCamera}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="No camera selected"
+                                               Foreground="#CBD5E1"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
                                 <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="12">
                                     <TextBlock Text="{Binding PlaybackSlots[3].CameraName}" FontWeight="Bold" Foreground="White"/>
                                 </StackPanel>
@@ -597,10 +776,10 @@
                                         <Style TargetType="Border">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[3].StatusText}" Value="No recording at selected time">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[3].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding PlaybackSlots[3].StatusText}" Value="No recording in selected window">
+                                                <DataTrigger Binding="{Binding PlaybackSlots[3].StatusText}" Value="No recording available for selected camera">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -612,49 +791,34 @@
                         </Border>
                     </Grid>
 
-                    <Border HorizontalAlignment="Right"
-                            VerticalAlignment="Top"
-                            Margin="0,14,14,0"
-                            Padding="12,10"
-                            Background="#CC2B2B2E"
-                            CornerRadius="12">
-                        <StackPanel>
-                            <TextBlock Text="{Binding CoverageSummaryText}"
-                                       Foreground="#F2F2F2"
-                                       HorizontalAlignment="Right"/>
-                            <TextBlock Text="{Binding WindowSummaryText}"
-                                       Margin="0,4,0,0"
-                                       HorizontalAlignment="Right"
-                                       Style="{StaticResource PlaybackMetaStyle}"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Border HorizontalAlignment="Right"
-                            VerticalAlignment="Top"
-                            Margin="0,14,220,0"
-                            Padding="8,6"
-                            Background="#CC2B2B2E"
-                            CornerRadius="10">
-                        <StackPanel Orientation="Horizontal">
-                            <ToggleButton Style="{StaticResource PlaybackLayoutButtonStyle}"
-                                          IsChecked="{Binding IsSingleViewSelected, Mode=OneWay}"
-                                          Command="{Binding SetSinglePlaybackLayoutCommand}"
-                                          ToolTip="Single View">
-                                <Image Source="pack://application:,,,/Images/quad1_32x32.png"
-                                       Width="32"
-                                       Height="32"
-                                       Stretch="Uniform"/>
-                            </ToggleButton>
-
-                            <ToggleButton Style="{StaticResource PlaybackLayoutButtonStyle}"
-                                          IsChecked="{Binding IsQuadViewSelected, Mode=OneWay}"
-                                          Command="{Binding SetQuadPlaybackLayoutCommand}"
-                                          ToolTip="Quad View">
-                                <Image Source="pack://application:,,,/Images/quad4_32x32.png"
-                                       Width="32"
-                                       Height="32"
-                                       Stretch="Uniform"/>
-                            </ToggleButton>
+                    <Border Margin="4"
+                            Background="#1E1F22"
+                            BorderBrush="#34363C"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Panel.ZIndex="2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedPlaybackCount}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="No camera selected"
+                                       Foreground="#E5E7EB"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Select a camera from the left panel to start playback."
+                                       Margin="0,8,0,0"
+                                       Foreground="#94A3B8"
+                                       FontSize="12"
+                                       HorizontalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
@@ -707,33 +871,6 @@
                         </Border>
                     </Popup>
 
-                    <Border HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Padding="12,8"
-                            Background="#CC171717"
-                            BorderBrush="#3C4A5E"
-                            BorderThickness="1"
-                            CornerRadius="10"
-                            IsHitTestVisible="False"
-                            Panel.ZIndex="9999">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SelectedPlaybackCount}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <TextBlock Text="No camera selected"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   Foreground="White"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
-                    </Border>
-
                 </Grid>
             </Border>
 
@@ -772,7 +909,52 @@
                                         VerticalAlignment="Center"
                                         HorizontalAlignment="Center"
                                         Grid.ColumnSpan="3">
-                                <Button Command="{Binding PreviousCommand}"
+                                <ToggleButton Style="{StaticResource TimelineLayoutToggleStyle}"
+                                              IsChecked="{Binding IsSingleViewSelected, Mode=OneWay}"
+                                              IsEnabled="{Binding IsNotLoading}"
+                                              Click="SingleLayoutButton_Click"
+                                              ToolTip="Single View">
+                                    <Image Source="pack://application:,,,/Images/quad1_32x32.png"
+                                           Width="18"
+                                           Height="18"
+                                           Stretch="Uniform"/>
+                                </ToggleButton>
+
+                                <ToggleButton Style="{StaticResource TimelineLayoutToggleStyle}"
+                                              IsChecked="{Binding IsQuadViewSelected, Mode=OneWay}"
+                                              IsEnabled="{Binding IsNotLoading}"
+                                              Click="QuadLayoutButton_Click"
+                                              ToolTip="Quad View">
+                                    <Image Source="pack://application:,,,/Images/quad4_32x32.png"
+                                           Width="18"
+                                           Height="18"
+                                           Stretch="Uniform"/>
+                                </ToggleButton>
+
+                                <Button ToolTip="Fullscreen"
+                                        Click="ToggleFullScreenButton_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource TimelineRoundControlButtonStyle}">
+                                            <Setter Property="IsEnabled" Value="True"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SelectedPlaybackCount}" Value="0">
+                                                    <Setter Property="IsEnabled" Value="False"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <TextBlock Text="⛶"
+                                               FontFamily="Segoe UI Symbol"
+                                               FontSize="14"
+                                               Foreground="#F2F2F2"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"/>
+                                </Button>
+
+                                <Border Width="1" Height="20" Background="#4A4A4F" Margin="4,0,8,0"/>
+
+                                <Button Click="PreviousJumpButton_Click"
+                                        IsEnabled="{Binding IsNotLoading}"
                                         Style="{StaticResource TimelineRoundControlButtonStyle}"
                                         ToolTip="-5m">
                                     <Image Source="pack://application:,,,/Images/skip5m_32x32.png"
@@ -786,7 +968,8 @@
                                     </Image>
                                 </Button>
 
-                                <Button Command="{Binding SeekBackCommand}"
+                                <Button Click="SeekBackButton_Click"
+                                        IsEnabled="{Binding IsNotLoading}"
                                         Style="{StaticResource TimelineRoundControlButtonStyle}"
                                         ToolTip="-10s">
                                     <Image Source="pack://application:,,,/Images/step10_32x32.png"
@@ -844,7 +1027,8 @@
                                     </Grid>
                                 </Button>
 
-                                <Button Command="{Binding SeekForwardCommand}"
+                                <Button Click="SeekForwardButton_Click"
+                                        IsEnabled="{Binding IsNotLoading}"
                                         Style="{StaticResource TimelineRoundControlButtonStyle}"
                                         ToolTip="+10s">
                                     <Image Source="pack://application:,,,/Images/step10_32x32.png"
@@ -853,7 +1037,8 @@
                                            Stretch="Uniform"/>
                                 </Button>
 
-                                <Button Command="{Binding NextCommand}"
+                                <Button Click="NextJumpButton_Click"
+                                        IsEnabled="{Binding IsNotLoading}"
                                         Style="{StaticResource TimelineRoundControlButtonStyle}"
                                         ToolTip="+5m">
                                     <Image Source="pack://application:,,,/Images/skip5m_32x32.png"
@@ -1088,5 +1273,50 @@
                     </Grid>
                 </Border>
         </Border>
+
+        <Grid x:Name="PlaybackFullScreenOverlay"
+              Grid.Row="0"
+              Grid.RowSpan="2"
+              Grid.Column="0"
+              Grid.ColumnSpan="3"
+              Background="#151515"
+              Visibility="Collapsed"
+              Opacity="0"
+              Focusable="True"
+              Panel.ZIndex="100">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Grid x:Name="FullScreenPlaybackContentHost" Grid.Row="0"/>
+
+            <Border Grid.Row="0"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,10,12,0"
+                    Background="#AA1E1F22"
+                    BorderBrush="#4A4A4F"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Panel.ZIndex="5">
+                <Button Width="32"
+                        Height="32"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="ExitFullScreenButton_Click"
+                        ToolTip="Exit Fullscreen">
+                    <TextBlock Text="&#xE73F;"
+                               FontFamily="Segoe MDL2 Assets"
+                               Foreground="#F2F2F2"
+                               FontSize="14"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+            </Border>
+
+            <Grid x:Name="FullScreenPlaybackTimelineHost" Grid.Row="1"/>
+        </Grid>
     </Grid>
 </UserControl>
+

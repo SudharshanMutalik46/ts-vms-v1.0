@@ -13,6 +13,7 @@ import (
 type ArchiveIndex interface {
 	Available() bool
 	GetSegments(ctx context.Context, cameraID string, from, to time.Time) ([]ArchiveSegment, error)
+	GetRecordedCameras(ctx context.Context, tenantID string, from, to time.Time) ([]RecordedCamera, error)
 	GetLatestSegmentEnd(ctx context.Context, cameraID string) (time.Time, error)
 	UpsertFinalizedSegment(ctx context.Context, seg *ArchiveSegment) error
 	MarkMissing(ctx context.Context, path string) error
@@ -71,6 +72,14 @@ type ExportJob struct {
 	State      string    `json:"state"`
 	OutputPath string    `json:"output_path"`
 	Error      string    `json:"error,omitempty"`
+}
+
+type RecordedCamera struct {
+	CameraID   string `json:"camera_id"`
+	CameraName string `json:"camera_name"`
+	IPAddress  string `json:"ip_address"`
+	Model      string `json:"model"`
+	IsDeleted  bool   `json:"is_deleted"`
 }
 
 type Segment = ArchiveSegment

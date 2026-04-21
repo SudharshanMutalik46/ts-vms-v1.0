@@ -7,7 +7,9 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using TSVmsDesktop.Controls;
 using TSVmsDesktop.Models;
 using TSVmsDesktop.ViewModels;
@@ -37,12 +39,24 @@ namespace TSVmsDesktop.Views
         private CancellationTokenSource? _layoutSyncDebounceCts;
         private CancellationTokenSource? _selectionRefreshCts;
         private Window? _ownerWindow;
+        private Window? _playbackFullScreenWindow;
+        private Grid? _playbackFullScreenContentHost;
+        private Grid? _playbackFullScreenTimelineHost;
+        private bool _isFullScreenActive;
+        private bool _isFullScreenTransitionInFlight;
 
         private static int GetVisibleTileCount(PlaybackViewModel vm)
             => vm.PlaybackLayoutMode == PlaybackLayoutMode.Quad ? 4 : 1;
 
         private static int GetEffectiveLayoutCount(PlaybackViewModel vm)
             => vm.PlaybackLayoutMode == PlaybackLayoutMode.Quad ? 4 : 1;
+
+        private static bool SlotHasCamera(PlaybackViewModel vm, int slotIndex)
+        {
+            return slotIndex >= 0 &&
+                   slotIndex < vm.PlaybackSlots.Count &&
+                   vm.PlaybackSlots[slotIndex].HasCamera;
+        }
 
         public PlaybackView()
         {
@@ -51,6 +65,7 @@ namespace TSVmsDesktop.Views
             Unloaded += PlaybackView_Unloaded;
             DataContextChanged += PlaybackView_DataContextChanged;
             IsVisibleChanged += PlaybackView_IsVisibleChanged;
+            PreviewKeyDown += PlaybackView_PreviewKeyDown;
             PlaybackViewport.SizeChanged += PlaybackViewport_SizeChanged;
         }
 
@@ -128,10 +143,11 @@ namespace TSVmsDesktop.Views
                 return;
 
             ApplyPlaybackTileLayout(vm);
-            SyncCameraSelectionFromViewModel(vm);
-            await EnsureHostsAttachedAsync(vm);
             await vm.InitializeAsync();
-            await vm.EnsureActivePlaybackAsync();
+            SyncCameraSelectionFromViewModel(vm);
+
+            // DO NOT auto-attach hosts here.
+            // DO NOT auto-start playback here.
         }
 
         private async void PlaybackViewport_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -166,6 +182,8 @@ namespace TSVmsDesktop.Views
 
         private async void PlaybackView_Unloaded(object sender, RoutedEventArgs e)
         {
+            await ExitPlaybackFullScreenAsync(animated: false);
+
             _hostAttachCts?.Cancel();
             _hostAttachCts = null;
             DetachOwnerWindowHandlers();
@@ -303,6 +321,9 @@ namespace TSVmsDesktop.Views
 
             if (e.NewValue is PlaybackViewModel vm)
                 SyncCameraSelectionFromViewModel(vm);
+
+            if (_playbackFullScreenWindow != null)
+                _playbackFullScreenWindow.DataContext = e.NewValue;
         }
 
         private void SyncCameraSelectionFromViewModel(PlaybackViewModel vm)
@@ -341,6 +362,8 @@ namespace TSVmsDesktop.Views
                 // we race with the main selection load and cancel it repeatedly.
                 ApplyPlaybackTileLayout(vm);
                 SyncCameraSelectionFromViewModel(vm);
+                if (_isFullScreenActive && vm.SelectedPlaybackCount == 0)
+                    await ExitPlaybackFullScreenAsync(animated: true);
             }
             else if (e.PropertyName == nameof(PlaybackViewModel.PlaybackLayoutMode))
             {
@@ -461,11 +484,21 @@ namespace TSVmsDesktop.Views
 
         private async Task EnsureHostsAttachedAsync(PlaybackViewModel vm)
         {
+            if (!vm.PlaybackActivatedByUser)
+                return;
+
             _hostAttachCts?.Cancel();
             _hostAttachCts = new CancellationTokenSource();
             var token = _hostAttachCts.Token;
 
             int activeCount = GetEffectiveLayoutCount(vm);
+
+            var slotsToAttach = Enumerable.Range(0, activeCount)
+                .Where(slotIndex => SlotHasCamera(vm, slotIndex))
+                .ToArray();
+
+            if (slotsToAttach.Length == 0)
+                return;
 
             for (int i = 0; i < 120; i++)
             {
@@ -473,7 +506,7 @@ namespace TSVmsDesktop.Views
                     return;
 
                 bool activeHostsReady = true;
-                for (int slotIndex = 0; slotIndex < activeCount; slotIndex++)
+                foreach (int slotIndex in slotsToAttach)
                 {
                     if (!IsHostReady(PlaybackHosts[slotIndex]))
                     {
@@ -486,7 +519,7 @@ namespace TSVmsDesktop.Views
                 {
                     UpdatePlaybackHostLayout();
 
-                    for (int slotIndex = 0; slotIndex < activeCount; slotIndex++)
+                    foreach (int slotIndex in slotsToAttach)
                     {
                         var host = PlaybackHosts[slotIndex];
                         var px = ToPixelSize(host, host.ActualWidth, host.ActualHeight);
@@ -495,11 +528,14 @@ namespace TSVmsDesktop.Views
                         {
                             if (!vm.IsPrimaryHostAlreadyAttached(host.Handle))
                                 await vm.AttachVideoHostAsync(host.Handle);
+
                             await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
                         }
                         else
                         {
-                            await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+                            if (!vm.IsSecondaryHostAlreadyAttached(slotIndex, host.Handle))
+                                await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+
                             await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
                         }
                     }
@@ -549,7 +585,13 @@ namespace TSVmsDesktop.Views
             if (DataContext is not PlaybackViewModel vm || sender is not VideoCanvas host)
                 return;
 
+            if (!vm.PlaybackActivatedByUser)
+                return;
+
             int slotIndex = Convert.ToInt32(host.Tag);
+
+            if (!SlotHasCamera(vm, slotIndex))
+                return;
 
             if (slotIndex > 0 && vm.IsSecondaryHostAlreadyAttached(slotIndex, host.Handle))
                 return;
@@ -563,11 +605,14 @@ namespace TSVmsDesktop.Views
             {
                 if (!vm.IsPrimaryHostAlreadyAttached(host.Handle))
                     await vm.AttachVideoHostAsync(host.Handle);
+
                 await vm.UpdateVideoHostSizeAsync(px.widthPx, px.heightPx);
             }
             else
             {
-                await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+                if (!vm.IsSecondaryHostAlreadyAttached(slotIndex, host.Handle))
+                    await vm.AttachSecondaryVideoHostAsync(slotIndex, host.Handle);
+
                 await vm.UpdateSecondaryVideoHostSizeAsync(slotIndex, px.widthPx, px.heightPx);
             }
         }
@@ -599,7 +644,6 @@ namespace TSVmsDesktop.Views
                     _suppressCameraSelectionEvents = true;
                     try
                     {
-                        // Revert the UI click cleanly without re-entering this handler.
                         checkBox.IsChecked = false;
                         changedChoice.IsSelected = false;
                     }
@@ -611,7 +655,326 @@ namespace TSVmsDesktop.Views
                 }
             }
 
+            vm.MarkPlaybackActivatedByUser();
             await vm.SetPlaybackCameraCheckedAsync(changedChoice.Camera, isNowChecked);
+
+            if (!isNowChecked)
+                return;
+
+            ApplyPlaybackTileLayout(vm);
+            SyncCameraSelectionFromViewModel(vm);
+
+            await Task.Delay(1);
+            await EnsureHostsAttachedAsync(vm);
+            await Task.Delay(120);
+            await RefreshVisiblePlaybackHostSizesAsync(vm);
+            await vm.RefreshPrimaryPlaybackAfterLayoutAsync();
+
+            if (vm.PlaybackLayoutMode == PlaybackLayoutMode.Quad)
+                await vm.RunStableSelectionRefreshAsync();
+        }
+
+        private async void SingleLayoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            vm.MarkPlaybackActivatedByUser();
+            if (vm.SetSinglePlaybackLayoutCommand.CanExecute(null))
+                await vm.SetSinglePlaybackLayoutCommand.ExecuteAsync(null);
+        }
+
+        private async void QuadLayoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            vm.MarkPlaybackActivatedByUser();
+            if (vm.SetQuadPlaybackLayoutCommand.CanExecute(null))
+                await vm.SetQuadPlaybackLayoutCommand.ExecuteAsync(null);
+        }
+
+        private async void SeekBackButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            await vm.SeekBackCommand();
+        }
+
+        private async void SeekForwardButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            await vm.SeekForwardCommand();
+        }
+
+        private async void PreviousJumpButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            await vm.PreviousCommand();
+        }
+
+        private async void NextJumpButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+            if (vm.IsLoading)
+                return;
+
+            await vm.NextCommand();
+        }
+
+        private async void ToggleFullScreenButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isFullScreenTransitionInFlight)
+                return;
+            if (DataContext is not PlaybackViewModel vm || vm.SelectedPlaybackCount <= 0)
+                return;
+
+            if (_isFullScreenActive)
+                await ExitPlaybackFullScreenAsync(animated: true);
+            else
+                await EnterPlaybackFullScreenAsync();
+        }
+
+        private async void ExitFullScreenButton_Click(object sender, RoutedEventArgs e)
+        {
+            await ExitPlaybackFullScreenAsync(animated: true);
+        }
+
+        private async void PlaybackView_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && _isFullScreenActive)
+            {
+                e.Handled = true;
+                await ExitPlaybackFullScreenAsync(animated: true);
+            }
+        }
+
+        private async Task EnterPlaybackFullScreenAsync()
+        {
+            if (_isFullScreenActive || _isFullScreenTransitionInFlight)
+                return;
+
+            _isFullScreenTransitionInFlight = true;
+            try
+            {
+                EnsurePlaybackFullScreenWindow();
+                if (_playbackFullScreenWindow == null ||
+                    _playbackFullScreenContentHost == null ||
+                    _playbackFullScreenTimelineHost == null)
+                {
+                    return;
+                }
+
+                _playbackFullScreenWindow.DataContext = DataContext;
+
+                if (PlaybackContentGrid.Parent is System.Windows.Controls.Panel rootPanel)
+                    rootPanel.Children.Remove(PlaybackContentGrid);
+                if (PlaybackTimelinePanel.Parent is System.Windows.Controls.Panel timelinePanel)
+                    timelinePanel.Children.Remove(PlaybackTimelinePanel);
+
+                _playbackFullScreenContentHost.Children.Add(PlaybackContentGrid);
+                _playbackFullScreenTimelineHost.Children.Add(PlaybackTimelinePanel);
+
+                Grid.SetRow(PlaybackContentGrid, 0);
+                Grid.SetColumn(PlaybackContentGrid, 0);
+                Grid.SetRow(PlaybackTimelinePanel, 0);
+                Grid.SetColumn(PlaybackTimelinePanel, 0);
+                Grid.SetColumnSpan(PlaybackTimelinePanel, 1);
+
+                _playbackFullScreenWindow.Opacity = 0;
+                _playbackFullScreenWindow.Show();
+                _playbackFullScreenWindow.Activate();
+
+                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(230))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+                _playbackFullScreenWindow.BeginAnimation(Window.OpacityProperty, fadeIn);
+                _isFullScreenActive = true;
+
+                await Task.Delay(30);
+                ApplyPlaybackLayoutAfterFullScreenToggle();
+                _playbackFullScreenWindow.Focus();
+            }
+            finally
+            {
+                _isFullScreenTransitionInFlight = false;
+            }
+        }
+
+        private async Task ExitPlaybackFullScreenAsync(bool animated)
+        {
+            if (!_isFullScreenActive || _isFullScreenTransitionInFlight)
+                return;
+
+            _isFullScreenTransitionInFlight = true;
+            try
+            {
+                if (animated && _playbackFullScreenWindow != null)
+                {
+                    var fadeOut = new DoubleAnimation(_playbackFullScreenWindow.Opacity, 0, TimeSpan.FromMilliseconds(190))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+                    _playbackFullScreenWindow.BeginAnimation(Window.OpacityProperty, fadeOut);
+                    await Task.Delay(200);
+                }
+
+                if (PlaybackContentGrid.Parent is System.Windows.Controls.Panel fsContentPanel)
+                    fsContentPanel.Children.Remove(PlaybackContentGrid);
+                if (PlaybackTimelinePanel.Parent is System.Windows.Controls.Panel fsTimelinePanel)
+                    fsTimelinePanel.Children.Remove(PlaybackTimelinePanel);
+
+                PlaybackRootGrid.Children.Add(PlaybackContentGrid);
+                PlaybackRootGrid.Children.Add(PlaybackTimelinePanel);
+
+                Grid.SetRow(PlaybackContentGrid, 0);
+                Grid.SetColumn(PlaybackContentGrid, 2);
+
+                Grid.SetRow(PlaybackTimelinePanel, 1);
+                Grid.SetColumn(PlaybackTimelinePanel, 0);
+                Grid.SetColumnSpan(PlaybackTimelinePanel, 3);
+
+                if (_playbackFullScreenWindow != null)
+                {
+                    _playbackFullScreenWindow.BeginAnimation(Window.OpacityProperty, null);
+                    _playbackFullScreenWindow.Hide();
+                }
+
+                PlaybackRootGrid.Opacity = 0;
+                PlaybackRootGrid.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                });
+
+                _isFullScreenActive = false;
+
+                await Task.Delay(20);
+                ApplyPlaybackLayoutAfterFullScreenToggle();
+            }
+            finally
+            {
+                _isFullScreenTransitionInFlight = false;
+            }
+        }
+
+        private void EnsurePlaybackFullScreenWindow()
+        {
+            if (_playbackFullScreenWindow != null)
+                return;
+
+            var owner = Window.GetWindow(this);
+
+            var root = new Grid
+            {
+                Background = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#151515"))
+            };
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            _playbackFullScreenContentHost = new Grid();
+            _playbackFullScreenTimelineHost = new Grid();
+            Grid.SetRow(_playbackFullScreenContentHost, 0);
+            Grid.SetRow(_playbackFullScreenTimelineHost, 1);
+            root.Children.Add(_playbackFullScreenContentHost);
+            root.Children.Add(_playbackFullScreenTimelineHost);
+
+            var exitButton = new System.Windows.Controls.Button
+            {
+                Width = 34,
+                Height = 34,
+                Content = "X",
+                ToolTip = "Exit Fullscreen",
+                Margin = new Thickness(0, 10, 12, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                VerticalAlignment = System.Windows.VerticalAlignment.Top,
+                Background = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#AA1E1F22")),
+                Foreground = System.Windows.Media.Brushes.White,
+                BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#4A4A4F")),
+                BorderThickness = new Thickness(1)
+            };
+            exitButton.Click += ExitFullScreenButton_Click;
+            root.Children.Add(exitButton);
+
+            _playbackFullScreenWindow = new Window
+            {
+                Content = root,
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Background = System.Windows.Media.Brushes.Black,
+                Topmost = true,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Focusable = true,
+                DataContext = DataContext
+            };
+
+            if (owner != null)
+            {
+                _playbackFullScreenWindow.Owner = owner;
+
+                var ownerHwnd = new WindowInteropHelper(owner).Handle;
+                var screen = System.Windows.Forms.Screen.FromHandle(ownerHwnd);
+                _playbackFullScreenWindow.Left = screen.Bounds.Left;
+                _playbackFullScreenWindow.Top = screen.Bounds.Top;
+                _playbackFullScreenWindow.Width = screen.Bounds.Width;
+                _playbackFullScreenWindow.Height = screen.Bounds.Height;
+            }
+            else
+            {
+                _playbackFullScreenWindow.Left = SystemParameters.VirtualScreenLeft;
+                _playbackFullScreenWindow.Top = SystemParameters.VirtualScreenTop;
+                _playbackFullScreenWindow.Width = SystemParameters.VirtualScreenWidth;
+                _playbackFullScreenWindow.Height = SystemParameters.VirtualScreenHeight;
+            }
+
+            _playbackFullScreenWindow.PreviewKeyDown += FullScreenWindow_PreviewKeyDown;
+            _playbackFullScreenWindow.KeyDown += FullScreenWindow_PreviewKeyDown;
+            _playbackFullScreenWindow.Closed += (_, _) =>
+            {
+                _isFullScreenActive = false;
+                _playbackFullScreenWindow = null;
+                _playbackFullScreenContentHost = null;
+                _playbackFullScreenTimelineHost = null;
+            };
+        }
+
+        private async void FullScreenWindow_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != Key.Escape || !_isFullScreenActive)
+                return;
+
+            e.Handled = true;
+            await ExitPlaybackFullScreenAsync(animated: true);
+        }
+
+        private void ApplyPlaybackLayoutAfterFullScreenToggle()
+        {
+            if (DataContext is not PlaybackViewModel vm)
+                return;
+
+            ApplyPlaybackTileLayout(vm);
+            _ = SchedulePlaybackHostLayoutSyncAsync(60);
         }
     }
 }
+

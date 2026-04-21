@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 
 namespace TSVmsDesktop.Views
 {
@@ -18,6 +19,20 @@ namespace TSVmsDesktop.Views
         {
             this.DialogResult = true;
             this.Close();
+        }
+
+        private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ButtonState == MouseButtonState.Pressed)
+            {
+                DragMove();
+            }
+        }
+
+        private void Close_Click(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+            Close();
         }
     }
 }

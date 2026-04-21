@@ -54,6 +54,7 @@ namespace TSVmsDesktop.ViewModels
             // FIX: Resolve StartupViewModel and assign the callback manually
             var startupVm = _serviceProvider.GetRequiredService<StartupViewModel>();
             startupVm.OnStartupSuccess = this.OnStartupComplete;
+            startupVm.StartIfNeeded();
 
             CurrentView = startupVm;
         }

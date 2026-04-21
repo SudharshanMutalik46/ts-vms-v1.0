@@ -35,11 +35,21 @@ namespace TSVmsDesktop.Views
             CameraUsername = TxtUsername.Text.Trim();
             CameraPassword = TxtPassword.Password.Trim();
 
+            string normalizedUrl = NormalizeRtspUrl(TxtUrl.Text.Trim());
+            if (!System.Uri.TryCreate(normalizedUrl, System.UriKind.Absolute, out var uri) ||
+                !(uri.Scheme.Equals("rtsp", System.StringComparison.OrdinalIgnoreCase) ||
+                  uri.Scheme.Equals("rtsps", System.StringComparison.OrdinalIgnoreCase)) ||
+                string.IsNullOrWhiteSpace(uri.Host))
+            {
+                System.Windows.MessageBox.Show("Please enter a valid RTSP URL with host/IP.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             // 3. Create Model
             CreatedCamera = new CameraModel
             {
                 Name = TxtName.Text.Trim(),
-                RtspUrl = TxtUrl.Text.Trim(),
+                RtspUrl = normalizedUrl,
                 IpAddress = string.IsNullOrWhiteSpace(TxtIp.Text) ? "Unknown IP" : TxtIp.Text.Trim(),
                 Status = "Online",
                 Model = "RTSP Source",
@@ -49,22 +59,27 @@ namespace TSVmsDesktop.Views
             };
 
             // Auto-detect Port and IP from URL if possible
-            try
+            if (uri.Port > 0) CreatedCamera.Port = uri.Port;
+            if (CreatedCamera.IpAddress == "Unknown IP" && !string.IsNullOrWhiteSpace(uri.Host))
             {
-                if (System.Uri.TryCreate(CreatedCamera.RtspUrl, System.UriKind.Absolute, out var uri))
-                {
-                    if (uri.Port > 0) CreatedCamera.Port = uri.Port;
-                    if (CreatedCamera.IpAddress == "Unknown IP" && !string.IsNullOrWhiteSpace(uri.Host))
-                    {
-                        CreatedCamera.IpAddress = uri.Host;
-                    }
-                }
+                CreatedCamera.IpAddress = uri.Host;
             }
-            catch { /* Best effort parsing */ }
 
             // 4. Close with Success
             this.DialogResult = true;
             this.Close();
+        }
+
+        private static string NormalizeRtspUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string n = System.Net.WebUtility.HtmlDecode(url.Trim());
+            if (!n.StartsWith("rtsp://", System.StringComparison.OrdinalIgnoreCase) &&
+                !n.StartsWith("rtsps://", System.StringComparison.OrdinalIgnoreCase))
+            {
+                n = "rtsp://" + n.TrimStart('/');
+            }
+            return n;
         }
     }
 }

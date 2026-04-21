@@ -9,6 +9,7 @@ namespace TSVmsDesktop.Services
     public class RecordingService
     {
         private readonly ApiClient _api;
+        private RecordingStatusResponse _lastStatusResponse = new();
         private Dictionary<string, string> _lastStatusMap = new(StringComparer.OrdinalIgnoreCase);
         private DateTime _lastStatusFetch = DateTime.MinValue;
         private readonly System.Threading.SemaphoreSlim _fetchLock = new(1, 1);
@@ -19,23 +20,24 @@ namespace TSVmsDesktop.Services
             _api = api;
         }
 
-        public async Task<Dictionary<string, string>> GetAllStatusesAsync()
+        public async Task<RecordingStatusResponse> GetStatusSnapshotAsync()
         {
             if (DateTime.Now - _lastStatusFetch < CacheDuration)
-                return _lastStatusMap;
+                return _lastStatusResponse;
 
             await _fetchLock.WaitAsync();
             try
             {
                 if (DateTime.Now - _lastStatusFetch < CacheDuration)
-                    return _lastStatusMap;
+                    return _lastStatusResponse;
 
                 var status = await _api.GetAsync<RecordingStatusResponse>("/api/v1/recording/status");
+                _lastStatusResponse = status ?? new RecordingStatusResponse();
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                if (status?.Workers != null)
+                if (_lastStatusResponse.Workers != null)
                 {
-                    foreach (var worker in status.Workers)
+                    foreach (var worker in _lastStatusResponse.Workers)
                     {
                         if (!string.IsNullOrWhiteSpace(worker?.CameraId))
                             map[worker.CameraId] = worker.State ?? string.Empty;
@@ -44,16 +46,29 @@ namespace TSVmsDesktop.Services
 
                 _lastStatusMap = map;
                 _lastStatusFetch = DateTime.Now;
-                return map;
+                return _lastStatusResponse;
             }
             catch
             {
-                return _lastStatusMap; // Return stale cache on error
+                return _lastStatusResponse; // Return stale cache on error
             }
             finally
             {
                 _fetchLock.Release();
             }
+        }
+
+        public async Task<Dictionary<string, string>> GetAllStatusesAsync()
+        {
+            var snapshot = await GetStatusSnapshotAsync();
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var worker in snapshot.Workers)
+            {
+                if (!string.IsNullOrWhiteSpace(worker?.CameraId))
+                    map[worker.CameraId] = worker.State ?? string.Empty;
+            }
+
+            return map;
         }
 
         public async Task<string> GetCameraStatusAsync(string cameraId)
@@ -95,6 +110,14 @@ namespace TSVmsDesktop.Services
             return await _api.GetAsync<List<RecordingSegment>>(url, cancellationToken) ?? new List<RecordingSegment>();
         }
 
+        public async Task<List<RecordedCamera>> GetRecordedCamerasAsync(DateTime fromUtc, DateTime toUtc, System.Threading.CancellationToken cancellationToken = default)
+        {
+            string from = Uri.EscapeDataString(fromUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
+            string to = Uri.EscapeDataString(toUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
+            string url = $"/api/v1/recording/cameras-with-recordings?from={from}&to={to}";
+            return await _api.GetAsync<List<RecordedCamera>>(url, cancellationToken) ?? new List<RecordedCamera>();
+        }
+
         public Task<bool> StartCameraAsync(string cameraId) =>
             _api.PostAsync($"/api/v1/recording/cameras/{cameraId}/start", new { });
 
@@ -123,6 +146,47 @@ namespace TSVmsDesktop.Services
         public Task<bool> DownloadExportAsync(string downloadUrl, string targetPath)
         {
             return _api.DownloadFileAsync(downloadUrl, targetPath);
+        }
+
+        public async Task<double> EstimateWriteRateBytesPerSecondAsync(IEnumerable<string> cameraIds, int lookbackMinutes = 5)
+        {
+            if (cameraIds == null) return 0;
+
+            var nowUtc = DateTime.UtcNow;
+            var fromUtc = nowUtc.AddMinutes(-Math.Max(1, lookbackMinutes));
+            var uniqueIds = cameraIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (uniqueIds.Length == 0) return 0;
+
+            double totalBytes = 0;
+            double totalSeconds = 0;
+
+            foreach (var cameraId in uniqueIds)
+            {
+                List<RecordingSegment> segments;
+                try
+                {
+                    segments = await GetSegmentsAsync(cameraId, fromUtc, nowUtc);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var segment in segments
+                    .Where(s => s.SizeBytes > 0 && s.DurationSeconds > 0)
+                    .OrderByDescending(s => s.EndTs)
+                    .Take(12))
+                {
+                    totalBytes += segment.SizeBytes;
+                    totalSeconds += segment.DurationSeconds;
+                }
+            }
+
+            return totalSeconds > 0 ? totalBytes / totalSeconds : 0;
         }
 
         public async Task<bool> WaitAndDownloadExportAsync(
