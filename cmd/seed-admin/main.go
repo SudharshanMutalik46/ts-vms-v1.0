@@ -83,25 +83,38 @@ func main() {
 		log.Fatalf("User Insert Failed: %v", err)
 	}
 
-	// 3. Upsert Role
+	// 3. Upsert Role (must be "admin" to match RBAC checks)
 	// First check if exists by name to avoid unique constraint if ID differs
 	var existingRoleID string
-	err = db.QueryRow("SELECT id FROM roles WHERE tenant_id = $1 AND name = 'System Admin'", tenantID).Scan(&existingRoleID)
+	err = db.QueryRow("SELECT id FROM roles WHERE tenant_id = $1 AND LOWER(name) = 'admin'", tenantID).Scan(&existingRoleID)
 	if err == nil {
 		roleID = existingRoleID // Use existing ID
 	} else {
 		_, err = db.Exec(`
 			INSERT INTO roles (id, tenant_id, name, created_at, updated_at)
-			VALUES ($1, $2, 'System Admin', NOW(), NOW())
+			VALUES ($1, $2, 'admin', NOW(), NOW())
 			ON CONFLICT (id) DO NOTHING`, roleID, tenantID)
 		if err != nil {
 			// Fallback check if race
 			if strings.Contains(err.Error(), "unique constraint") {
-				db.QueryRow("SELECT id FROM roles WHERE tenant_id = $1 AND name = 'System Admin'", tenantID).Scan(&roleID)
+				db.QueryRow("SELECT id FROM roles WHERE tenant_id = $1 AND LOWER(name) = 'admin'", tenantID).Scan(&roleID)
 			} else {
 				log.Fatalf("Role Insert Failed: %v", err)
 			}
 		}
+	}
+
+	// 3.1 Ensure standard non-admin roles exist for assignment/self-signup.
+	_, err = db.Exec(`
+		INSERT INTO roles (id, tenant_id, name, created_at, updated_at)
+		SELECT gen_random_uuid(), $1, v.name, NOW(), NOW()
+		FROM (VALUES ('viewer'), ('operator')) AS v(name)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM roles r WHERE r.tenant_id = $1 AND LOWER(r.name) = v.name
+		)
+	`, tenantID)
+	if err != nil {
+		log.Fatalf("Role bootstrap failed: %v", err)
 	}
 
 	// 4. Assign User Role

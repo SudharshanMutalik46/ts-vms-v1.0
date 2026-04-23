@@ -13,8 +13,11 @@ namespace TSVmsDesktop.ViewModels
 
         [ObservableProperty] private string _username = string.Empty;
         [ObservableProperty] private string _password = string.Empty;
+        [ObservableProperty] private string _displayName = string.Empty;
+        [ObservableProperty] private string _confirmPassword = string.Empty;
         [ObservableProperty] private string _errorMessage = string.Empty;
         [ObservableProperty] private bool _rememberMe = false;
+        [ObservableProperty] private bool _isSignupMode = false;
         
         // NEW: Toggle Password Visibility
         [ObservableProperty] private bool _isPasswordVisible = false;
@@ -55,6 +58,19 @@ namespace TSVmsDesktop.ViewModels
         public void TogglePassword()
         {
             IsPasswordVisible = !IsPasswordVisible;
+        }
+
+        [RelayCommand]
+        public void ToggleSignup()
+        {
+            IsSignupMode = !IsSignupMode;
+            ErrorMessage = "";
+
+            if (!IsSignupMode)
+            {
+                DisplayName = string.Empty;
+                ConfirmPassword = string.Empty;
+            }
         }
 
         [RelayCommand]
@@ -120,6 +136,70 @@ namespace TSVmsDesktop.ViewModels
             catch (Exception)
             {
                 ErrorMessage = "Invalid email or password.";
+            }
+        }
+
+        [RelayCommand]
+        public async Task Signup()
+        {
+            var email = Username.Trim();
+            var displayName = DisplayName.Trim();
+            var password = Password.Trim();
+            var confirmPassword = ConfirmPassword.Trim();
+
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                ErrorMessage = "Email and password are required.";
+                return;
+            }
+            if (password.Length < 8)
+            {
+                ErrorMessage = "Password must be at least 8 characters.";
+                return;
+            }
+            if (!string.Equals(password, confirmPassword, StringComparison.Ordinal))
+            {
+                ErrorMessage = "Passwords do not match.";
+                return;
+            }
+
+            ErrorMessage = "Creating account...";
+
+            try
+            {
+                var registerReq = new TSVmsDesktop.Models.RegisterRequest
+                {
+                    email = email,
+                    password = password,
+                    display_name = displayName,
+                    tenant_id = _sessionService.TenantId
+                };
+
+                var response = await _apiClient.PostAsync<TSVmsDesktop.Models.RegisterRequest, TSVmsDesktop.Models.RegisterResponse>(
+                    "/api/v1/auth/register",
+                    registerReq);
+
+                if (response != null && !string.IsNullOrWhiteSpace(response.id))
+                {
+                    IsSignupMode = false;
+                    ErrorMessage = "Signup successful. Signing you in...";
+                    await Login();
+                    return;
+                }
+
+                ErrorMessage = "Signup failed. Try again.";
+            }
+            catch (Exception ex)
+            {
+                var message = ex.Message ?? string.Empty;
+                if (message.Contains("Conflict", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("email_exists", StringComparison.OrdinalIgnoreCase))
+                {
+                    ErrorMessage = "This email is already registered.";
+                    return;
+                }
+                ErrorMessage = "Signup failed. Check server connection and tenant settings.";
             }
         }
 

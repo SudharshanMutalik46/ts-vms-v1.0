@@ -66,6 +66,31 @@ func (m UserModel) GetByEmail(ctx context.Context, tenantID uuid.UUID, email str
 	return &u, nil
 }
 
+// GetByEmailOrDisplayName retrieves a user by email or display name (case-insensitive),
+// strictly respecting soft-delete and tenant boundaries.
+func (m UserModel) GetByEmailOrDisplayName(ctx context.Context, tenantID uuid.UUID, identifier string) (*User, error) {
+	query := `
+		SELECT id, tenant_id, email, display_name, password_hash, is_disabled, created_at, updated_at, deleted_at
+		FROM users
+		WHERE tenant_id = $1
+		  AND deleted_at IS NULL
+		  AND (LOWER(email) = LOWER($2) OR LOWER(display_name) = LOWER($2))
+		ORDER BY CASE WHEN LOWER(email) = LOWER($2) THEN 0 ELSE 1 END
+		LIMIT 1
+	`
+	var u User
+	err := m.DB.QueryRowContext(ctx, query, tenantID, identifier).Scan(
+		&u.ID, &u.TenantID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.IsDisabled, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
 // GetByID retrieves a user by ID, strictly respecting Soft Delete
 func (m UserModel) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	// Note: We don't filter by tenantID here, caller must enforce RBAC or check u.TenantID matches

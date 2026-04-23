@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System;
+using System.IO;
 using System.Windows;
 using TSVmsDesktop.Services;
 
@@ -19,7 +21,7 @@ namespace TSVmsDesktop.ViewModels
             _configService = configService;
             
             // 1. LOAD: Pull values from the persistent service into the UI
-            _storagePath = _configService.Settings.StoragePath;
+            _storagePath = NormalizeStoragePath(_configService.Settings.StoragePath);
             _enableHardwareAcceleration = _configService.Settings.EnableHardwareAcceleration;
             _enableDarkMode = _configService.Settings.EnableDarkMode;
             _logLevel = _configService.Settings.LogLevel;
@@ -28,6 +30,18 @@ namespace TSVmsDesktop.ViewModels
         [RelayCommand]
         public void Save()
         {
+            StoragePath = NormalizeStoragePath(StoragePath);
+
+            try
+            {
+                Directory.CreateDirectory(StoragePath);
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Invalid storage path.\n{ex.Message}", "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             // 2. SAVE: Push UI values back to the service
             _configService.Settings.StoragePath = StoragePath;
             _configService.Settings.EnableHardwareAcceleration = EnableHardwareAcceleration;
@@ -47,7 +61,26 @@ namespace TSVmsDesktop.ViewModels
             var dialog = new System.Windows.Forms.FolderBrowserDialog();
             if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
-                StoragePath = dialog.SelectedPath;
+                StoragePath = NormalizeStoragePath(dialog.SelectedPath);
+            }
+        }
+
+        private static string NormalizeStoragePath(string? rawPath)
+        {
+            var defaultPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "TS-VMS",
+                "Storage");
+
+            var candidate = string.IsNullOrWhiteSpace(rawPath) ? defaultPath : Environment.ExpandEnvironmentVariables(rawPath.Trim());
+
+            try
+            {
+                return Path.GetFullPath(candidate);
+            }
+            catch
+            {
+                return defaultPath;
             }
         }
     }

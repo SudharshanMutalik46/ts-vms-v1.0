@@ -4,7 +4,7 @@
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
-        
+
         <Style x:Key="ModernPasswordBoxStyle" TargetType="PasswordBox">
             <Setter Property="Background" Value="#3A3A3D"/>
             <Setter Property="BorderBrush" Value="#4A4A4F"/>
@@ -16,9 +16,10 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="PasswordBox">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" 
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="8">
                             <ScrollViewer x:Name="PART_ContentHost" Margin="0"/>
                         </Border>
@@ -33,40 +34,104 @@
             </Setter>
         </Style>
     </UserControl.Resources>
-    
+
     <Grid>
         <Grid.Background>
             <SolidColorBrush Color="#171717"/>
         </Grid.Background>
 
-        <Border Width="1050" Height="600" CornerRadius="18" Background="#2B2B2E">
+        <Border Width="1380" Height="820" CornerRadius="18" Background="#2B2B2E">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.1" Color="Black"/>
             </Border.Effect>
 
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1.5*"/>  <ColumnDefinition Width="1*"/>    
+                    <ColumnDefinition Width="1.35*"/>
+                    <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
 
-                <Grid Grid.Column="0" Margin="70,50">
-                    <StackPanel VerticalAlignment="Center">
-                        <Image Source="/Images/logo.png" HorizontalAlignment="Left" Height="40" Margin="0,0,0,50"
+                <Grid Grid.Column="0" Margin="96,56">
+                    <StackPanel VerticalAlignment="Top">
+                        <Image Source="/Images/logo.png"
+                               Width="260"
+                               Height="92"
+                               HorizontalAlignment="Left"
+                               Margin="-52,-2,0,64"
+                               Stretch="Uniform"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
 
-                        <TextBlock Text="Sign In to VMS Dashboard" FontSize="24" FontWeight="Bold" 
-                                   Foreground="{StaticResource TechnoOrange}" Margin="0,0,0,40" 
-                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="Sign In to VMS Dashboard"
+                                   FontSize="32"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource TechnoOrange}"
+                                   Margin="0,0,0,34"
+                                   HorizontalAlignment="Center"
+                                   Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}"/>
 
-                        <Grid Margin="0,0,0,20" Height="50">
-                            <TextBox Style="{StaticResource ModernInputStyle}" 
-                                     Text="{Binding Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+                        <TextBlock Text="Create Your VMS Account"
+                                   FontSize="32"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource TechnoOrange}"
+                                   Margin="0,0,0,34"
+                                   HorizontalAlignment="Center"
+                                   Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}"/>
+
+                        <Grid Margin="0,0,0,22"
+                              Height="56"
+                              Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}">
+                            <TextBox Style="{StaticResource ModernInputStyle}"
+                                     Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     x:Name="DisplayNameBox"
+                                     VerticalContentAlignment="Center"
+                                     Padding="45,0,10,0"/>
+                            <TextBlock Text="&#xE77B;"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       Foreground="#BBB"
+                                       FontSize="16"
+                                       VerticalAlignment="Center"
+                                       Margin="15,0,0,0"
+                                       IsHitTestVisible="False"/>
+                            <TextBlock Text="Full Name"
+                                       IsHitTestVisible="False"
+                                       Foreground="#BBB"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"
+                                       Margin="42,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=DisplayNameBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,22" Height="56">
+                            <TextBox Style="{StaticResource ModernInputStyle}"
+                                     Text="{Binding Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      x:Name="UserBox"
-                                     VerticalContentAlignment="Center" Padding="45,0,10,0"/>
+                                     VerticalContentAlignment="Center"
+                                     Padding="45,0,10,0"/>
 
-                            <TextBlock Text="👤" Foreground="#BBB" FontSize="16" VerticalAlignment="Center" Margin="15,0,0,0" IsHitTestVisible="False"/>
+                            <TextBlock Text="&#xE715;"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       Foreground="#BBB"
+                                       FontSize="16"
+                                       VerticalAlignment="Center"
+                                       Margin="15,0,0,0"
+                                       IsHitTestVisible="False"/>
 
-                            <TextBlock Text="Email / Phone" IsHitTestVisible="False" Foreground="#BBB" FontSize="13" VerticalAlignment="Center" Margin="42,0,0,0">
+                            <TextBlock Text="Email / Phone"
+                                       IsHitTestVisible="False"
+                                       Foreground="#BBB"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"
+                                       Margin="42,0,0,0">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -80,9 +145,10 @@
                             </TextBlock>
                         </Grid>
 
-                        <Grid Margin="0,0,0,25" Height="50">
+                        <Grid Margin="0,0,0,22" Height="56">
                             <PasswordBox x:Name="SecretBox"
-                                         VerticalContentAlignment="Center" Padding="45,0,40,0"
+                                         VerticalContentAlignment="Center"
+                                         Padding="45,0,40,0"
                                          PasswordChanged="SecretBox_PasswordChanged">
                                 <PasswordBox.Style>
                                     <Style TargetType="PasswordBox" BasedOn="{StaticResource ModernPasswordBoxStyle}">
@@ -94,17 +160,29 @@
                                     </Style>
                                 </PasswordBox.Style>
                             </PasswordBox>
-                                         
+
                             <TextBox x:Name="VisibleBox"
                                      Style="{StaticResource ModernInputStyle}"
                                      Text="{Binding Password, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     VerticalContentAlignment="Center" Padding="45,0,40,0"
+                                     VerticalContentAlignment="Center"
+                                     Padding="45,0,40,0"
                                      Visibility="{Binding IsPasswordVisible, Converter={StaticResource BoolToVisConverter}}"
                                      TextChanged="VisibleBox_TextChanged"/>
 
-                            <TextBlock Text="🔒" Foreground="#BBB" FontSize="16" VerticalAlignment="Center" Margin="15,0,0,0" IsHitTestVisible="False"/>
+                            <TextBlock Text="&#xE72E;"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       Foreground="#BBB"
+                                       FontSize="16"
+                                       VerticalAlignment="Center"
+                                       Margin="15,0,0,0"
+                                       IsHitTestVisible="False"/>
 
-                            <TextBlock Text="Password" IsHitTestVisible="False" Foreground="#BBB" FontSize="13" VerticalAlignment="Center" Margin="42,0,0,0">
+                            <TextBlock Text="Password"
+                                       IsHitTestVisible="False"
+                                       Foreground="#BBB"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"
+                                       Margin="42,0,0,0">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -117,43 +195,157 @@
                                 </TextBlock.Style>
                             </TextBlock>
 
-                            <Button Command="{Binding TogglePasswordCommand}" 
-                                    Width="30" Height="30" HorizontalAlignment="Right" Margin="0,0,10,0"
-                                    Background="Transparent" BorderThickness="0" Cursor="Hand">
-                                <TextBlock Text="👁" FontSize="16" Foreground="#BBB" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <Button Command="{Binding TogglePasswordCommand}"
+                                    Width="30"
+                                    Height="30"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,0,10,0"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Cursor="Hand">
+                                <TextBlock Text="&#xE8A7;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Foreground="#BBB"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center"/>
                             </Button>
                         </Grid>
 
-                        <Grid Margin="0,0,0,50">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                <CheckBox VerticalContentAlignment="Center" IsChecked="{Binding RememberMe}"/>
-                                <TextBlock Text="Remember password" Foreground="#B8B8BC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            
-                            <TextBlock Text="Forgot your password?" Foreground="#F2F2F2" HorizontalAlignment="Right" 
-                                       Cursor="Hand" TextDecorations="Underline" FontSize="13" VerticalAlignment="Center"/>
+                        <Grid Margin="0,0,0,25"
+                              Height="56"
+                              Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}">
+                            <TextBox Style="{StaticResource ModernInputStyle}"
+                                     Text="{Binding ConfirmPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     x:Name="ConfirmPasswordBox"
+                                     VerticalContentAlignment="Center"
+                                     Padding="45,0,10,0"/>
+                            <TextBlock Text="&#xE72E;"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       Foreground="#BBB"
+                                       FontSize="16"
+                                       VerticalAlignment="Center"
+                                       Margin="15,0,0,0"
+                                       IsHitTestVisible="False"/>
+                            <TextBlock Text="Confirm Password"
+                                       IsHitTestVisible="False"
+                                       Foreground="#BBB"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"
+                                       Margin="42,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=ConfirmPasswordBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </Grid>
 
-                        <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" FontSize="14" HorizontalAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
+                        <Grid Margin="0,4,0,64"
+                              Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <CheckBox VerticalContentAlignment="Center" IsChecked="{Binding RememberMe}"/>
+                                <TextBlock Text="Remember password"
+                                           Foreground="#B8B8BC"
+                                           FontSize="12"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
 
-                        <Button Content="SIGN IN" Command="{Binding LoginCommand}" 
-                                Style="{StaticResource PillButtonStyle}" Width="160" Height="48" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Forgot your password?"
+                                       Foreground="#F2F2F2"
+                                       HorizontalAlignment="Right"
+                                       Cursor="Hand"
+                                       TextDecorations="Underline"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <TextBlock Text="{Binding ErrorMessage}"
+                                   Foreground="Red"
+                                   FontSize="14"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,0,0,15"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Content="SIGN IN"
+                                Command="{Binding LoginCommand}"
+                                Style="{StaticResource PillButtonStyle}"
+                                Height="64"
+                                HorizontalAlignment="Stretch"
+                                Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}"/>
+
+                        <Button Content="SIGN UP"
+                                Command="{Binding SignupCommand}"
+                                Style="{StaticResource PillButtonStyle}"
+                                Height="64"
+                                HorizontalAlignment="Stretch"
+                                Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}"/>
                     </StackPanel>
                 </Grid>
 
-                <Border Grid.Column="1" Background="{StaticResource TechnoOrange}" CornerRadius="0,15,15,0" ClipToBounds="True">
+                <Border Grid.Column="1"
+                        Background="{StaticResource TechnoOrange}"
+                        CornerRadius="0,15,15,0"
+                        ClipToBounds="True">
                     <Grid>
-                        <Image Source="/Images/background.jpg" Stretch="UniformToFill" Opacity="0.1"/>
+                        <Image Source="/Images/b23c7fa3-27ce-4a59-819e-edd8e482a428.png" Stretch="UniformToFill" Opacity="0.22"/>
 
-                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="50">
-                            <TextBlock Text="Hello, Friend!" Foreground="White" FontSize="36" FontWeight="Bold" 
-                                       TextAlignment="Center" Margin="0,0,0,20"/>
-                            
-                            <TextBlock Text="Add your information and start your journey with us." 
-                                       Foreground="White" FontSize="15" TextAlignment="Center" 
-                                       TextWrapping="Wrap" Opacity="0.9" Margin="0,0,0,45" LineHeight="24"/>
-                            
-                            <Button Content="SIGN UP" Style="{StaticResource OutlineButtonStyle}" Width="160" Height="48"/>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="74">
+                            <TextBlock Text="Hello, Friend!"
+                                       Foreground="White"
+                                       FontSize="56"
+                                       FontWeight="Bold"
+                                       TextAlignment="Center"
+                                       Margin="0,0,0,28"
+                                       Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}"/>
+
+                            <TextBlock Text="Welcome Back!"
+                                       Foreground="White"
+                                       FontSize="56"
+                                       FontWeight="Bold"
+                                       TextAlignment="Center"
+                                       Margin="0,0,0,28"
+                                       Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}"/>
+
+                            <TextBlock Text="Add your information and start your journey with us."
+                                       Foreground="White"
+                                       FontSize="22"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Opacity="0.9"
+                                       Margin="0,0,0,62"
+                                       LineHeight="32"
+                                       Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}"/>
+
+                            <TextBlock Text="Already registered? Switch back and sign in."
+                                       Foreground="White"
+                                       FontSize="22"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Opacity="0.9"
+                                       Margin="0,0,0,62"
+                                       LineHeight="32"
+                                       Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}"/>
+
+                            <Button Content="SIGN UP"
+                                    Style="{StaticResource OutlineButtonStyle}"
+                                    Width="250"
+                                    Height="64"
+                                    Command="{Binding ToggleSignupCommand}"
+                                    Visibility="{Binding IsSignupMode, Converter={StaticResource InverseBoolToVisConverter}}"/>
+
+                            <Button Content="SIGN IN"
+                                    Style="{StaticResource OutlineButtonStyle}"
+                                    Width="250"
+                                    Height="64"
+                                    Command="{Binding ToggleSignupCommand}"
+                                    Visibility="{Binding IsSignupMode, Converter={StaticResource BoolToVisConverter}}"/>
                         </StackPanel>
                     </Grid>
                 </Border>

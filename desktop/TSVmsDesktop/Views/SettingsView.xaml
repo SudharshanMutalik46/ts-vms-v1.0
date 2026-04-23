@@ -27,7 +27,7 @@
                                 <ColumnDefinition Width="120"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBox Text="{Binding StoragePath}" Style="{StaticResource ModernInputStyle}" 
+                            <TextBox Text="{Binding StoragePath, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource ModernInputStyle}" 
                                      FontSize="14" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
                             
                             <Button Grid.Column="1"

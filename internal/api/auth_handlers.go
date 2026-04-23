@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,10 +37,21 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type RegisterRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+	TenantID    string `json:"tenant_id"`
+}
+
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	ExpiresIn    int    `json:"expires_in"` // Seconds
+}
+
+type RegisterResponse struct {
+	ID string `json:"id"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +60,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.Password = strings.TrimSpace(req.Password)
+	req.TenantID = strings.TrimSpace(req.TenantID)
 
 	// 1. Check Lockout
 	locked, err := h.Session.CheckLockout(r.Context(), req.TenantID, req.Email)
@@ -96,7 +112,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := usersRepo.GetByEmail(r.Context(), tID, req.Email)
+	user, err := usersRepo.GetByEmailOrDisplayName(r.Context(), tID, req.Email)
 	if err == data.ErrUserNotFound {
 		// Dummy Verify for timing safety
 		auth.CheckPassword("dummy", "$argon2id$v=19$m=65536,t=1,p=4$c2FsdHNhbHQ$hashhashhashhashhashhashhashhashhash")
@@ -185,6 +201,190 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: refreshToken,
 		ExpiresIn:    900, // 15 min
 	})
+}
+
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	req.Password = strings.TrimSpace(req.Password)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+
+	if req.Email == "" || req.Password == "" || req.TenantID == "" {
+		http.Error(w, "missing_fields", http.StatusBadRequest)
+		return
+	}
+	if len(req.Password) < 8 {
+		http.Error(w, "password_too_short", http.StatusBadRequest)
+		return
+	}
+	if !strings.Contains(req.Email, "@") {
+		http.Error(w, "invalid_email", http.StatusBadRequest)
+		return
+	}
+
+	tenantID, err := uuid.Parse(req.TenantID)
+	if err != nil {
+		http.Error(w, "invalid_tenant", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := h.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(r.Context(), "SELECT set_tenant_context($1)", req.TenantID); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	usersRepo := data.UserModel{DB: tx}
+	_, err = usersRepo.GetByEmail(r.Context(), tenantID, req.Email)
+	if err == nil {
+		http.Error(w, "email_exists", http.StatusConflict)
+		return
+	}
+	if !errors.Is(err, data.ErrUserNotFound) {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	passwordHash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	user := &data.User{
+		TenantID:     tenantID,
+		Email:        req.Email,
+		DisplayName:  req.DisplayName,
+		PasswordHash: passwordHash,
+		IsDisabled:   false,
+	}
+	if err := usersRepo.Create(r.Context(), user); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Keep signup role assignment deterministic under concurrency:
+	// first 4 signup-assigned users become admin, then everyone gets viewer.
+	if _, err := tx.ExecContext(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, tenantID.String()+":signup-role-allocation"); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	ensureRoleID := func(roleName string) (uuid.UUID, error) {
+		var id uuid.UUID
+		err := tx.QueryRowContext(
+			r.Context(),
+			`SELECT id FROM roles WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
+			tenantID, roleName,
+		).Scan(&id)
+		if err == nil {
+			return id, nil
+		}
+		if err != sql.ErrNoRows {
+			return uuid.Nil, err
+		}
+
+		if _, err := tx.ExecContext(
+			r.Context(),
+			`INSERT INTO roles (id, tenant_id, name, created_at, updated_at)
+			 VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())
+			 ON CONFLICT DO NOTHING`,
+			tenantID, strings.ToLower(roleName),
+		); err != nil {
+			return uuid.Nil, err
+		}
+
+		err = tx.QueryRowContext(
+			r.Context(),
+			`SELECT id FROM roles WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
+			tenantID, roleName,
+		).Scan(&id)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return id, nil
+	}
+
+	var adminUsersCount int
+	if err := tx.QueryRowContext(
+		r.Context(),
+		`SELECT COUNT(DISTINCT ur.user_id)
+		 FROM user_roles ur
+		 JOIN roles r ON r.id = ur.role_id
+		 JOIN users u ON u.id = ur.user_id
+		 WHERE r.tenant_id = $1
+		   AND LOWER(r.name) = 'admin'
+		   AND u.deleted_at IS NULL`,
+		tenantID,
+	).Scan(&adminUsersCount); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	targetRoleName := "viewer"
+	if adminUsersCount < 4 {
+		targetRoleName = "admin"
+	}
+
+	targetRoleID, err := ensureRoleID(targetRoleName)
+	if err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO user_roles (user_id, role_id, scope_type, scope_id)
+		 VALUES ($1, $2, 'tenant', $3)
+		 ON CONFLICT (user_id, role_id, scope_type, scope_id) DO NOTHING`,
+		user.ID, targetRoleID, tenantID,
+	); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "register_failed", http.StatusInternalServerError)
+		return
+	}
+
+	if h.Audit != nil {
+		go func() {
+			ip := r.Header.Get("X-Forwarded-For")
+			if ip == "" {
+				ip = r.RemoteAddr
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = h.Audit.WriteEvent(ctx, audit.AuditEvent{
+				EventID:    uuid.New(),
+				TenantID:   tenantID,
+				Action:     "USER_REGISTER",
+				TargetType: "user",
+				TargetID:   user.ID.String(),
+				Result:     "success",
+				ClientIP:   ip,
+				UserAgent:  r.UserAgent(),
+				CreatedAt:  time.Now(),
+			})
+		}()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(RegisterResponse{ID: user.ID.String()})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {

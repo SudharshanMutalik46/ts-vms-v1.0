@@ -10,14 +10,28 @@
             <Setter Property="Padding" Value="18,0"/>
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="130"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
         <Style x:Key="InventorySecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource OutlineButtonStyle}">
             <Setter Property="Padding" Value="16,0"/>
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="110"/>
-            <Setter Property="Foreground" Value="#475569"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Background" Value="#34353A"/>
+            <Setter Property="Foreground" Value="#D1D5DB"/>
+            <Setter Property="BorderBrush" Value="#4A4A4F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3D3E44"/>
+                    <Setter Property="BorderBrush" Value="#6B7280"/>
+                    <Setter Property="Foreground" Value="#F2F2F2"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="InventoryTileStyle" TargetType="Border">
@@ -57,6 +71,9 @@
             <Setter Property="RowBackground" Value="#2B2B2E"/>
             <Setter Property="AlternatingRowBackground" Value="#323236"/>
             <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="SelectionUnit" Value="FullRow"/>
+            <Setter Property="SelectionMode" Value="Extended"/>
         </Style>
     </UserControl.Resources>
 
@@ -100,7 +117,6 @@
             <DataGrid ItemsSource="{Binding Cameras}"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
-                      SelectionMode="Extended"
                       RowHeight="50"
                       Background="#2B2B2E"
                       Foreground="#F2F2F2"
@@ -112,6 +128,22 @@
                       BorderThickness="0"
                       AlternationCount="2">
                 <DataGrid.Resources>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="{Binding RelativeSource={RelativeSource AncestorType=DataGrid}, Path=RowBackground}"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Style.Triggers>
+                            <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                <Setter Property="Background" Value="{Binding RelativeSource={RelativeSource AncestorType=DataGrid}, Path=AlternatingRowBackground}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3A3A3D"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#3F3F44"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+
                     <Style TargetType="DataGridCell">
                         <Setter Property="Template">
                             <Setter.Value>
@@ -124,7 +156,7 @@
                         </Setter>
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#3A3A3D"/>
+                                <Setter Property="Background" Value="#3F3F44"/>
                                 <Setter Property="Foreground" Value="#FF8A1F"/>
                             </Trigger>
                         </Style.Triggers>
@@ -132,7 +164,7 @@
                 </DataGrid.Resources>
 
                 <DataGrid.Columns>
-                    <DataGridTemplateColumn Header="Select" Width="60">
+                    <DataGridTemplateColumn Header="Select" Width="70">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -147,7 +179,7 @@
                     <DataGridTextColumn Header="IP Address" Binding="{Binding IpAddress}" Width="180"/>
                     <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="150"/>
 
-                    <DataGridTemplateColumn Header="Status" Width="140">
+                    <DataGridTemplateColumn Header="Status" Width="150">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Border>
@@ -190,16 +222,16 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTemplateColumn Header="Actions" Width="*">
+                    <DataGridTemplateColumn Header="Actions" Width="220">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button Content="Details"
                                             Command="{Binding DataContext.OpenDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
                                             Style="{StaticResource InventorySecondaryButtonStyle}"
-                                            Foreground="#475569"
-                                            BorderBrush="#CBD5E1"
+                                            Foreground="#A8C5E6"
+                                            BorderBrush="#475569"
                                             Height="32"
                                             FontSize="12"
                                             Padding="14,0"
@@ -210,7 +242,7 @@
                                             Margin="10,0,0,0"
                                             Style="{StaticResource InventorySecondaryButtonStyle}"
                                             Foreground="#B91C1C"
-                                            BorderBrush="#FECACA"
+                                            BorderBrush="#7F1D1D"
                                             Height="32"
                                             Width="82"
                                             Padding="0"
